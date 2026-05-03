@@ -32,9 +32,13 @@ ALLOWED_HOURS_UTC = {
     'USDCAD': [],
     'GBPJPY': [9, 17],
     'EURJPY': [9, 17],
-    'USDJPY': [21, 22, 5],
+    # 'USDJPY': [21, 22, 5],  # htf4h_onlyに統一のため無効化
     'EURUSD': [],
     'GBPUSD': [],
+}
+ENTRY_FILTER = {
+    'GBPJPY': {'use_htf4h': True},
+    'USDJPY': {'use_htf4h': True},
 }
 BB_PAIRS = {
     'USDCAD': {
@@ -282,6 +286,15 @@ def htf_range_filter(symbol, range_sigma_override=None):
         return False, sigma_pos, reason
 
     return True, sigma_pos, 'レンジ判定OK（1hσ=' + f'{sigma_pos:+.2f}' + '）'
+
+def get_htf4h_signal(symbol):
+    """4h足EMA20フィルター。+1=Buy許可 / -1=Sell許可"""
+    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H4, 0, 25)
+    if rates is None or len(rates) < 21:
+        return None
+    closes = pd.Series([r['close'] for r in rates])
+    ema20 = closes.ewm(span=20, adjust=False).mean()
+    return 1 if closes.iloc[-1] > ema20.iloc[-1] else -1
 
 # ══════════════════════════════════════════
 # RSIフィルター
@@ -725,6 +738,23 @@ def main():
         if not sig:
             skipped += 1
             continue
+
+        # --- HTF4h EMA20フィルター ---
+        if ENTRY_FILTER.get(symbol, {}).get('use_htf4h'):
+            htf4h_sig = get_htf4h_signal(symbol)
+            if htf4h_sig is None:
+                log(symbol + ': HTF4h取得失敗 スキップ', logf)
+                skipped += 1
+                continue
+            if sig['direction'] == 'buy' and htf4h_sig != 1:
+                log(symbol + ': HTF4h BUY不可（EMA20下方） スキップ', logf)
+                skipped += 1
+                continue
+            if sig['direction'] == 'sell' and htf4h_sig != -1:
+                log(symbol + ': HTF4h SELL不可（EMA20上方） スキップ', logf)
+                skipped += 1
+                continue
+
         if place_order(symbol, sig, logf, webhook):
             executed += 1
 
