@@ -50,3 +50,14 @@ C:\Users\Administrator\fx_bot\
 ## 直近タスク
 - Phase1完了判定(PF/勝率/DD統合評価)
 - USDCAD再評価(BT結果待ち)
+
+## 作業スタイル
+- 作業時間: 夜まとめて1〜2時間
+- Chat: タスク設計・判断のみ（10〜15分）
+- Code: 実装・実行・push（残り全て）
+- Codeセッション開始前に必ずタスクリストを用意する
+
+## 夜の終了チェックリスト
+- [ ] 変更ファイルをcommit/push済み
+- [ ] CLAUDE.mdのTop of mindを更新済み
+- [ ] 翌日Chatで確認すべき事項をメモ済み
