@@ -849,7 +849,8 @@ def run_distance_sweep():
         print('[ERROR] 結果なし。CSVデータを確認してください。')
         return
 
-    out_csv = os.path.join(DATA_DIR, 'stage2_distance_bt.csv')
+    out_csv = str(Path(__file__).parent.parent / 'data' / 'stage2_distance_bt.csv')
+    os.makedirs(os.path.dirname(out_csv), exist_ok=True)
     df_out = pd.DataFrame(rows)
     df_out.to_csv(out_csv, index=False, encoding='utf-8')
     print(f'\n出力: {out_csv}')
