@@ -785,6 +785,115 @@ def run_stage2_grid_backtest():
     with open(out, 'w', encoding='utf-8') as f:
         json.dump(rows, f, ensure_ascii=False, indent=2)
     print(f'\n出力: {out}')
+
+# ===== Stage2 distance sweep =====
+DISTANCE_SWEEP_PAIRS   = ['GBPJPY', 'USDJPY', 'EURUSD', 'GBPUSD']
+DISTANCE_SWEEP_VALUES  = [0.05, 0.1, 0.2, 0.3]
+DISTANCE_SWEEP_ACTIVATE = 0.7   # activate固定
+
+def run_distance_sweep():
+    """
+    Stage2 distanceを0.05/0.1/0.2/0.3の4パターンでペア別BT。
+    sl_atr_multはBB_PAIRS_CFG準拠（ペア別設定を尊重）。
+    出力: data/stage2_distance_bt.csv
+    """
+    print('=== Stage2 distance sweep BT ===')
+    print(f'pairs={DISTANCE_SWEEP_PAIRS}')
+    print(f'distances={DISTANCE_SWEEP_VALUES}  activate={DISTANCE_SWEEP_ACTIVATE}(固定)')
+
+    rows = []
+    for symbol in DISTANCE_SWEEP_PAIRS:
+        pair_cfg = BB_PAIRS_CFG.get(symbol)
+        if pair_cfg is None:
+            print(f'[WARN] {symbol} not in BB_PAIRS_CFG, skip')
+            continue
+        print(f'\n--- {symbol} (sl_atr_mult={pair_cfg["sl_atr_mult"]}) ---')
+        print(f'  {"distance":>8} | {"PF":>6} | {"勝率":>6} | {"実RR":>6} | {"avg_exit":>9} | TP/Trail/SL | {"N":>5}')
+        print(f'  {"-"*65}')
+
+        for dist in DISTANCE_SWEEP_VALUES:
+            res = simulate_with_stage2(
+                symbol, pair_cfg,
+                stage2_activate=DISTANCE_SWEEP_ACTIVATE,
+                stage2_distance=dist,
+                sl_atr_mult=pair_cfg['sl_atr_mult'],
+            )
+            if res is None:
+                print(f'  {dist:>8.2f} | データなし')
+                continue
+            row = {
+                'symbol':           symbol,
+                'stage2_distance':  dist,
+                'stage2_activate':  DISTANCE_SWEEP_ACTIVATE,
+                'sl_atr_mult':      pair_cfg['sl_atr_mult'],
+                'tp_sl_ratio':      pair_cfg['tp_sl_ratio'],
+                'pf':               res['pf'],
+                'win_rate':         res['win_rate'],
+                'rr_actual':        res['rr_actual'],
+                'avg_exit_pct':     res['avg_exit_pct'],
+                'tp_count':         res['tp_count'],
+                'trail_count':      res['trail_count'],
+                'sl_count':         res['sl_count'],
+                'trades':           res['trades'],
+            }
+            rows.append(row)
+            print(f'  {dist:>8.2f} | '
+                  f'{res["pf"]:>6.3f} | '
+                  f'{res["win_rate"]:>5.1f}% | '
+                  f'{res["rr_actual"]:>6.3f} | '
+                  f'{res["avg_exit_pct"]:>+8.1f}%TP | '
+                  f'{res["tp_count"]:>3}/{res["trail_count"]:>3}/{res["sl_count"]:>3} | '
+                  f'{res["trades"]:>5}')
+
+    if not rows:
+        print('[ERROR] 結果なし。CSVデータを確認してください。')
+        return
+
+    out_csv = os.path.join(DATA_DIR, 'stage2_distance_bt.csv')
+    df_out = pd.DataFrame(rows)
+    df_out.to_csv(out_csv, index=False, encoding='utf-8')
+    print(f'\n出力: {out_csv}')
+
+    # 比較表（ペア x distance）
+    print('\n=== ペア別 PF比較表 ===')
+    pivot_pf = df_out.pivot(index='symbol', columns='stage2_distance', values='pf')
+    pivot_wr = df_out.pivot(index='symbol', columns='stage2_distance', values='win_rate')
+    pivot_rr = df_out.pivot(index='symbol', columns='stage2_distance', values='rr_actual')
+    pivot_n  = df_out.pivot(index='symbol', columns='stage2_distance', values='trades')
+
+    header = f'  {"pair":>7} | ' + ' | '.join(f'd={d:.2f}' for d in DISTANCE_SWEEP_VALUES)
+    print(f'\n[PF]')
+    print(header)
+    for sym in DISTANCE_SWEEP_PAIRS:
+        if sym not in pivot_pf.index:
+            continue
+        vals = ' | '.join(f'{pivot_pf.loc[sym, d]:6.3f}' for d in DISTANCE_SWEEP_VALUES)
+        print(f'  {sym:>7} | {vals}')
+
+    print(f'\n[勝率%]')
+    print(header)
+    for sym in DISTANCE_SWEEP_PAIRS:
+        if sym not in pivot_wr.index:
+            continue
+        vals = ' | '.join(f'{pivot_wr.loc[sym, d]:5.1f}%' for d in DISTANCE_SWEEP_VALUES)
+        print(f'  {sym:>7} | {vals}')
+
+    print(f'\n[実RR]')
+    print(header)
+    for sym in DISTANCE_SWEEP_PAIRS:
+        if sym not in pivot_rr.index:
+            continue
+        vals = ' | '.join(f'{pivot_rr.loc[sym, d]:6.3f}' for d in DISTANCE_SWEEP_VALUES)
+        print(f'  {sym:>7} | {vals}')
+
+    print(f'\n[取引数N]')
+    print(header)
+    for sym in DISTANCE_SWEEP_PAIRS:
+        if sym not in pivot_n.index:
+            continue
+        vals = ' | '.join(f'{int(pivot_n.loc[sym, d]):6d}' for d in DISTANCE_SWEEP_VALUES)
+        print(f'  {sym:>7} | {vals}')
+
 # ===== メイン =====
 def main():
     parser = argparse.ArgumentParser()
@@ -796,7 +905,8 @@ def main():
     
     parser.add_argument('--stage2', action='store_true', help='Stage2パラメータ比較BT')
     parser.add_argument('--sl',     action='store_true', help='SL幅比較BT')
-    parser.add_argument('--grid',   action='store_true', help='sl_atr_mult x stage2_distanceグリッドサーチ')
+    parser.add_argument('--grid',           action='store_true', help='sl_atr_mult x stage2_distanceグリッドサーチ')
+    parser.add_argument('--distance-sweep', action='store_true', help='Stage2 distance 0.05/0.1/0.2/0.3 ペア別比較')
     args = parser.parse_args()
 
     if args.stage2:
@@ -807,6 +917,9 @@ def main():
         return
     if args.grid:
         run_stage2_grid_backtest()
+        return
+    if args.distance_sweep:
+        run_distance_sweep()
         return
     print('=== backtest.py Phase3 開始 ===')
     print(f'symbol={args.symbol}  mode={args.mode}  output={args.output}')
