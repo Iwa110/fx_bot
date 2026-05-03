@@ -1,0 +1,5 @@
+{
+  "run_id": "BB_USDCAD_20260430_234711",
+  "error": "Traceback (most recent call last):\n  File \"C:\\Users\\Administrator\\fx_bot\\optimizer\\loop_runner.py\", line 383, in run_loop\n    metrics_path = phase1_evaluate(run_dir, target, logger)\n                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Administrator\\fx_bot\\optimizer\\loop_runner.py\", line 108, in phase1_evaluate\n    raise RuntimeError(f'evaluate.py failed: {proc.stderr[:300]}')\nRuntimeError: evaluate.py failed: usage: evaluate.py [-h] [--magic MAGIC] [--days DAYS] [--out OUT]\n                   [--params PARAMS] [--csv CSV]\nevaluate.py: error: unrecognized arguments: --symbol USDCAD --output C:\\Users\\Administrator\\fx_bot\\optimizer\\runs\\BB_USDCAD_20260430_234711\\metrics.json\n\n",
+  "generated_at": "2026-04-30T23:47:11"
+}

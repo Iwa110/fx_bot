@@ -1,0 +1,24 @@
+# 価格データ（容量大）
+data/
+
+# センシティブ情報
+*.env
+.env*
+config_secret.py
+*_secret.*
+secrets/
+
+# MT4/MT5ログ・一時ファイル
+*.log
+*.tmp
+__pycache__/
+*.pyc
+*.pyo
+
+# Windowsシステムファイル
+Thumbs.db
+desktop.ini
+
+# Pythonパッケージ
+venv/
+.venv/

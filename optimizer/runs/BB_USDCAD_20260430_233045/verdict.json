@@ -1,0 +1,96 @@
+{
+  "generated_at": "2026-04-30T23:31:25",
+  "criteria": {
+    "pf_min": 1.0,
+    "dd_max": -0.15,
+    "win_rate_min": 0.45,
+    "tp_reach_min": 0.2
+  },
+  "verdicts": [
+    {
+      "candidate_id": "cand_001",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.355,
+        "win_rate": 0.578,
+        "rr_actual": 0.989,
+        "tp_reach_rate": 0.578,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 64
+      }
+    },
+    {
+      "candidate_id": "cand_002",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.197,
+        "win_rate": 0.5,
+        "rr_actual": 1.197,
+        "tp_reach_rate": 0.5,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 14
+      }
+    },
+    {
+      "candidate_id": "cand_003",
+      "approved": false,
+      "reason": "PF=0.79 < 1.0 / WR=33.40% < 45.00%",
+      "metrics_snapshot": {
+        "pf": 0.79,
+        "win_rate": 0.33399999999999996,
+        "rr_actual": 1.573,
+        "tp_reach_rate": 0.33399999999999996,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 984
+      }
+    },
+    {
+      "candidate_id": "cand_005",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.061,
+        "win_rate": 0.496,
+        "rr_actual": 1.079,
+        "tp_reach_rate": 0.496,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 121
+      }
+    },
+    {
+      "candidate_id": "cand_004",
+      "approved": false,
+      "reason": "PF=0.74 < 1.0 / WR=26.00% < 45.00%",
+      "metrics_snapshot": {
+        "pf": 0.742,
+        "win_rate": 0.26,
+        "rr_actual": 2.109,
+        "tp_reach_rate": 0.26,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 984
+      }
+    },
+    {
+      "candidate_id": "cand_006",
+      "approved": false,
+      "reason": "WR=39.10% < 45.00%",
+      "metrics_snapshot": {
+        "pf": 1.0,
+        "win_rate": 0.391,
+        "rr_actual": 1.56,
+        "tp_reach_rate": 0.391,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 947
+      }
+    }
+  ],
+  "approved_count": 3
+}

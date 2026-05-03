@@ -1,0 +1,250 @@
+{
+  "generated_at": "2026-04-30T22:31:55",
+  "criteria": {
+    "pf_min": 1.0,
+    "dd_max": -0.15,
+    "win_rate_min": 0.45,
+    "tp_reach_min": 0.2
+  },
+  "verdicts": [
+    {
+      "candidate_id": "baseline_current",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.03,
+        "win_rate": 0.499,
+        "rr_actual": 1.034,
+        "tp_reach_rate": 0.499,
+        "max_dd": 0.0,
+        "total_profit": 136.4,
+        "trades": 850
+      }
+    },
+    {
+      "candidate_id": "tp_sl_ratio_1.5",
+      "approved": false,
+      "reason": "WR=39.10% < 45.00%",
+      "metrics_snapshot": {
+        "pf": 1.017,
+        "win_rate": 0.391,
+        "rr_actual": 1.582,
+        "tp_reach_rate": 0.391,
+        "max_dd": 0.0,
+        "total_profit": 92.2,
+        "trades": 846
+      }
+    },
+    {
+      "candidate_id": "tp_sl_ratio_2.0",
+      "approved": false,
+      "reason": "PF=0.99 < 1.0 / WR=31.90% < 45.00%",
+      "metrics_snapshot": {
+        "pf": 0.986,
+        "win_rate": 0.319,
+        "rr_actual": 2.11,
+        "tp_reach_rate": 0.319,
+        "max_dd": 0.0,
+        "total_profit": -83.9,
+        "trades": 835
+      }
+    },
+    {
+      "candidate_id": "tp_sl_ratio_2.5",
+      "approved": false,
+      "reason": "PF=0.89 < 1.0 / WR=25.30% < 45.00%",
+      "metrics_snapshot": {
+        "pf": 0.886,
+        "win_rate": 0.253,
+        "rr_actual": 2.615,
+        "tp_reach_rate": 0.253,
+        "max_dd": 0.0,
+        "total_profit": -754.8,
+        "trades": 818
+      }
+    },
+    {
+      "candidate_id": "tp_sl_ratio_3.0",
+      "approved": false,
+      "reason": "PF=0.81 < 1.0 / WR=20.70% < 45.00%",
+      "metrics_snapshot": {
+        "pf": 0.811,
+        "win_rate": 0.207,
+        "rr_actual": 3.103,
+        "tp_reach_rate": 0.207,
+        "max_dd": 0.0,
+        "total_profit": -1295.5,
+        "trades": 801
+      }
+    },
+    {
+      "candidate_id": "rsi_sell_min_60",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.054,
+        "win_rate": 0.501,
+        "rr_actual": 1.051,
+        "tp_reach_rate": 0.501,
+        "max_dd": 0.0,
+        "total_profit": 208.6,
+        "trades": 709
+      }
+    },
+    {
+      "candidate_id": "rsi_sell_min_65",
+      "approved": false,
+      "reason": "PF=0.87 < 1.0 / WR=44.80% < 45.00%",
+      "metrics_snapshot": {
+        "pf": 0.868,
+        "win_rate": 0.44799999999999995,
+        "rr_actual": 1.068,
+        "tp_reach_rate": 0.44799999999999995,
+        "max_dd": 0.0,
+        "total_profit": -441.1,
+        "trades": 562
+      }
+    },
+    {
+      "candidate_id": "rsi_sell_min_70",
+      "approved": false,
+      "reason": "PF=0.74 < 1.0 / WR=41.00% < 45.00%",
+      "metrics_snapshot": {
+        "pf": 0.736,
+        "win_rate": 0.41,
+        "rr_actual": 1.06,
+        "tp_reach_rate": 0.41,
+        "max_dd": 0.0,
+        "total_profit": -831.9,
+        "trades": 500
+      }
+    },
+    {
+      "candidate_id": "rsi_buy_max_35",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.407,
+        "win_rate": 0.58,
+        "rr_actual": 1.017,
+        "tp_reach_rate": 0.58,
+        "max_dd": 0.0,
+        "total_profit": 1010.1,
+        "trades": 529
+      }
+    },
+    {
+      "candidate_id": "rsi_buy_max_30",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.68,
+        "win_rate": 0.625,
+        "rr_actual": 1.008,
+        "tp_reach_rate": 0.625,
+        "max_dd": 0.0,
+        "total_profit": 1212.5,
+        "trades": 424
+      }
+    },
+    {
+      "candidate_id": "rsi_buy_max_25",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.764,
+        "win_rate": 0.637,
+        "rr_actual": 1.005,
+        "tp_reach_rate": 0.637,
+        "max_dd": 0.0,
+        "total_profit": 1223.5,
+        "trades": 394
+      }
+    },
+    {
+      "candidate_id": "htf_range_sigma_0.5",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.032,
+        "win_rate": 0.496,
+        "rr_actual": 1.051,
+        "tp_reach_rate": 0.496,
+        "max_dd": 0.0,
+        "total_profit": 79.4,
+        "trades": 450
+      }
+    },
+    {
+      "candidate_id": "htf_range_sigma_0.7",
+      "approved": false,
+      "reason": "PF=0.97 < 1.0",
+      "metrics_snapshot": {
+        "pf": 0.972,
+        "win_rate": 0.484,
+        "rr_actual": 1.035,
+        "tp_reach_rate": 0.484,
+        "max_dd": 0.0,
+        "total_profit": -94.3,
+        "trades": 607
+      }
+    },
+    {
+      "candidate_id": "htf_range_sigma_1.5",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.019,
+        "win_rate": 0.501,
+        "rr_actual": 1.014,
+        "tp_reach_rate": 0.501,
+        "max_dd": 0.0,
+        "total_profit": 133.0,
+        "trades": 1269
+      }
+    },
+    {
+      "candidate_id": "sl_atr_mult_1.0",
+      "approved": false,
+      "reason": "PF=0.92 < 1.0",
+      "metrics_snapshot": {
+        "pf": 0.922,
+        "win_rate": 0.469,
+        "rr_actual": 1.044,
+        "tp_reach_rate": 0.469,
+        "max_dd": 0.0,
+        "total_profit": -256.5,
+        "trades": 853
+      }
+    },
+    {
+      "candidate_id": "sl_atr_mult_1.2",
+      "approved": false,
+      "reason": "PF=0.93 < 1.0",
+      "metrics_snapshot": {
+        "pf": 0.934,
+        "win_rate": 0.47200000000000003,
+        "rr_actual": 1.043,
+        "tp_reach_rate": 0.47200000000000003,
+        "max_dd": 0.0,
+        "total_profit": -256.5,
+        "trades": 853
+      }
+    },
+    {
+      "candidate_id": "sl_atr_mult_2.0",
+      "approved": true,
+      "reason": "OK",
+      "metrics_snapshot": {
+        "pf": 1.125,
+        "win_rate": 0.517,
+        "rr_actual": 1.05,
+        "tp_reach_rate": 0.517,
+        "max_dd": 0.0,
+        "total_profit": 728.8,
+        "trades": 845
+      }
+    }
+  ],
+  "approved_count": 8
+}

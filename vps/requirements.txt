@@ -1,0 +1,7 @@
+MetaTrader5
+yfinance
+pandas
+numpy
+scipy
+python-dotenv
+requests

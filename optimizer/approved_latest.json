@@ -1,0 +1,26 @@
+{
+  "generated_at": "2026-04-30T23:51:25",
+  "approved_params": [
+    {
+      "candidate_id": "cand_003",
+      "strategy": "BB",
+      "symbol": "USDCAD",
+      "params": {
+        "htf_range_sigma": 0.5,
+        "rsi_buy_max": 35,
+        "rsi_sell_min": 65
+      },
+      "description": "PF改善(PF=0.44): HTF絞り込み+RSI中間値",
+      "metrics": {
+        "pf": 1.061,
+        "win_rate": 0.496,
+        "rr_actual": 1.079,
+        "tp_reach_rate": 0.496,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 121
+      },
+      "apply_status": "pending_human_review"
+    }
+  ]
+}

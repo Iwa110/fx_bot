@@ -1,0 +1,207 @@
+{
+  "generated_at": "2026-04-30T23:31:25",
+  "results": [
+    {
+      "candidate_id": "baseline",
+      "status": "success",
+      "metrics": {
+        "pf": 0.949,
+        "win_rate": 0.48,
+        "rr_actual": 1.027,
+        "tp_reach_rate": 0.48,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 985
+      },
+      "raw": {
+        "id": "baseline",
+        "params": {},
+        "description": "baseline",
+        "priority": 0,
+        "symbol": "USDCAD",
+        "result": "BASELINE",
+        "pf": 0.949,
+        "win_rate": 48.0,
+        "rr_actual": 1.027,
+        "trades": 985,
+        "tp_reach_rate": 48.0
+      }
+    },
+    {
+      "candidate_id": "cand_001",
+      "status": "success",
+      "metrics": {
+        "pf": 1.355,
+        "win_rate": 0.578,
+        "rr_actual": 0.989,
+        "tp_reach_rate": 0.578,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 64
+      },
+      "raw": {
+        "id": "cand_001",
+        "params": {
+          "rsi_buy_max": 30,
+          "rsi_sell_min": 70
+        },
+        "description": "勝率低下対策(WR=0.0%): RSIフィルター強化",
+        "priority": 1,
+        "symbol": "USDCAD",
+        "result": "APPROVED",
+        "pf": 1.355,
+        "win_rate": 57.8,
+        "rr_actual": 0.989,
+        "trades": 64,
+        "tp_reach_rate": 57.8
+      }
+    },
+    {
+      "candidate_id": "cand_002",
+      "status": "success",
+      "metrics": {
+        "pf": 1.197,
+        "win_rate": 0.5,
+        "rr_actual": 1.197,
+        "tp_reach_rate": 0.5,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 14
+      },
+      "raw": {
+        "id": "cand_002",
+        "params": {
+          "rsi_buy_max": 25,
+          "rsi_sell_min": 75,
+          "htf_range_sigma": 0.7
+        },
+        "description": "勝率低下対策: RSI極値+HTF絞り込み",
+        "priority": 1,
+        "symbol": "USDCAD",
+        "result": "REJECTED",
+        "pf": 1.197,
+        "win_rate": 50.0,
+        "rr_actual": 1.197,
+        "trades": 14,
+        "tp_reach_rate": 50.0
+      }
+    },
+    {
+      "candidate_id": "cand_003",
+      "status": "success",
+      "metrics": {
+        "pf": 0.79,
+        "win_rate": 0.33399999999999996,
+        "rr_actual": 1.573,
+        "tp_reach_rate": 0.33399999999999996,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 984
+      },
+      "raw": {
+        "id": "cand_003",
+        "params": {
+          "tp_sl_ratio": 1.5,
+          "sl_atr_mult": 1.2
+        },
+        "description": "RR改善(RR=0.00): TP拡大+SL縮小",
+        "priority": 1,
+        "symbol": "USDCAD",
+        "result": "REJECTED",
+        "pf": 0.79,
+        "win_rate": 33.4,
+        "rr_actual": 1.573,
+        "trades": 984,
+        "tp_reach_rate": 33.4
+      }
+    },
+    {
+      "candidate_id": "cand_005",
+      "status": "success",
+      "metrics": {
+        "pf": 1.061,
+        "win_rate": 0.496,
+        "rr_actual": 1.079,
+        "tp_reach_rate": 0.496,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 121
+      },
+      "raw": {
+        "id": "cand_005",
+        "params": {
+          "htf_range_sigma": 0.5,
+          "rsi_buy_max": 35,
+          "rsi_sell_min": 65
+        },
+        "description": "PF改善(PF=0.00): HTF絞り込み+RSI中間値",
+        "priority": 1,
+        "symbol": "USDCAD",
+        "result": "APPROVED",
+        "pf": 1.061,
+        "win_rate": 49.6,
+        "rr_actual": 1.079,
+        "trades": 121,
+        "tp_reach_rate": 49.6
+      }
+    },
+    {
+      "candidate_id": "cand_004",
+      "status": "success",
+      "metrics": {
+        "pf": 0.742,
+        "win_rate": 0.26,
+        "rr_actual": 2.109,
+        "tp_reach_rate": 0.26,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 984
+      },
+      "raw": {
+        "id": "cand_004",
+        "params": {
+          "tp_sl_ratio": 2.0,
+          "sl_atr_mult": 1.0
+        },
+        "description": "RR改善: TP2倍+SL最小化",
+        "priority": 2,
+        "symbol": "USDCAD",
+        "result": "REJECTED",
+        "pf": 0.742,
+        "win_rate": 26.0,
+        "rr_actual": 2.109,
+        "trades": 984,
+        "tp_reach_rate": 26.0
+      }
+    },
+    {
+      "candidate_id": "cand_006",
+      "status": "success",
+      "metrics": {
+        "pf": 1.0,
+        "win_rate": 0.391,
+        "rr_actual": 1.56,
+        "tp_reach_rate": 0.391,
+        "max_dd": 0.0,
+        "total_profit": 0.0,
+        "trades": 947
+      },
+      "raw": {
+        "id": "cand_006",
+        "params": {
+          "sl_atr_mult": 2.0,
+          "tp_sl_ratio": 1.5
+        },
+        "description": "TP到達率改善(到達率=0.0%): SL拡大でノイズ回避",
+        "priority": 2,
+        "symbol": "USDCAD",
+        "result": "APPROVED",
+        "pf": 1.0,
+        "win_rate": 39.1,
+        "rr_actual": 1.56,
+        "trades": 947,
+        "tp_reach_rate": 39.1
+      }
+    }
+  ]
+}

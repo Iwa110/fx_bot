@@ -1,0 +1,352 @@
+{
+  "USDJPY": {
+    "train_no_cost": {
+      "sharpe": -2.7,
+      "ret_total": -505.25,
+      "ret_annual": -3073.61,
+      "dd": 339.64,
+      "n": 215,
+      "win_rate": 35.8,
+      "tp_rate": 35.8,
+      "trail_rate": 34.0,
+      "sl_rate": 30.2,
+      "final": -4052517
+    },
+    "train_with_cost": {
+      "sharpe": -6.57,
+      "ret_total": -1196.59,
+      "ret_annual": -7279.27,
+      "dd": 941.26,
+      "n": 215,
+      "win_rate": 31.6,
+      "tp_rate": 31.6,
+      "trail_rate": 35.8,
+      "sl_rate": 32.6,
+      "final": -10965922
+    },
+    "test_no_cost": {
+      "sharpe": 0.5,
+      "ret_total": 39.61,
+      "ret_annual": 240.99,
+      "dd": 119.67,
+      "n": 142,
+      "win_rate": 41.5,
+      "tp_rate": 41.5,
+      "trail_rate": 29.6,
+      "sl_rate": 28.9,
+      "final": 1396147
+    },
+    "test_with_cost": {
+      "sharpe": -2.37,
+      "ret_total": -192.23,
+      "ret_annual": -1169.38,
+      "dd": 301.6,
+      "n": 143,
+      "win_rate": 42.0,
+      "tp_rate": 42.0,
+      "trail_rate": 28.0,
+      "sl_rate": 30.1,
+      "final": -922276
+    }
+  },
+  "EURJPY": {
+    "train_no_cost": {
+      "sharpe": -0.25,
+      "ret_total": -55.09,
+      "ret_annual": -335.1,
+      "dd": 116.53,
+      "n": 233,
+      "win_rate": 39.9,
+      "tp_rate": 39.9,
+      "trail_rate": 30.9,
+      "sl_rate": 29.2,
+      "final": 449150
+    },
+    "train_with_cost": {
+      "sharpe": -3.03,
+      "ret_total": -661.3,
+      "ret_annual": -4022.92,
+      "dd": 335.18,
+      "n": 233,
+      "win_rate": 37.3,
+      "tp_rate": 37.3,
+      "trail_rate": 30.0,
+      "sl_rate": 32.6,
+      "final": -5613018
+    },
+    "test_no_cost": {
+      "sharpe": 3.15,
+      "ret_total": 228.88,
+      "ret_annual": 1392.37,
+      "dd": 59.88,
+      "n": 126,
+      "win_rate": 45.2,
+      "tp_rate": 45.2,
+      "trail_rate": 23.0,
+      "sl_rate": 31.7,
+      "final": 3288830
+    },
+    "test_with_cost": {
+      "sharpe": -2.08,
+      "ret_total": -159.96,
+      "ret_annual": -973.06,
+      "dd": 156.82,
+      "n": 131,
+      "win_rate": 41.2,
+      "tp_rate": 41.2,
+      "trail_rate": 29.0,
+      "sl_rate": 29.8,
+      "final": -599554
+    }
+  },
+  "GBPJPY": {
+    "train_no_cost": {
+      "sharpe": -0.42,
+      "ret_total": -117.56,
+      "ret_annual": -715.17,
+      "dd": 558.19,
+      "n": 230,
+      "win_rate": 40.9,
+      "tp_rate": 40.9,
+      "trail_rate": 28.7,
+      "sl_rate": 30.4,
+      "final": -175619
+    },
+    "train_with_cost": {
+      "sharpe": -1.88,
+      "ret_total": -542.64,
+      "ret_annual": -3301.07,
+      "dd": 800.33,
+      "n": 234,
+      "win_rate": 40.6,
+      "tp_rate": 40.6,
+      "trail_rate": 26.9,
+      "sl_rate": 32.5,
+      "final": -4426411
+    },
+    "test_no_cost": {
+      "sharpe": 2.41,
+      "ret_total": 197.9,
+      "ret_annual": 1203.89,
+      "dd": 96.76,
+      "n": 116,
+      "win_rate": 44.0,
+      "tp_rate": 44.0,
+      "trail_rate": 25.9,
+      "sl_rate": 30.2,
+      "final": 2978992
+    },
+    "test_with_cost": {
+      "sharpe": -3.47,
+      "ret_total": -270.59,
+      "ret_annual": -1646.08,
+      "dd": 177.68,
+      "n": 114,
+      "win_rate": 36.8,
+      "tp_rate": 36.8,
+      "trail_rate": 30.7,
+      "sl_rate": 32.5,
+      "final": -1705884
+    }
+  },
+  "AUDJPY": {
+    "train_no_cost": {
+      "sharpe": 0.33,
+      "ret_total": 80.17,
+      "ret_annual": 487.7,
+      "dd": 73.03,
+      "n": 245,
+      "win_rate": 39.6,
+      "tp_rate": 39.6,
+      "trail_rate": 35.1,
+      "sl_rate": 25.3,
+      "final": 1801695
+    },
+    "train_with_cost": {
+      "sharpe": -1.98,
+      "ret_total": -493.7,
+      "ret_annual": -3003.34,
+      "dd": 238.6,
+      "n": 249,
+      "win_rate": 38.6,
+      "tp_rate": 38.6,
+      "trail_rate": 34.9,
+      "sl_rate": 26.5,
+      "final": -3937001
+    },
+    "test_no_cost": {
+      "sharpe": 0.19,
+      "ret_total": 11.19,
+      "ret_annual": 68.05,
+      "dd": 77.69,
+      "n": 108,
+      "win_rate": 39.8,
+      "tp_rate": 39.8,
+      "trail_rate": 27.8,
+      "sl_rate": 32.4,
+      "final": 1111863
+    },
+    "test_with_cost": {
+      "sharpe": -6.54,
+      "ret_total": -397.69,
+      "ret_annual": -2419.29,
+      "dd": 308.42,
+      "n": 112,
+      "win_rate": 33.0,
+      "tp_rate": 33.0,
+      "trail_rate": 32.1,
+      "sl_rate": 34.8,
+      "final": -2976922
+    }
+  },
+  "EURUSD": {
+    "train_no_cost": {
+      "sharpe": 2.46,
+      "ret_total": 603.16,
+      "ret_annual": 3669.22,
+      "dd": 40.33,
+      "n": 322,
+      "win_rate": 45.0,
+      "tp_rate": 45.0,
+      "trail_rate": 26.7,
+      "sl_rate": 28.3,
+      "final": 7031590
+    },
+    "train_with_cost": {
+      "sharpe": -0.36,
+      "ret_total": -90.59,
+      "ret_annual": -551.09,
+      "dd": 123.66,
+      "n": 330,
+      "win_rate": 41.8,
+      "tp_rate": 41.8,
+      "trail_rate": 28.2,
+      "sl_rate": 30.0,
+      "final": 94095
+    },
+    "test_no_cost": {
+      "sharpe": -1.25,
+      "ret_total": -98.81,
+      "ret_annual": -601.07,
+      "dd": 144.03,
+      "n": 170,
+      "win_rate": 42.4,
+      "tp_rate": 42.4,
+      "trail_rate": 26.5,
+      "sl_rate": 31.2,
+      "final": 11946
+    },
+    "test_with_cost": {
+      "sharpe": -6.05,
+      "ret_total": -506.85,
+      "ret_annual": -3083.33,
+      "dd": 506.85,
+      "n": 179,
+      "win_rate": 36.9,
+      "tp_rate": 36.9,
+      "trail_rate": 28.5,
+      "sl_rate": 34.6,
+      "final": -4068491
+    }
+  },
+  "GBPUSD": {
+    "train_no_cost": {
+      "sharpe": 0.92,
+      "ret_total": 289.86,
+      "ret_annual": 1763.33,
+      "dd": 70.2,
+      "n": 331,
+      "win_rate": 41.1,
+      "tp_rate": 41.1,
+      "trail_rate": 27.2,
+      "sl_rate": 31.7,
+      "final": 3898626
+    },
+    "train_with_cost": {
+      "sharpe": -1.93,
+      "ret_total": -609.78,
+      "ret_annual": -3709.49,
+      "dd": 391.98,
+      "n": 340,
+      "win_rate": 37.6,
+      "tp_rate": 37.6,
+      "trail_rate": 28.5,
+      "sl_rate": 33.8,
+      "final": -5097788
+    },
+    "test_no_cost": {
+      "sharpe": 1.32,
+      "ret_total": 199.59,
+      "ret_annual": 1214.16,
+      "dd": 63.31,
+      "n": 218,
+      "win_rate": 42.7,
+      "tp_rate": 42.7,
+      "trail_rate": 29.8,
+      "sl_rate": 27.5,
+      "final": 2995881
+    },
+    "test_with_cost": {
+      "sharpe": -1.92,
+      "ret_total": -295.55,
+      "ret_annual": -1797.92,
+      "dd": 389.8,
+      "n": 222,
+      "win_rate": 40.1,
+      "tp_rate": 40.1,
+      "trail_rate": 32.9,
+      "sl_rate": 27.0,
+      "final": -1955478
+    }
+  },
+  "USDCAD": {
+    "train_no_cost": {
+      "sharpe": 4.37,
+      "ret_total": 478.26,
+      "ret_annual": 2909.41,
+      "dd": 35.78,
+      "n": 100,
+      "win_rate": 46.0,
+      "tp_rate": 46.0,
+      "trail_rate": 31.0,
+      "sl_rate": 23.0,
+      "final": 5782597
+    },
+    "train_with_cost": {
+      "sharpe": 2.74,
+      "ret_total": 262.27,
+      "ret_annual": 1595.47,
+      "dd": 51.06,
+      "n": 90,
+      "win_rate": 45.6,
+      "tp_rate": 45.6,
+      "trail_rate": 37.8,
+      "sl_rate": 16.7,
+      "final": 3622694
+    },
+    "test_no_cost": {
+      "sharpe": 2.73,
+      "ret_total": 108.33,
+      "ret_annual": 659.04,
+      "dd": 74.22,
+      "n": 57,
+      "win_rate": 40.4,
+      "tp_rate": 40.4,
+      "trail_rate": 38.6,
+      "sl_rate": 21.1,
+      "final": 2083346
+    },
+    "test_with_cost": {
+      "sharpe": -8.73,
+      "ret_total": -317.45,
+      "ret_annual": -1931.13,
+      "dd": 371.32,
+      "n": 56,
+      "win_rate": 33.9,
+      "tp_rate": 33.9,
+      "trail_rate": 37.5,
+      "sl_rate": 28.6,
+      "final": -2174467
+    }
+  }
+}

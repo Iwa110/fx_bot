@@ -1,0 +1,27 @@
+{
+  "metrics": {
+    "pf": 0.4423,
+    "win_rate": 0.5935,
+    "rr_actual": 0.3029,
+    "tp_reach_rate": 0.0258,
+    "max_dd": -298.57,
+    "breakeven_winrate": 0.7675,
+    "total_profit": -56453.0
+  },
+  "current_params": {
+    "id": "cand_001",
+    "params": {
+      "rsi_buy_max": 30,
+      "rsi_sell_min": 70
+    },
+    "description": "勝率低下対策(WR=0.0%): RSIフィルター強化",
+    "priority": 1
+  },
+  "_debug": {
+    "_total_trades": 155,
+    "_win_count": 92,
+    "_loss_count": 63,
+    "_gross_profit": 44767.0,
+    "_gross_loss": 101220.0
+  }
+}

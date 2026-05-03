@@ -1,0 +1,5 @@
+{
+  "run_id": "BB_USDCAD_20260430_222929",
+  "error": "Traceback (most recent call last):\n  File \"C:\\Users\\Administrator\\fx_bot\\optimizer\\loop_runner.py\", line 336, in run_loop\n    bt_results_path = phase3_backtest(run_dir, candidates_path, target, logger)\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Administrator\\fx_bot\\optimizer\\loop_runner.py\", line 179, in phase3_backtest\n    raise RuntimeError(f'backtest.py failed: {proc.stderr[:300]}')\nRuntimeError: backtest.py failed: usage: backtest.py [-h] [--symbol SYMBOL] [--output OUTPUT]\nbacktest.py: error: unrecognized arguments: --strategy BB\n\n",
+  "generated_at": "2026-04-30T22:29:32"
+}

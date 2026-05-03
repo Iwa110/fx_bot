@@ -1,0 +1,67 @@
+{
+  "candidates": [
+    {
+      "id": "cand_001",
+      "params": {
+        "rsi_buy_max": 30,
+        "rsi_sell_min": 70
+      },
+      "description": "勝率低下対策(WR=0.0%): RSIフィルター強化",
+      "priority": 1
+    },
+    {
+      "id": "cand_002",
+      "params": {
+        "rsi_buy_max": 25,
+        "rsi_sell_min": 75,
+        "htf_range_sigma": 0.7
+      },
+      "description": "勝率低下対策: RSI極値+HTF絞り込み",
+      "priority": 1
+    },
+    {
+      "id": "cand_003",
+      "params": {
+        "tp_sl_ratio": 1.5,
+        "sl_atr_mult": 1.2
+      },
+      "description": "RR改善(RR=0.00): TP拡大+SL縮小",
+      "priority": 1
+    },
+    {
+      "id": "cand_004",
+      "params": {
+        "tp_sl_ratio": 2.0,
+        "sl_atr_mult": 1.0
+      },
+      "description": "RR改善: TP2倍+SL最小化",
+      "priority": 2
+    },
+    {
+      "id": "cand_005",
+      "params": {
+        "htf_range_sigma": 0.5,
+        "rsi_buy_max": 35,
+        "rsi_sell_min": 65
+      },
+      "description": "PF改善(PF=0.00): HTF絞り込み+RSI中間値",
+      "priority": 1
+    },
+    {
+      "id": "cand_006",
+      "params": {
+        "sl_atr_mult": 2.0,
+        "tp_sl_ratio": 1.5
+      },
+      "description": "TP到達率改善(到達率=0.0%): SL拡大でノイズ回避",
+      "priority": 2
+    }
+  ],
+  "generated_at": "2026-04-30T23:30:45.599078",
+  "source_metrics": {
+    "pf": 0.0,
+    "win_rate": 0.0,
+    "rr": 0.0,
+    "tp_reach": 0.0
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "run_id": "BB_USDCAD_20260430_230955",
+  "error": "Traceback (most recent call last):\n  File \"C:\\Users\\Administrator\\fx_bot\\optimizer\\loop_runner.py\", line 356, in run_loop\n    candidates_path = phase2_ai_analysis(run_dir, metrics_path, logger)\n                      ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\Administrator\\fx_bot\\optimizer\\loop_runner.py\", line 118, in phase2_ai_analysis\n    count = run_phase2()\n            ^^^^^^^^^^^^\n  File \"C:\\Users\\Administrator\\fx_bot\\optimizer\\phase2_ai_analysis.py\", line 81, in run_phase2\n    response.raise_for_status()\n  File \"C:\\Users\\Administrator\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\requests\\models.py\", line 1028, in raise_for_status\n    raise HTTPError(http_error_msg, response=self)\nrequests.exceptions.HTTPError: 401 Client Error: Unauthorized for url: https://api.anthropic.com/v1/messages\n",
+  "generated_at": "2026-04-30T23:09:57"
+}

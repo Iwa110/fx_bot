@@ -1,0 +1,447 @@
+{
+  "generated_at": "2026-04-30T22:48:49",
+  "results": [
+    {
+      "candidate_id": "baseline_current",
+      "status": "success",
+      "metrics": {
+        "pf": 1.03,
+        "win_rate": 0.499,
+        "rr_actual": 1.034,
+        "tp_reach_rate": 0.499,
+        "max_dd": 0.0,
+        "total_profit": 136.4,
+        "trades": 850
+      },
+      "raw": {
+        "param": "baseline",
+        "candidate": "current",
+        "symbol": "USDCAD",
+        "trades": 850,
+        "wins": 424,
+        "losses": 426,
+        "pf": 1.03,
+        "win_rate": 49.9,
+        "rr_actual": 1.034,
+        "tp_reach_rate": 49.9,
+        "total_profit_pips": 136.4
+      }
+    },
+    {
+      "candidate_id": "tp_sl_ratio_1.5",
+      "status": "success",
+      "metrics": {
+        "pf": 1.017,
+        "win_rate": 0.391,
+        "rr_actual": 1.582,
+        "tp_reach_rate": 0.391,
+        "max_dd": 0.0,
+        "total_profit": 92.2,
+        "trades": 846
+      },
+      "raw": {
+        "param": "tp_sl_ratio",
+        "candidate": 1.5,
+        "symbol": "USDCAD",
+        "trades": 846,
+        "wins": 331,
+        "losses": 515,
+        "pf": 1.017,
+        "win_rate": 39.1,
+        "rr_actual": 1.582,
+        "tp_reach_rate": 39.1,
+        "total_profit_pips": 92.2
+      }
+    },
+    {
+      "candidate_id": "tp_sl_ratio_2.0",
+      "status": "success",
+      "metrics": {
+        "pf": 0.986,
+        "win_rate": 0.319,
+        "rr_actual": 2.11,
+        "tp_reach_rate": 0.319,
+        "max_dd": 0.0,
+        "total_profit": -83.9,
+        "trades": 835
+      },
+      "raw": {
+        "param": "tp_sl_ratio",
+        "candidate": 2.0,
+        "symbol": "USDCAD",
+        "trades": 835,
+        "wins": 266,
+        "losses": 569,
+        "pf": 0.986,
+        "win_rate": 31.9,
+        "rr_actual": 2.11,
+        "tp_reach_rate": 31.9,
+        "total_profit_pips": -83.9
+      }
+    },
+    {
+      "candidate_id": "tp_sl_ratio_2.5",
+      "status": "success",
+      "metrics": {
+        "pf": 0.886,
+        "win_rate": 0.253,
+        "rr_actual": 2.615,
+        "tp_reach_rate": 0.253,
+        "max_dd": 0.0,
+        "total_profit": -754.8,
+        "trades": 818
+      },
+      "raw": {
+        "param": "tp_sl_ratio",
+        "candidate": 2.5,
+        "symbol": "USDCAD",
+        "trades": 818,
+        "wins": 207,
+        "losses": 611,
+        "pf": 0.886,
+        "win_rate": 25.3,
+        "rr_actual": 2.615,
+        "tp_reach_rate": 25.3,
+        "total_profit_pips": -754.8
+      }
+    },
+    {
+      "candidate_id": "tp_sl_ratio_3.0",
+      "status": "success",
+      "metrics": {
+        "pf": 0.811,
+        "win_rate": 0.207,
+        "rr_actual": 3.103,
+        "tp_reach_rate": 0.207,
+        "max_dd": 0.0,
+        "total_profit": -1295.5,
+        "trades": 801
+      },
+      "raw": {
+        "param": "tp_sl_ratio",
+        "candidate": 3.0,
+        "symbol": "USDCAD",
+        "trades": 801,
+        "wins": 166,
+        "losses": 635,
+        "pf": 0.811,
+        "win_rate": 20.7,
+        "rr_actual": 3.103,
+        "tp_reach_rate": 20.7,
+        "total_profit_pips": -1295.5
+      }
+    },
+    {
+      "candidate_id": "rsi_sell_min_60",
+      "status": "success",
+      "metrics": {
+        "pf": 1.054,
+        "win_rate": 0.501,
+        "rr_actual": 1.051,
+        "tp_reach_rate": 0.501,
+        "max_dd": 0.0,
+        "total_profit": 208.6,
+        "trades": 709
+      },
+      "raw": {
+        "param": "rsi_sell_min",
+        "candidate": 60,
+        "symbol": "USDCAD",
+        "trades": 709,
+        "wins": 355,
+        "losses": 354,
+        "pf": 1.054,
+        "win_rate": 50.1,
+        "rr_actual": 1.051,
+        "tp_reach_rate": 50.1,
+        "total_profit_pips": 208.6
+      }
+    },
+    {
+      "candidate_id": "rsi_sell_min_65",
+      "status": "success",
+      "metrics": {
+        "pf": 0.868,
+        "win_rate": 0.44799999999999995,
+        "rr_actual": 1.068,
+        "tp_reach_rate": 0.44799999999999995,
+        "max_dd": 0.0,
+        "total_profit": -441.1,
+        "trades": 562
+      },
+      "raw": {
+        "param": "rsi_sell_min",
+        "candidate": 65,
+        "symbol": "USDCAD",
+        "trades": 562,
+        "wins": 252,
+        "losses": 310,
+        "pf": 0.868,
+        "win_rate": 44.8,
+        "rr_actual": 1.068,
+        "tp_reach_rate": 44.8,
+        "total_profit_pips": -441.1
+      }
+    },
+    {
+      "candidate_id": "rsi_sell_min_70",
+      "status": "success",
+      "metrics": {
+        "pf": 0.736,
+        "win_rate": 0.41,
+        "rr_actual": 1.06,
+        "tp_reach_rate": 0.41,
+        "max_dd": 0.0,
+        "total_profit": -831.9,
+        "trades": 500
+      },
+      "raw": {
+        "param": "rsi_sell_min",
+        "candidate": 70,
+        "symbol": "USDCAD",
+        "trades": 500,
+        "wins": 205,
+        "losses": 295,
+        "pf": 0.736,
+        "win_rate": 41.0,
+        "rr_actual": 1.06,
+        "tp_reach_rate": 41.0,
+        "total_profit_pips": -831.9
+      }
+    },
+    {
+      "candidate_id": "rsi_buy_max_35",
+      "status": "success",
+      "metrics": {
+        "pf": 1.407,
+        "win_rate": 0.58,
+        "rr_actual": 1.017,
+        "tp_reach_rate": 0.58,
+        "max_dd": 0.0,
+        "total_profit": 1010.1,
+        "trades": 529
+      },
+      "raw": {
+        "param": "rsi_buy_max",
+        "candidate": 35,
+        "symbol": "USDCAD",
+        "trades": 529,
+        "wins": 307,
+        "losses": 222,
+        "pf": 1.407,
+        "win_rate": 58.0,
+        "rr_actual": 1.017,
+        "tp_reach_rate": 58.0,
+        "total_profit_pips": 1010.1
+      }
+    },
+    {
+      "candidate_id": "rsi_buy_max_30",
+      "status": "success",
+      "metrics": {
+        "pf": 1.68,
+        "win_rate": 0.625,
+        "rr_actual": 1.008,
+        "tp_reach_rate": 0.625,
+        "max_dd": 0.0,
+        "total_profit": 1212.5,
+        "trades": 424
+      },
+      "raw": {
+        "param": "rsi_buy_max",
+        "candidate": 30,
+        "symbol": "USDCAD",
+        "trades": 424,
+        "wins": 265,
+        "losses": 159,
+        "pf": 1.68,
+        "win_rate": 62.5,
+        "rr_actual": 1.008,
+        "tp_reach_rate": 62.5,
+        "total_profit_pips": 1212.5
+      }
+    },
+    {
+      "candidate_id": "rsi_buy_max_25",
+      "status": "success",
+      "metrics": {
+        "pf": 1.764,
+        "win_rate": 0.637,
+        "rr_actual": 1.005,
+        "tp_reach_rate": 0.637,
+        "max_dd": 0.0,
+        "total_profit": 1223.5,
+        "trades": 394
+      },
+      "raw": {
+        "param": "rsi_buy_max",
+        "candidate": 25,
+        "symbol": "USDCAD",
+        "trades": 394,
+        "wins": 251,
+        "losses": 143,
+        "pf": 1.764,
+        "win_rate": 63.7,
+        "rr_actual": 1.005,
+        "tp_reach_rate": 63.7,
+        "total_profit_pips": 1223.5
+      }
+    },
+    {
+      "candidate_id": "htf_range_sigma_0.5",
+      "status": "success",
+      "metrics": {
+        "pf": 1.032,
+        "win_rate": 0.496,
+        "rr_actual": 1.051,
+        "tp_reach_rate": 0.496,
+        "max_dd": 0.0,
+        "total_profit": 79.4,
+        "trades": 450
+      },
+      "raw": {
+        "param": "htf_range_sigma",
+        "candidate": 0.5,
+        "symbol": "USDCAD",
+        "trades": 450,
+        "wins": 223,
+        "losses": 227,
+        "pf": 1.032,
+        "win_rate": 49.6,
+        "rr_actual": 1.051,
+        "tp_reach_rate": 49.6,
+        "total_profit_pips": 79.4
+      }
+    },
+    {
+      "candidate_id": "htf_range_sigma_0.7",
+      "status": "success",
+      "metrics": {
+        "pf": 0.972,
+        "win_rate": 0.484,
+        "rr_actual": 1.035,
+        "tp_reach_rate": 0.484,
+        "max_dd": 0.0,
+        "total_profit": -94.3,
+        "trades": 607
+      },
+      "raw": {
+        "param": "htf_range_sigma",
+        "candidate": 0.7,
+        "symbol": "USDCAD",
+        "trades": 607,
+        "wins": 294,
+        "losses": 313,
+        "pf": 0.972,
+        "win_rate": 48.4,
+        "rr_actual": 1.035,
+        "tp_reach_rate": 48.4,
+        "total_profit_pips": -94.3
+      }
+    },
+    {
+      "candidate_id": "htf_range_sigma_1.5",
+      "status": "success",
+      "metrics": {
+        "pf": 1.019,
+        "win_rate": 0.501,
+        "rr_actual": 1.014,
+        "tp_reach_rate": 0.501,
+        "max_dd": 0.0,
+        "total_profit": 133.0,
+        "trades": 1269
+      },
+      "raw": {
+        "param": "htf_range_sigma",
+        "candidate": 1.5,
+        "symbol": "USDCAD",
+        "trades": 1269,
+        "wins": 636,
+        "losses": 633,
+        "pf": 1.019,
+        "win_rate": 50.1,
+        "rr_actual": 1.014,
+        "tp_reach_rate": 50.1,
+        "total_profit_pips": 133.0
+      }
+    },
+    {
+      "candidate_id": "sl_atr_mult_1.0",
+      "status": "success",
+      "metrics": {
+        "pf": 0.922,
+        "win_rate": 0.469,
+        "rr_actual": 1.044,
+        "tp_reach_rate": 0.469,
+        "max_dd": 0.0,
+        "total_profit": -256.5,
+        "trades": 853
+      },
+      "raw": {
+        "param": "sl_atr_mult",
+        "candidate": 1.0,
+        "symbol": "USDCAD",
+        "trades": 853,
+        "wins": 400,
+        "losses": 453,
+        "pf": 0.922,
+        "win_rate": 46.9,
+        "rr_actual": 1.044,
+        "tp_reach_rate": 46.9,
+        "total_profit_pips": -256.5
+      }
+    },
+    {
+      "candidate_id": "sl_atr_mult_1.2",
+      "status": "success",
+      "metrics": {
+        "pf": 0.934,
+        "win_rate": 0.47200000000000003,
+        "rr_actual": 1.043,
+        "tp_reach_rate": 0.47200000000000003,
+        "max_dd": 0.0,
+        "total_profit": -256.5,
+        "trades": 853
+      },
+      "raw": {
+        "param": "sl_atr_mult",
+        "candidate": 1.2,
+        "symbol": "USDCAD",
+        "trades": 853,
+        "wins": 403,
+        "losses": 450,
+        "pf": 0.934,
+        "win_rate": 47.2,
+        "rr_actual": 1.043,
+        "tp_reach_rate": 47.2,
+        "total_profit_pips": -256.5
+      }
+    },
+    {
+      "candidate_id": "sl_atr_mult_2.0",
+      "status": "success",
+      "metrics": {
+        "pf": 1.125,
+        "win_rate": 0.517,
+        "rr_actual": 1.05,
+        "tp_reach_rate": 0.517,
+        "max_dd": 0.0,
+        "total_profit": 728.8,
+        "trades": 845
+      },
+      "raw": {
+        "param": "sl_atr_mult",
+        "candidate": 2.0,
+        "symbol": "USDCAD",
+        "trades": 845,
+        "wins": 437,
+        "losses": 408,
+        "pf": 1.125,
+        "win_rate": 51.7,
+        "rr_actual": 1.05,
+        "tp_reach_rate": 51.7,
+        "total_profit_pips": 728.8
+      }
+    }
+  ]
+}

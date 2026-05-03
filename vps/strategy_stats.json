@@ -1,0 +1,1056 @@
+{
+  "BB_GBPUSD": {
+    "trades": [
+      {
+        "time": "2026-04-16 17:01",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0.0
+      },
+      {
+        "time": "2026-04-16 22:57",
+        "profit": -119,
+        "result": "loss",
+        "rr": 15.06
+      },
+      {
+        "time": "2026-04-17 09:07",
+        "profit": 375,
+        "result": "win",
+        "rr": 50.0
+      },
+      {
+        "time": "2026-04-17 10:12",
+        "profit": -117,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 12:57",
+        "profit": -168,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 14:32",
+        "profit": 201,
+        "result": "win",
+        "rr": 50.25
+      },
+      {
+        "time": "2026-04-17 15:12",
+        "profit": -135,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 15:42",
+        "profit": -177,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 16:47",
+        "profit": -249,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 17:47",
+        "profit": -246,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 18:27",
+        "profit": -240,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 19:52",
+        "profit": 414,
+        "result": "win",
+        "rr": 49.88
+      },
+      {
+        "time": "2026-04-17 20:52",
+        "profit": 327,
+        "result": "win",
+        "rr": 50.31
+      },
+      {
+        "time": "2026-04-17 21:52",
+        "profit": -297,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 22:07",
+        "profit": -501,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-18 00:27",
+        "profit": -462,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-18 03:52",
+        "profit": -471,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-20 08:52",
+        "profit": -1530,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 10:22",
+        "profit": 2160,
+        "result": "win",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 13:12",
+        "profit": -90,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 13:42",
+        "profit": -1320,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 14:22",
+        "profit": -210,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 15:22",
+        "profit": -300,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 15:32",
+        "profit": 1980,
+        "result": "win",
+        "rr": 19800.0
+      },
+      {
+        "time": "2026-04-20 18:57",
+        "profit": -2670,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 21:27",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 21:52",
+        "profit": 2340,
+        "result": "win",
+        "rr": 3900.0
+      },
+      {
+        "time": "2026-04-20 22:42",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 22:52",
+        "profit": -3180,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 23:52",
+        "profit": 3570,
+        "result": "win",
+        "rr": 35700.0
+      },
+      {
+        "time": "2026-04-21 07:00",
+        "profit": 0.0,
+        "result": "loss",
+        "rr": 0.0
+      }
+    ],
+    "total": 31,
+    "wins": 8,
+    "losses": 23,
+    "total_pnl": -1115.0,
+    "avg_win": 1421.0,
+    "avg_loss": -543.0,
+    "win_rate": 25.8,
+    "avg_rr": 7450.06,
+    "kelly": 0.258,
+    "last_updated": "2026-04-21 07:00"
+  },
+  "BB_EURUSD": {
+    "trades": [
+      {
+        "time": "2026-04-16 17:12",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0.0
+      },
+      {
+        "time": "2026-04-16 19:32",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0.0
+      },
+      {
+        "time": "2026-04-16 23:02",
+        "profit": -180,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 17:52",
+        "profit": -150,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 18:27",
+        "profit": -159,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 21:27",
+        "profit": -174,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 21:37",
+        "profit": -210,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 21:52",
+        "profit": -234,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-17 22:05",
+        "profit": -375,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-18 02:12",
+        "profit": -411,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-18 02:22",
+        "profit": 213,
+        "result": "win",
+        "rr": 25.06
+      },
+      {
+        "time": "2026-04-18 03:42",
+        "profit": 219,
+        "result": "win",
+        "rr": 24.89
+      },
+      {
+        "time": "2026-04-18 03:52",
+        "profit": -195,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-18 04:37",
+        "profit": -225,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-18 05:52",
+        "profit": -246,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-20 08:52",
+        "profit": 1710,
+        "result": "win",
+        "rr": 855.0
+      },
+      {
+        "time": "2026-04-20 10:42",
+        "profit": 1590,
+        "result": "win",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 12:42",
+        "profit": -1140,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 13:12",
+        "profit": -150,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 14:47",
+        "profit": -1260,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 16:47",
+        "profit": -450,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 21:12",
+        "profit": -1800,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 21:32",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 22:47",
+        "profit": -2490,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 23:07",
+        "profit": 2760,
+        "result": "win",
+        "rr": 5520.0
+      },
+      {
+        "time": "2026-04-21 07:00",
+        "profit": 0.0,
+        "result": "loss",
+        "rr": 0.0
+      }
+    ],
+    "total": 26,
+    "wins": 5,
+    "losses": 21,
+    "total_pnl": -3357.0,
+    "avg_win": 1298.0,
+    "avg_loss": -469.0,
+    "win_rate": 19.2,
+    "avg_rr": 1284.99,
+    "kelly": 0.191,
+    "last_updated": "2026-04-21 07:00"
+  },
+  "BB_USDJPY": {
+    "trades": [
+      {
+        "time": "2026-04-16 17:12",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0.0
+      },
+      {
+        "time": "2026-04-16 22:52",
+        "profit": -600,
+        "result": "loss",
+        "rr": 0.3
+      },
+      {
+        "time": "2026-04-16 22:57",
+        "profit": -164,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 01:37",
+        "profit": 326,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 09:57",
+        "profit": -223,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 13:57",
+        "profit": -167,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 14:17",
+        "profit": -90,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 15:47",
+        "profit": 188,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 16:07",
+        "profit": -150,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 17:12",
+        "profit": -181,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 18:12",
+        "profit": -183,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 18:52",
+        "profit": -149,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 20:02",
+        "profit": -154,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 21:07",
+        "profit": 189,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 21:27",
+        "profit": -136,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 21:37",
+        "profit": -199,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 21:52",
+        "profit": -233,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 22:05",
+        "profit": -377,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-18 02:37",
+        "profit": -507,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-18 03:52",
+        "profit": -233,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-18 04:42",
+        "profit": -254,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-20 22:27",
+        "profit": -2329,
+        "result": "loss",
+        "rr": 2.0
+      },
+      {
+        "time": "2026-04-20 23:17",
+        "profit": 2506,
+        "result": "win",
+        "rr": 23.4
+      },
+      {
+        "time": "2026-04-21 07:00",
+        "profit": 0.0,
+        "result": "loss",
+        "rr": 0.0
+      }
+    ],
+    "total": 24,
+    "wins": 4,
+    "losses": 20,
+    "total_pnl": -3120.0,
+    "avg_win": 802.0,
+    "avg_loss": -316.0,
+    "win_rate": 16.7,
+    "avg_rr": 6.1,
+    "kelly": 0.03,
+    "last_updated": "2026-04-21 07:00"
+  },
+  "BB_EURGBP": {
+    "trades": [
+      {
+        "time": "2026-04-16 18:32",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0.0
+      }
+    ],
+    "total": 1,
+    "wins": 0,
+    "losses": 1,
+    "total_pnl": 0,
+    "avg_win": 0,
+    "avg_loss": 0.0,
+    "win_rate": 0.0,
+    "avg_rr": 0,
+    "kelly": 0,
+    "last_updated": "2026-04-16 18:32"
+  },
+  "BB_GBPJPY": {
+    "trades": [
+      {
+        "time": "2026-04-16 23:52",
+        "profit": 900,
+        "result": "win",
+        "rr": 0.45
+      },
+      {
+        "time": "2026-04-17 13:47",
+        "profit": -436,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 15:52",
+        "profit": 626,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 16:32",
+        "profit": -181,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 18:42",
+        "profit": 476,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 20:47",
+        "profit": 477,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 22:02",
+        "profit": -277,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 22:22",
+        "profit": -346,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-18 01:22",
+        "profit": 363,
+        "result": "win",
+        "rr": 0.17
+      },
+      {
+        "time": "2026-04-18 03:42",
+        "profit": -277,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-20 21:52",
+        "profit": -20,
+        "result": "loss",
+        "rr": 2.0
+      },
+      {
+        "time": "2026-04-20 22:32",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 22:47",
+        "profit": -120,
+        "result": "loss",
+        "rr": 2.0
+      }
+    ],
+    "total": 13,
+    "wins": 5,
+    "losses": 8,
+    "total_pnl": 1185,
+    "avg_win": 568.0,
+    "avg_loss": -207.0,
+    "win_rate": 38.5,
+    "avg_rr": 0.32,
+    "kelly": 0,
+    "last_updated": "2026-04-20 22:47"
+  },
+  "BB_AUDJPY": {
+    "trades": [
+      {
+        "time": "2026-04-17 09:47",
+        "profit": -257,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 10:12",
+        "profit": -156,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 13:17",
+        "profit": -182,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 13:57",
+        "profit": -192,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 15:12",
+        "profit": 202,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 15:57",
+        "profit": -162,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 17:52",
+        "profit": 290,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 18:52",
+        "profit": -162,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 20:42",
+        "profit": -151,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 21:52",
+        "profit": -143,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 22:05",
+        "profit": -134,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-20 23:52",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-21 07:00",
+        "profit": 0.0,
+        "result": "loss",
+        "rr": 0.0
+      }
+    ],
+    "total": 13,
+    "wins": 2,
+    "losses": 11,
+    "total_pnl": -1047.0,
+    "avg_win": 246.0,
+    "avg_loss": -140.0,
+    "win_rate": 15.4,
+    "avg_rr": 0.33,
+    "kelly": 0,
+    "last_updated": "2026-04-21 07:00"
+  },
+  "BB_EURJPY": {
+    "trades": [
+      {
+        "time": "2026-04-17 12:37",
+        "profit": -150,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 13:22",
+        "profit": -119,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 14:02",
+        "profit": -125,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 15:12",
+        "profit": 211,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 15:42",
+        "profit": -152,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 16:12",
+        "profit": -154,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 18:52",
+        "profit": -206,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 20:12",
+        "profit": 363,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 21:42",
+        "profit": 244,
+        "result": "win",
+        "rr": 0.33
+      },
+      {
+        "time": "2026-04-17 21:52",
+        "profit": -215,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-17 22:36",
+        "profit": -266,
+        "result": "loss",
+        "rr": 0.2
+      },
+      {
+        "time": "2026-04-18 02:42",
+        "profit": 257,
+        "result": "win",
+        "rr": 0.17
+      },
+      {
+        "time": "2026-04-20 21:57",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 22:27",
+        "profit": -1686,
+        "result": "loss",
+        "rr": 2.0
+      },
+      {
+        "time": "2026-04-20 22:42",
+        "profit": 1674,
+        "result": "win",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-21 00:37",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      }
+    ],
+    "total": 16,
+    "wins": 5,
+    "losses": 11,
+    "total_pnl": -324,
+    "avg_win": 550.0,
+    "avg_loss": -279.0,
+    "win_rate": 31.2,
+    "avg_rr": 0.23,
+    "kelly": 0,
+    "last_updated": "2026-04-21 00:37"
+  },
+  "BB_USDCAD": {
+    "trades": [
+      {
+        "time": "2026-04-18 02:12",
+        "profit": 333,
+        "result": "win",
+        "rr": 25.04
+      },
+      {
+        "time": "2026-04-18 03:27",
+        "profit": 198,
+        "result": "win",
+        "rr": 25.06
+      },
+      {
+        "time": "2026-04-18 04:57",
+        "profit": -204,
+        "result": "loss",
+        "rr": 30.0
+      },
+      {
+        "time": "2026-04-18 05:17",
+        "profit": 183,
+        "result": "win",
+        "rr": 25.07
+      },
+      {
+        "time": "2026-04-20 09:47",
+        "profit": 1980,
+        "result": "win",
+        "rr": 900.0
+      },
+      {
+        "time": "2026-04-20 11:52",
+        "profit": -270,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 12:42",
+        "profit": -870,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 13:12",
+        "profit": -150,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 14:22",
+        "profit": -90,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 14:27",
+        "profit": -720,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 14:42",
+        "profit": -810,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 15:17",
+        "profit": 1080,
+        "result": "win",
+        "rr": 1542.86
+      },
+      {
+        "time": "2026-04-20 15:57",
+        "profit": 1350,
+        "result": "win",
+        "rr": 1687.5
+      },
+      {
+        "time": "2026-04-20 16:17",
+        "profit": -240,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 16:22",
+        "profit": -240,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 16:32",
+        "profit": 1440,
+        "result": "win",
+        "rr": 1600.0
+      },
+      {
+        "time": "2026-04-20 17:37",
+        "profit": -60,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 18:02",
+        "profit": -30,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 18:22",
+        "profit": -240,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 18:42",
+        "profit": -60,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 19:32",
+        "profit": 1140,
+        "result": "win",
+        "rr": 3800.0
+      },
+      {
+        "time": "2026-04-20 21:32",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 22:07",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 22:47",
+        "profit": -2430,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 22:57",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 23:22",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-20 23:47",
+        "profit": -2610,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-20 23:52",
+        "profit": 2640,
+        "result": "win",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-21 00:07",
+        "profit": 0,
+        "result": "loss",
+        "rr": 0
+      },
+      {
+        "time": "2026-04-21 00:17",
+        "profit": -30,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-21 00:42",
+        "profit": -3090,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-21 01:12",
+        "profit": -270,
+        "result": "loss",
+        "rr": 300.0
+      },
+      {
+        "time": "2026-04-21 07:00",
+        "profit": 0.0,
+        "result": "loss",
+        "rr": 0.0
+      }
+    ],
+    "total": 33,
+    "wins": 9,
+    "losses": 24,
+    "total_pnl": -2070.0,
+    "avg_win": 1149.0,
+    "avg_loss": -517.0,
+    "win_rate": 27.3,
+    "avg_rr": 1100.61,
+    "kelly": 0.272,
+    "last_updated": "2026-04-21 07:00"
+  }
+}

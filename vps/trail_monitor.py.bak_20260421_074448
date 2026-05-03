@@ -1,0 +1,369 @@
+"""
+トレーリングストップ常駐モニター v4
+改善点（v3からの変更）:
+  - Stage1: ATR×0.3以上 → SL = entry（BEライン）       ← v3のATR×0.5から早期化
+  - Stage2: ATR×0.7以上 → SL = entry + ATR×0.3         ← 新設（小利益確定）
+  - Stage3: ATR×1.0以上 → SL = 現在価格 - ATR×1.0      ← distanceをATR×1.5→1.0に縮小
+  - 最小更新幅: ATR×0.05（v3の0.1から細分化）
+  - 5分ごとにハートビートログをターミナル・ファイルに出力
+  - ATRは5分足で計算
+  - 対象: BB全ペア / MOM_JPY / MOM_GBJ / STR
+  - 除外: CORR / TRI
+"""
+import MetaTrader5 as mt5
+import json, os, time, urllib.request
+from datetime import datetime
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from heartbeat_check import record_heartbeat
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+ENV_PATH = os.path.join(BASE_DIR, '.env')
+LOG_PATH = os.path.join(BASE_DIR, 'trail_log.txt')
+
+TRAIL_INTERVAL   = 30     # ループ間隔（秒）
+HEARTBEAT_EVERY  = 10     # この回数ループするたびにハートビート出力（30秒×10=5分）
+MIN_UPDATE_MULT  = 0.05   # 最小更新幅 ATR×0.05
+COMMISSION_PIPS  = 0.14   # 手数料（片道）
+DEMO_MODE        = True
+
+# Stage閾値（全戦略共通）
+STAGE1_ACTIVATE = 0.3   # ATR×0.3以上でBEライン
+STAGE2_ACTIVATE = 0.7   # ATR×0.7以上で小利益確定
+STAGE2_LOCK     = 0.3   # Stage2のSL位置: entry + ATR×0.3
+
+# 戦略別設定
+# stage1/2はBB戦略のみ有効（MOM・STRはStage3のみ）
+TRAIL_CONFIG = {
+    'FXBot_BB_':     {'stage1': True,  'stage2': True,  'stage3_activate': 1.0, 'stage3_distance': 1.0},
+    'FXBot_MOM_JPY': {'stage1': False, 'stage2': False, 'stage3_activate': 1.0, 'stage3_distance': 1.0},
+    'FXBot_MOM_GBJ': {'stage1': False, 'stage2': False, 'stage3_activate': 1.0, 'stage3_distance': 1.0},
+    'FXBot_STR':     {'stage1': False, 'stage2': False, 'stage3_activate': 1.0, 'stage3_distance': 1.0},
+}
+
+# ══════════════════════════════════════════
+# ユーティリティ
+# ══════════════════════════════════════════
+def log(msg):
+    ts   = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    line = '[' + ts + '] ' + msg
+    print(line)
+    try:
+        with open(LOG_PATH, 'a', encoding='utf-8') as f:
+            f.write(line + '\n')
+    except Exception:
+        pass
+
+def load_env():
+    env = {}
+    try:
+        with open(ENV_PATH, encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if '=' in line and not line.startswith('#'):
+                    k, v = line.split('=', 1)
+                    env[k.strip()] = v.strip()
+    except Exception:
+        pass
+    return env
+
+def send_discord(msg, webhook):
+    if not webhook:
+        return
+    try:
+        data = json.dumps({'content': msg}).encode('utf-8')
+        req  = urllib.request.Request(
+            webhook, data=data,
+            headers={'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0'}
+        )
+        urllib.request.urlopen(req, timeout=10)
+    except Exception as e:
+        log('Discord送信エラー: ' + str(e))
+
+# ══════════════════════════════════════════
+# MT5ヘルパー
+# ══════════════════════════════════════════
+def get_atr_5m(symbol, period=14):
+    """5分足ATRをEMAで計算"""
+    bars = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, period + 5)
+    if bars is None or len(bars) < period:
+        return None
+    highs  = [b['high']  for b in bars]
+    lows   = [b['low']   for b in bars]
+    closes = [b['close'] for b in bars]
+    trs = []
+    for i in range(1, len(bars)):
+        tr = max(
+            highs[i] - lows[i],
+            abs(highs[i] - closes[i-1]),
+            abs(lows[i]  - closes[i-1]),
+        )
+        trs.append(tr)
+    atr = trs[0]
+    k   = 2.0 / (period + 1)
+    for tr in trs[1:]:
+        atr = tr * k + atr * (1 - k)
+    return atr
+
+def get_trail_config(comment):
+    """commentから戦略設定を返す。対象外はNone"""
+    for key, cfg in TRAIL_CONFIG.items():
+        if comment.startswith(key):
+            return cfg
+    return None
+
+# ══════════════════════════════════════════
+# SL計算コア
+# ══════════════════════════════════════════
+def calc_new_sl(p, atr, pip):
+    """
+    3段階SLを計算して(new_sl, stage_label)を返す。
+    更新不要の場合は(None, '')を返す。
+
+    優先度: Stage3 > Stage2 > Stage1
+    （より有利なステージが常に上書き）
+    """
+    cfg       = get_trail_config(p.comment)
+    direction = 1 if p.type == 0 else -1
+    entry     = p.price_open
+    current_sl = p.sl
+
+    tick = mt5.symbol_info_tick(p.symbol)
+    if tick is None:
+        return None, ''
+    current = tick.bid if direction == 1 else tick.ask
+
+    profit_dist = (current - entry) * direction
+    min_update  = atr * MIN_UPDATE_MULT
+
+    new_sl = None
+    stage  = ''
+
+    # ── Stage1: ATR×0.3以上でBEライン ──────────────
+    if cfg['stage1'] and profit_dist >= atr * STAGE1_ACTIVATE:
+        candidate   = round(entry, 5)
+        improvement = (candidate - current_sl) * direction
+        if improvement > min_update:
+            new_sl = candidate
+            stage  = 'Stage1(BE:profit>=ATR*' + str(STAGE1_ACTIVATE) + ')'
+
+    # ── Stage2: ATR×0.7以上で小利益確定 ────────────
+    if cfg['stage2'] and profit_dist >= atr * STAGE2_ACTIVATE:
+        candidate   = round(entry + atr * STAGE2_LOCK * direction, 5)
+        improvement = (candidate - current_sl) * direction
+        if improvement > min_update:
+            if new_sl is None or (candidate - new_sl) * direction > 0:
+                new_sl = candidate
+                stage  = 'Stage2(小利益:profit>=ATR*' + str(STAGE2_ACTIVATE) + ')'
+
+    # ── Stage3: ATR×1.0以上でトレーリング ──────────
+    if profit_dist >= atr * cfg['stage3_activate']:
+        candidate   = round(current - atr * cfg['stage3_distance'] * direction, 5)
+        improvement = (candidate - current_sl) * direction
+        if improvement > min_update:
+            if new_sl is None or (candidate - new_sl) * direction > 0:
+                new_sl = candidate
+                stage  = 'Stage3(Trail:dist=ATR*' + str(cfg['stage3_distance']) + ')'
+
+    if new_sl is None:
+        return None, ''
+
+    # 妥当性チェック
+    if direction == 1 and new_sl >= current:
+        return None, ''
+    if direction == -1 and new_sl <= current:
+        return None, ''
+
+    return new_sl, stage
+
+# ══════════════════════════════════════════
+# ハートビート表示
+# ══════════════════════════════════════════
+def print_heartbeat(loop_count, total_updated):
+    """5分ごとに稼働状況をターミナルとログファイルに出力"""
+    positions = mt5.positions_get()
+    pos_lines = []
+
+    if positions:
+        for p in positions:
+            cfg = get_trail_config(p.comment)
+            if cfg is None:
+                continue
+
+            direction  = 1 if p.type == 0 else -1
+            pip        = 0.01 if 'JPY' in p.symbol else 0.0001
+            tick       = mt5.symbol_info_tick(p.symbol)
+            if tick is None:
+                continue
+            current    = tick.bid if direction == 1 else tick.ask
+            profit_pip = round((current - p.price_open) * direction / pip, 1)
+            atr        = get_atr_5m(p.symbol)
+            atr_pips   = round(atr / pip, 1) if atr else 0
+
+            # 現在どのStageにいるか
+            if atr:
+                pd = (current - p.price_open) * direction
+                if pd >= atr * cfg['stage3_activate']:
+                    stage_now = 'S3'
+                elif cfg['stage2'] and pd >= atr * STAGE2_ACTIVATE:
+                    stage_now = 'S2'
+                elif cfg['stage1'] and pd >= atr * STAGE1_ACTIVATE:
+                    stage_now = 'S1'
+                else:
+                    stage_now = '--'
+            else:
+                stage_now = '?'
+
+            sl_pips = round((current - p.sl) * direction / pip, 1) if p.sl != 0 else 0
+
+            pos_lines.append(
+                '  ' + p.symbol +
+                '(' + ('BUY' if direction == 1 else 'SELL') + ')' +
+                ' 含み益:' + ('+' if profit_pip >= 0 else '') + str(profit_pip) + 'pips' +
+                ' ATR:' + str(atr_pips) + 'pips' +
+                ' SLまで:' + str(sl_pips) + 'pips' +
+                ' [' + stage_now + '] ' + p.comment
+            )
+
+    account   = mt5.account_info()
+    balance   = round(account.balance) if account else 0
+    equity    = round(account.equity)  if account else 0
+    pos_count = len(pos_lines)
+
+    sep  = '=' * 55
+    lines = [
+        sep,
+        '[HB] ' + datetime.now().strftime('%H:%M') +
+        ' | ループ:' + str(loop_count) + '回' +
+        ' | 累計SL更新:' + str(total_updated) + '件',
+        '[HB] 残高:' + str(balance) + '円 / 有効証拠金:' + str(equity) + '円',
+        '[HB] トレーリング対象: ' + str(pos_count) + '件',
+    ] + pos_lines + [sep]
+
+    output = '\n'.join(lines)
+    ts = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    print('[' + ts + ']\n' + output)
+    try:
+        with open(LOG_PATH, 'a', encoding='utf-8') as f:
+            f.write('[' + ts + ']\n' + output + '\n')
+    except Exception:
+        pass
+
+# ══════════════════════════════════════════
+# SL更新実行
+# ══════════════════════════════════════════
+def update_trailing_stops():
+    """全対象ポジションのSLを更新。更新件数を返す"""
+    positions = mt5.positions_get()
+    if not positions:
+        return 0
+
+    updated = 0
+    for p in positions:
+        cfg = get_trail_config(p.comment)
+        if cfg is None:
+            continue
+
+        symbol = p.symbol
+        pip    = 0.01 if 'JPY' in symbol else 0.0001
+
+        atr = get_atr_5m(symbol)
+        if not atr:
+            continue
+
+        new_sl, stage = calc_new_sl(p, atr, pip)
+        if new_sl is None:
+            continue
+
+        result = mt5.order_send({
+            'action':   mt5.TRADE_ACTION_SLTP,
+            'symbol':   symbol,
+            'position': p.ticket,
+            'tp':       p.tp,
+            'sl':       new_sl,
+        })
+
+        if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
+            direction  = 1 if p.type == 0 else -1
+            sl_move    = round(abs(new_sl - p.sl) / pip, 1) if p.sl != 0 else 0
+            tick       = mt5.symbol_info_tick(symbol)
+            current    = (tick.bid if direction == 1 else tick.ask) if tick else p.price_open
+            profit_pip = round((current - p.price_open) * direction / pip, 1)
+            log('TrailSL更新: ' + symbol +
+                ' SL ' + str(round(p.sl, 5)) + '->' + str(new_sl) +
+                ' (move:+' + str(sl_move) + 'pips)' +
+                ' 含み益:' + ('+' if profit_pip >= 0 else '') + str(profit_pip) + 'pips' +
+                ' [' + stage + ']')
+            updated += 1
+        elif result is not None and result.retcode not in [10027, 10025]:
+            log('SL更新失敗: ' + symbol +
+                ' code=' + str(result.retcode) +
+                ' ' + (result.comment if result.comment else ''))
+
+    return updated
+
+# ══════════════════════════════════════════
+# メイン
+# ══════════════════════════════════════════
+def main():
+    env     = load_env()
+    webhook = env.get('DISCORD_WEBHOOK', '')
+
+    print('=' * 55)
+    print('トレーリングストップ常駐モニター v4 起動')
+    print('更新間隔      : ' + str(TRAIL_INTERVAL) + '秒')
+    print('最小更新幅    : ATR*' + str(MIN_UPDATE_MULT))
+    print('Stage1        : 利益>=ATR*' + str(STAGE1_ACTIVATE) + ' → SL=entry (BEライン)')
+    print('Stage2        : 利益>=ATR*' + str(STAGE2_ACTIVATE) + ' → SL=entry+ATR*' + str(STAGE2_LOCK) + ' (小利益確定)')
+    print('Stage3        : 利益>=ATR*1.0 → SL=現在価格-ATR*1.0 (トレーリング)')
+    print('Stage1/2適用  : BB戦略のみ / MOM・STRはStage3のみ')
+    print('除外戦略      : CORR / TRI')
+    print('ハートビート  : ' + str(TRAIL_INTERVAL * HEARTBEAT_EVERY // 60) + '分ごと')
+    print('=' * 55)
+
+    if not mt5.initialize():
+        log('MT5初期化失敗')
+        return
+
+    account = mt5.account_info()
+    if account is None:
+        log('MT5口座情報取得失敗')
+        mt5.shutdown()
+        return
+
+    log('MT5接続成功: ' + account.company + ' / 残高:' + str(round(account.balance)) + '円')
+
+    if DEMO_MODE and 'demo' not in account.server.lower():
+        log('警告: DEMO_MODE=TrueですがライブサーバーへのMT5接続が検出されました。終了します。')
+        mt5.shutdown()
+        return
+
+    loop_count    = 0
+    total_updated = 0
+
+    while True:
+        try:
+            loop_count += 1
+
+            # SL更新（30秒ごと）
+            updated = update_trailing_stops()
+            total_updated += updated
+
+            # 5分ごとにハートビート出力
+            if loop_count % HEARTBEAT_EVERY == 0:
+                print_heartbeat(loop_count, total_updated)
+
+        except Exception as e:
+            log('ループエラー: ' + str(e))
+            try:
+                mt5.shutdown()
+                time.sleep(5)
+                mt5.initialize()
+                log('MT5再接続完了')
+            except Exception:
+                pass
+
+        time.sleep(TRAIL_INTERVAL)
+
+if __name__ == '__main__':
+    main()
