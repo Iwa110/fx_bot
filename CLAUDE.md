@@ -61,3 +61,21 @@ C:\Users\Administrator\fx_bot\
 - [ ] 変更ファイルをcommit/push済み
 - [ ] CLAUDE.mdのTop of mindを更新済み
 - [ ] 翌日Chatで確認すべき事項をメモ済み
+
+## ロードマップ
+
+### Phase1（現在）: 実稼働データ蓄積・完了判定
+- 判定基準: PF>1.2 / 勝率>50% / DD<15%
+- 対象ペア: GBPJPY/USDJPY/EURUSD/GBPUSD
+- 完了条件: 全ペアで判定基準クリア
+- 完了後タスク: USDCAD再評価BT実施
+
+### Phase2: 戦略改善・追加
+- BB戦略RR改善（Stage2 distance微調整継続）
+- 200MA Pullback本格導入（USDJPY Pinbar候補）
+- SMC_GBPAUD 実稼働評価
+- stat_arb 評価・調整
+
+### Phase3: スケールアップ
+- 目標: 月利30万円達成
+- ロット拡大・ペア追加
