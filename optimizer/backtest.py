@@ -42,7 +42,6 @@ USDCAD_CFG = {
     'is_jpy':          False,
 }
 # ===== BB全ペア設定 =====
-# 変更後（v16実績値）
 BB_PAIRS_CFG = {
     'GBPJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
     'EURJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5},
@@ -51,16 +50,25 @@ BB_PAIRS_CFG = {
     'GBPUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.5, 'tp_sl_ratio': 1.5},
 }
 
+# ===== フィルターBT対象ペア =====
+FILTER_BT_PAIRS = ['GBPJPY', 'USDJPY']
+
+# ===== ペア別時間帯フィルター候補（UTC） =====
+HOUR_FILTER_CANDIDATES = {
+    'USDJPY': [21, 22, 5],   # v17現行に差し替え
+    'GBPJPY': [7, 8, 9, 13, 14, 15, 16],
+}
+
 # ===== Stage2候補 =====
 STAGE2_CANDIDATES = [
-    {'label': 'current',  'activate': 0.70, 'distance': 1.00},  # 現状ベースライン
+    {'label': 'current',      'activate': 0.70, 'distance': 1.00},
     {'label': 'D(0.75/0.45)', 'activate': 0.75, 'distance': 0.45},
     {'label': 'B(0.80/0.40)', 'activate': 0.80, 'distance': 0.40},
     {'label': 'C(0.85/0.30)', 'activate': 0.85, 'distance': 0.30},
 ]
 GRID_SL_CANDIDATES       = [1.5, 2.0, 2.5, 3.0]
 GRID_STAGE2_DISTANCES    = [0.1, 0.2, 0.3]
-GRID_STAGE2_ACTIVATE     = 0.7   # 固定（activateはBT済みで変更なし）
+GRID_STAGE2_ACTIVATE     = 0.7
 
 # ===== ベースパラメータ取得 =====
 def get_base_params():
@@ -82,16 +90,17 @@ def load_csv(symbol, tf='5m'):
         df.index = pd.to_datetime(df.index, utc=True).tz_localize(None)
         df.index.name = 'datetime'
         df.columns = [c.lower() for c in df.columns]
-        # NaN列除去・重複列除去
-        df = df[[c for c in ['open','high','low','close','volume'] if c in df.columns]]
+        df = df[[c for c in ['open', 'high', 'low', 'close', 'volume'] if c in df.columns]]
         df = df.loc[:, ~df.columns.duplicated()]
         df = df.dropna(subset=['close'])
         df = df.sort_index()
-        df = df.reset_index()  # datetimeを列に
+        df = df.reset_index()
         return df
 
     print(f'[WARN] CSVなし: {symbol} {tf}')
-    return None# ===== インジケーター =====
+    return None
+
+# ===== インジケーター =====
 def calc_bb(close, period, sigma):
     ma  = close.rolling(period).mean()
     std = close.rolling(period).std()
@@ -113,17 +122,64 @@ def calc_atr(df, period=14):
     tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     return tr.rolling(period).mean()
 
-# ===== HTFシグナル構築 =====
+def calc_adx(df, period=14):
+    """ADX(period)を1h足DataFrameから計算。戻り値: pd.Series"""
+    high  = df['high']
+    low   = df['low']
+    close = df['close']
+
+    plus_dm  = high.diff()
+    minus_dm = low.diff().mul(-1)
+    plus_dm  = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+
+    hl = high - low
+    hc = (high - close.shift()).abs()
+    lc = (low  - close.shift()).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+
+    atr_s     = tr.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    plus_di   = 100 * plus_dm.ewm(alpha=1/period, min_periods=period, adjust=False).mean() / atr_s.replace(0, np.nan)
+    minus_di  = 100 * minus_dm.ewm(alpha=1/period, min_periods=period, adjust=False).mean() / atr_s.replace(0, np.nan)
+    dx        = (100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan))
+    adx       = dx.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    return adx
+
+# ===== HTFシグナル構築（BB sigma position） =====
 def build_htf_lookup(df_1h, htf_period, htf_sigma):
     close = df_1h['close']
     if isinstance(close, pd.DataFrame):
-        close = close.iloc[:, 0]  # 重複列対策
+        close = close.iloc[:, 0]
     ma        = close.rolling(htf_period).mean()
     std       = close.rolling(htf_period).std()
     sigma_pos = (close - ma) / std.replace(0, np.nan)
     result    = df_1h[['datetime']].copy()
     result['sigma_pos'] = sigma_pos.values
     return result.set_index('datetime')['sigma_pos']
+
+# ===== 4h EMA20 HTFフィルター用ルックアップ構築 =====
+def build_htf4h_ema_lookup(df_1h, ema_period=20):
+    """
+    1h CSVを4hにリサンプルしてEMA20を計算。
+    戻り値: pd.Series (index=datetime, value= +1:Buy許可 / -1:Sell許可 / 0:両方許可)
+    ※ closeがEMA20より上 → Buy許可(+1)、下 → Sell許可(-1)
+    """
+    df = df_1h.copy()
+    df = df.set_index('datetime')
+    df4h = df['close'].resample('4h').last().dropna().to_frame()
+    df4h['ema20'] = df4h['close'].ewm(span=ema_period, adjust=False).mean()
+    df4h['signal'] = np.where(df4h['close'] > df4h['ema20'], 1, -1)
+    return df4h['signal']
+
+# ===== ADXルックアップ構築（1h足） =====
+def build_adx_lookup(df_1h, period=14, threshold=20):
+    """
+    1h足でADX(period)を計算。
+    戻り値: pd.Series (index=datetime, value=ADX値)
+    """
+    df = df_1h.set_index('datetime') if 'datetime' in df_1h.columns else df_1h.copy()
+    adx = calc_adx(df, period)
+    return adx
 
 # ===== F1モメンタムフィルター =====
 def f1_ok(close_arr, i, direction, param):
@@ -134,25 +190,25 @@ def f1_ok(close_arr, i, direction, param):
         return diff < 0
     else:
         return diff > 0
-"""
-Stage2トレーリングSLシミュレーター。
-- stage2_activate: TPまでの距離に対する到達率でStage2発動
-- stage2_distance: 発動後のトレーリング幅（TP距離の割合）
-戻り値: {'avg_exit_pct', 'win_rate', 'pf', 'trades', 'rr_actual'}
-"""
+
+# ===== simulate_with_stage2（変更なし） =====
 def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
                           sl_atr_mult=None, n_bars=5000):
+    """
+    Stage2トレーリングSLシミュレーター。
+    戻り値: {'avg_exit_pct', 'win_rate', 'pf', 'trades', 'rr_actual',
+              'tp_count', 'trail_count', 'sl_count'}
+    """
     cfg = get_base_params()
     cfg.update(pair_cfg)
     if sl_atr_mult is not None:
-        cfg['sl_atr_mult'] = sl_atr_mult   # ← グリッドサーチ用上書き
+        cfg['sl_atr_mult'] = sl_atr_mult
 
     df_5m = load_csv(symbol, '5m')
     df_1h = load_csv(symbol, '1h')
     if df_5m is None or df_1h is None:
         return None
 
-    # データ末尾n_bars件に絞る
     df_5m = df_5m.tail(n_bars).reset_index(drop=True)
 
     close   = df_5m['close']
@@ -161,7 +217,7 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
     atr     = calc_atr(df_5m, cfg['atr_period'])
     htf_lkp = build_htf_lookup(df_1h, cfg['htf_period'], cfg['htf_sigma'])
 
-    spread    = 2 * cfg['pip_unit']  # 2pipsスプレッド固定
+    spread    = 2 * cfg['pip_unit']
     close_arr = close.values
     n         = len(df_5m)
 
@@ -180,7 +236,6 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
         if sl == 0 or np.isnan(sl) or np.isnan(c):
             continue
 
-        # HTFフィルター
         dt      = df_5m['datetime'].iloc[i]
         htf_idx = htf_lkp.index.searchsorted(dt, side='right') - 1
         if htf_idx < 0:
@@ -189,7 +244,6 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
         if np.isnan(htf_sp) or abs(htf_sp) >= cfg['htf_range_sigma']:
             continue
 
-        # エントリー判定（BBタッチ+RSI）
         direction = None
         rsi_v = rsi.iloc[i]
         if np.isnan(rsi_v):
@@ -206,28 +260,24 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
         sl_price = entry - sl  if direction == 'buy' else entry + sl
         tp_dist  = abs(tp_price - entry)
 
-        # Stage2トレーリングSL
-        trail_sl   = sl_price
-        activated  = False
-        hit        = None
+        trail_sl  = sl_price
+        activated = False
+        hit       = None
         exit_price = None
 
         for j in range(i + 1, min(i + 300, n)):
-            h = df_5m['high'].iloc[j]
-            l = df_5m['low'].iloc[j]
+            h   = df_5m['high'].iloc[j]
+            l   = df_5m['low'].iloc[j]
             mid = (h + l) / 2.0
 
             if direction == 'buy':
-                # Stage2発動チェック
                 progress = (mid - entry) / tp_dist if tp_dist > 0 else 0
                 if progress >= stage2_activate:
                     activated = True
-                # トレーリングSL更新（発動後）
                 if activated:
                     new_trail = mid - tp_dist * stage2_distance
                     if new_trail > trail_sl:
                         trail_sl = new_trail
-                # SL/TP判定
                 if l <= trail_sl:
                     hit = 'trail_sl' if activated else 'sl'
                     exit_price = trail_sl
@@ -256,7 +306,6 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
         if hit is None or exit_price is None:
             continue
 
-        # 決済位置（TP距離の何%で決済したか）
         if direction == 'buy':
             exit_pct = (exit_price - entry) / tp_dist * 100
         else:
@@ -270,8 +319,7 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
         else:
             losses += 1
             gross_loss += abs(pnl)
-        
-        # hit種別カウント
+
         if hit == 'tp':
             tp_count += 1
         elif hit == 'trail_sl':
@@ -286,22 +334,18 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
         return None
 
     return {
-        'trades':        trades,
-        'win_rate':      round(wins / trades * 100, 1),
-        'pf':            round(gross_profit / gross_loss, 3) if gross_loss > 0 else 99.0,
-        'rr_actual':     round(gross_profit / wins / (gross_loss / losses), 3) if wins > 0 and losses > 0 else 0.0,
-        'avg_exit_pct':  round(float(np.mean(exit_pcts)), 1),
-        'tp_count':      tp_count,
-        'trail_count':   trail_count,
-        'sl_count':      sl_count,
+        'trades':       trades,
+        'win_rate':     round(wins / trades * 100, 1),
+        'pf':           round(gross_profit / gross_loss, 3) if gross_loss > 0 else 99.0,
+        'rr_actual':    round(gross_profit / wins / (gross_loss / losses), 3) if wins > 0 and losses > 0 else 0.0,
+        'avg_exit_pct': round(float(np.mean(exit_pcts)), 1),
+        'tp_count':     tp_count,
+        'trail_count':  trail_count,
+        'sl_count':     sl_count,
     }
+
 # ===== コアBTロジック =====
 def run_backtest(symbol, override_params):
-    """
-    override_paramsでベースパラメータを上書きしてBTを実行。
-    単一でも複合でも対応。
-    戻り値: {'pf', 'win_rate', 'rr_actual', 'trades', 'tp_reach_rate'} or None
-    """
     cfg = get_base_params()
     cfg.update(override_params)
 
@@ -310,7 +354,6 @@ def run_backtest(symbol, override_params):
     if df_5m is None or df_1h is None:
         return None
 
-    # インジケーター計算
     close   = df_5m['close']
     bb_u, bb_l, bb_ma, bb_std = calc_bb(close, cfg['bb_period'], cfg['bb_sigma'])
     rsi     = calc_rsi(close, cfg['rsi_period'])
@@ -335,7 +378,6 @@ def run_backtest(symbol, override_params):
         if sl == 0 or np.isnan(sl):
             continue
 
-        # HTFシグマ位置取得
         dt      = df_5m['datetime'].iloc[i]
         htf_idx = htf_lkp.index.searchsorted(dt, side='right') - 1
         if htf_idx < 0:
@@ -344,7 +386,6 @@ def run_backtest(symbol, override_params):
         if np.isnan(htf_sigma_pos):
             continue
 
-        # エントリー判定
         direction = None
         if c < bb_l.iloc[i] and not np.isnan(rsi.iloc[i]):
             if rsi.iloc[i] < cfg['rsi_buy_max']:
@@ -360,10 +401,9 @@ def run_backtest(symbol, override_params):
         if direction is None:
             continue
 
-        # 決済シミュレーション
-        entry = c + spread if direction == 'buy' else c - spread
-        tp_price = entry + tp if direction == 'buy' else entry - tp
-        sl_price = entry - sl if direction == 'buy' else entry + sl
+        entry    = c + spread if direction == 'buy' else c - spread
+        tp_price = entry + tp  if direction == 'buy' else entry - tp
+        sl_price = entry - sl  if direction == 'buy' else entry + sl
         hit = None
 
         for j in range(i + 1, min(i + 200, n)):
@@ -371,18 +411,14 @@ def run_backtest(symbol, override_params):
             l = df_5m['low'].iloc[j]
             if direction == 'buy':
                 if l <= sl_price:
-                    hit = 'sl'
-                    break
+                    hit = 'sl'; break
                 if h >= tp_price:
-                    hit = 'tp'
-                    break
+                    hit = 'tp'; break
             else:
                 if h >= sl_price:
-                    hit = 'sl'
-                    break
+                    hit = 'sl'; break
                 if l <= tp_price:
-                    hit = 'tp'
-                    break
+                    hit = 'tp'; break
 
         if hit == 'tp':
             wins += 1
@@ -392,7 +428,7 @@ def run_backtest(symbol, override_params):
             losses += 1
             gross_loss += sl
         else:
-            continue  # タイムアウトはカウントしない
+            continue
 
         last_trade_bar = i
 
@@ -400,20 +436,15 @@ def run_backtest(symbol, override_params):
     if trades == 0:
         return {'pf': 0.0, 'win_rate': 0.0, 'rr_actual': 0.0, 'trades': 0, 'tp_reach_rate': 0.0}
 
-    pf           = round(gross_profit / gross_loss, 3) if gross_loss > 0 else 99.0
-    win_rate     = round(wins / trades * 100, 1)
-    rr_actual    = round(gross_profit / wins / (gross_loss / losses), 3) if wins > 0 and losses > 0 else 0.0
-    tp_reach_rate = round(tp_reach / trades * 100, 1)
-
     return {
-        'pf':            pf,
-        'win_rate':      win_rate,
-        'rr_actual':     rr_actual,
+        'pf':            round(gross_profit / gross_loss, 3) if gross_loss > 0 else 99.0,
+        'win_rate':      round(wins / trades * 100, 1),
+        'rr_actual':     round(gross_profit / wins / (gross_loss / losses), 3) if wins > 0 and losses > 0 else 0.0,
         'trades':        trades,
-        'tp_reach_rate': tp_reach_rate,
+        'tp_reach_rate': round(tp_reach / trades * 100, 1),
     }
 
-# ===== candidates.json対応（Phase2複合パラメータ） =====
+# ===== candidates.json対応 =====
 def run_backtest_from_candidates(symbol, output_file):
     if not Path(CANDIDATES_FILE).exists():
         print(f'[ERROR] {CANDIDATES_FILE} が見つかりません')
@@ -435,16 +466,12 @@ def run_backtest_from_candidates(symbol, output_file):
         })
 
     for cand in sorted(candidates, key=lambda x: x.get('priority', 99)):
-        params = get_base_params()
-        params.update(cand['params'])
         res = run_backtest(symbol, cand['params'])
         if res is None:
             print(f'  [{cand["id"]}] BT失敗')
             continue
 
-        # 採用判定: PF>=1.0 かつ 取引数>=20
         verdict = 'APPROVED' if res['pf'] >= 1.0 and res['trades'] >= 20 else 'REJECTED'
-
         row = {
             'id':          cand['id'],
             'params':      cand['params'],
@@ -462,9 +489,7 @@ def run_backtest_from_candidates(symbol, output_file):
               f'PF={res["pf"]}({dpf:+.3f})  '
               f'勝率={res["win_rate"]}%({dwr:+.1f}%)  '
               f'RR={res["rr_actual"]}  N={res["trades"]}')
-        print(f'    params={cand["params"]}')
 
-    # 追記モード（ループ蓄積用）
     existing = []
     if Path(output_file).exists():
         existing = json.loads(Path(output_file).read_text(encoding='utf-8'))
@@ -479,7 +504,7 @@ def run_backtest_from_candidates(symbol, output_file):
     print(f'\n[Phase3] 出力完了: {output_file} (今回{len(results)}件 / 累計{len(all_results)}件)')
     return results
 
-# ===== suggestions.json対応（単一パラメータ・後方互換） =====
+# ===== suggestions.json対応（後方互換） =====
 def run_backtest_from_suggestions(symbol, output_file):
     suggestions = load_suggestions()
     results     = []
@@ -491,13 +516,11 @@ def run_backtest_from_suggestions(symbol, output_file):
 
     print(f'[ベースライン] PF={baseline["pf"]}  勝率={baseline["win_rate"]}%  '
           f'RR={baseline["rr_actual"]}  取引数={baseline["trades"]}')
-    results.append({
-        'param': 'baseline', 'candidate': 'current', 'symbol': symbol, **baseline,
-    })
+    results.append({'param': 'baseline', 'candidate': 'current', 'symbol': symbol, **baseline})
 
     for sug in sorted(suggestions, key=lambda x: x.get('priority', 99)):
-        param      = sug['param']
-        cands      = sug.get('candidates', sug.get('values', []))
+        param = sug['param']
+        cands = sug.get('candidates', sug.get('values', []))
         print(f'\n[{param}] current={sug.get("current")}  reason: {sug.get("reason", "")}')
 
         for cand_val in cands:
@@ -531,8 +554,9 @@ def load_suggestions():
         ]
     with open(SUGGESTIONS_FILE, 'r', encoding='utf-8') as f:
         return json.load(f)
+
+# ===== Stage2 BT =====
 def run_stage2_backtest():
-    """全ペア x 全Stage2候補の一括比較"""
     print('=== Stage2パラメータ比較BT ===')
     rows = []
     for symbol, pair_cfg in BB_PAIRS_CFG.items():
@@ -549,28 +573,20 @@ def run_stage2_backtest():
             row = {'symbol': symbol, **cand, **res}
             rows.append(row)
             print(f'  {cand["label"]:20s} | '
-                f'avg_exit={res["avg_exit_pct"]:+5.1f}%TP | '
-                f'PF={res["pf"]:.3f} | 勝率={res["win_rate"]}% | '
-                f'TP={res["tp_count"]} Trail={res["trail_count"]} SL={res["sl_count"]}')
+                  f'avg_exit={res["avg_exit_pct"]:+5.1f}%TP | '
+                  f'PF={res["pf"]:.3f} | 勝率={res["win_rate"]}% | '
+                  f'TP={res["tp_count"]} Trail={res["trail_count"]} SL={res["sl_count"]}')
 
     out = r'C:\Users\Administrator\fx_bot\optimizer\stage2_bt_results.json'
-    import json
     with open(out, 'w', encoding='utf-8') as f:
         json.dump(rows, f, ensure_ascii=False, indent=2)
     print(f'\n出力: {out}')
-# backtest.py への追記パッチ
-# run_stage2_backtest() の直後に追加する
 
-# ===== SL幅比較用シミュレーター =====
+# ===== SL幅シミュレーター =====
 def simulate_with_sl(symbol, pair_cfg, sl_atr_mult, n_bars=5000):
-    """
-    sl_atr_multを差し替えてシンプルBT（Stage2なし・TP/SL固定）。
-    tp_sl_ratioはpair_cfg準拠。
-    戻り値: {'pf', 'win_rate', 'rr_actual', 'tp_rate', 'trades'} or None
-    """
     cfg = get_base_params()
     cfg.update(pair_cfg)
-    cfg['sl_atr_mult'] = sl_atr_mult  # 上書き
+    cfg['sl_atr_mult'] = sl_atr_mult
 
     df_5m = load_csv(symbol, '5m')
     df_1h = load_csv(symbol, '1h')
@@ -579,7 +595,7 @@ def simulate_with_sl(symbol, pair_cfg, sl_atr_mult, n_bars=5000):
 
     df_5m = df_5m.tail(n_bars).reset_index(drop=True)
 
-    close = df_5m['close']
+    close   = df_5m['close']
     bb_u, bb_l, bb_ma, bb_std = calc_bb(close, cfg['bb_period'], cfg['bb_sigma'])
     rsi     = calc_rsi(close, cfg['rsi_period'])
     atr     = calc_atr(df_5m, cfg['atr_period'])
@@ -642,15 +658,11 @@ def simulate_with_sl(symbol, pair_cfg, sl_atr_mult, n_bars=5000):
                     hit = 'tp'; break
 
         if hit == 'tp':
-            wins     += 1
-            tp_count += 1
-            gross_profit += tp
+            wins += 1; tp_count += 1; gross_profit += tp
         elif hit == 'sl':
-            losses   += 1
-            sl_count += 1
-            gross_loss += sl
+            losses += 1; sl_count += 1; gross_loss += sl
         else:
-            continue  # タイムアウト除外
+            continue
 
         last_bar = i
 
@@ -667,13 +679,10 @@ def simulate_with_sl(symbol, pair_cfg, sl_atr_mult, n_bars=5000):
         'tp_rate':   round(tp_count / trades * 100, 1),
     }
 
-
-# ===== SL幅比較BT =====
 SL_CANDIDATES = [1.5, 2.0, 2.5, 3.0]
 
 def run_sl_backtest():
     print('=== SL幅比較BT ===')
-    # Stage2はactivate=0.7/distance=1.0（現状ベースライン）で固定
     STAGE2_ACTIVATE_BASE = 0.70
     STAGE2_DISTANCE_BASE = 1.00
     rows = []
@@ -684,7 +693,7 @@ def run_sl_backtest():
         print(f'  {"-"*70}')
 
         for sl_mult in SL_CANDIDATES:
-            res = simulate_with_stage2(          # ← ここだけ変更
+            res = simulate_with_stage2(
                 symbol, pair_cfg,
                 stage2_activate=STAGE2_ACTIVATE_BASE,
                 stage2_distance=STAGE2_DISTANCE_BASE,
@@ -696,7 +705,7 @@ def run_sl_backtest():
             row = {'symbol': symbol, 'sl_atr_mult': sl_mult,
                    'tp_sl_ratio': pair_cfg['tp_sl_ratio'], **res}
             rows.append(row)
-            trades = res['trades']
+            trades     = res['trades']
             tp_rate    = round(res['tp_count']    / trades * 100, 1)
             trail_rate = round(res['trail_count'] / trades * 100, 1)
             sl_rate    = round(res['sl_count']    / trades * 100, 1)
@@ -714,7 +723,6 @@ def run_sl_backtest():
         json.dump(rows, f, ensure_ascii=False, indent=2)
     print(f'\n出力: {out}')
 
-    # サマリー：ペア別PF最大
     print('\n=== ペア別 最良sl_atr_mult ===')
     for symbol in BB_PAIRS_CFG:
         pair_rows = [r for r in rows if r['symbol'] == symbol]
@@ -727,20 +735,11 @@ def run_sl_backtest():
               f'Trail率={round(best["trail_count"]/best["trades"]*100,1)}% N={best["trades"]}')
 
 def run_stage2_grid_backtest():
-    """
-    グリッドサーチ: sl_atr_mult x stage2_distance の全組み合わせ
-    stage2_activateは0.7固定
-    出力: stage2_grid_results.json
-    """
     print('=== Stage2グリッドサーチBT ===')
-    print(f'sl_atr_mult={GRID_SL_CANDIDATES}')
-    print(f'stage2_distance={GRID_STAGE2_DISTANCES}  activate={GRID_STAGE2_ACTIVATE}(固定)')
-
     rows = []
     for symbol, pair_cfg in BB_PAIRS_CFG.items():
         print(f'\n--- {symbol} ---')
-        header = f'  {"sl_mult":>7} | {"s2_dist":>7} | {"PF":>6} | {"勝率":>6} | {"実RR":>6} | {"avg_exit":>8} | TP/Trail/SL | {"N":>5}'
-        print(header)
+        print(f'  {"sl_mult":>7} | {"s2_dist":>7} | {"PF":>6} | {"勝率":>6} | {"実RR":>6} | {"avg_exit":>8} | TP/Trail/SL | {"N":>5}')
         print('  ' + '-' * 75)
 
         for sl_mult in GRID_SL_CANDIDATES:
@@ -770,7 +769,6 @@ def run_stage2_grid_backtest():
                       f'{res["tp_count"]:>3}/{res["trail_count"]:>3}/{res["sl_count"]:>3} | '
                       f'{res["trades"]:>5}')
 
-    # ペア別PF最良サマリー
     print('\n=== ペア別 最良組み合わせ（PF基準）===')
     for symbol in BB_PAIRS_CFG:
         pair_rows = [r for r in rows if r['symbol'] == symbol and r['trades'] >= 20]
@@ -786,21 +784,12 @@ def run_stage2_grid_backtest():
         json.dump(rows, f, ensure_ascii=False, indent=2)
     print(f'\n出力: {out}')
 
-# ===== Stage2 distance sweep =====
-DISTANCE_SWEEP_PAIRS   = ['GBPJPY', 'USDJPY', 'EURUSD', 'GBPUSD']
-DISTANCE_SWEEP_VALUES  = [0.05, 0.1, 0.2, 0.3]
-DISTANCE_SWEEP_ACTIVATE = 0.7   # activate固定
+DISTANCE_SWEEP_PAIRS    = ['GBPJPY', 'USDJPY', 'EURUSD', 'GBPUSD']
+DISTANCE_SWEEP_VALUES   = [0.05, 0.1, 0.2, 0.3]
+DISTANCE_SWEEP_ACTIVATE = 0.7
 
 def run_distance_sweep():
-    """
-    Stage2 distanceを0.05/0.1/0.2/0.3の4パターンでペア別BT。
-    sl_atr_multはBB_PAIRS_CFG準拠（ペア別設定を尊重）。
-    出力: data/stage2_distance_bt.csv
-    """
     print('=== Stage2 distance sweep BT ===')
-    print(f'pairs={DISTANCE_SWEEP_PAIRS}')
-    print(f'distances={DISTANCE_SWEEP_VALUES}  activate={DISTANCE_SWEEP_ACTIVATE}(固定)')
-
     rows = []
     for symbol in DISTANCE_SWEEP_PAIRS:
         pair_cfg = BB_PAIRS_CFG.get(symbol)
@@ -822,19 +811,12 @@ def run_distance_sweep():
                 print(f'  {dist:>8.2f} | データなし')
                 continue
             row = {
-                'symbol':           symbol,
-                'stage2_distance':  dist,
-                'stage2_activate':  DISTANCE_SWEEP_ACTIVATE,
-                'sl_atr_mult':      pair_cfg['sl_atr_mult'],
-                'tp_sl_ratio':      pair_cfg['tp_sl_ratio'],
-                'pf':               res['pf'],
-                'win_rate':         res['win_rate'],
-                'rr_actual':        res['rr_actual'],
-                'avg_exit_pct':     res['avg_exit_pct'],
-                'tp_count':         res['tp_count'],
-                'trail_count':      res['trail_count'],
-                'sl_count':         res['sl_count'],
-                'trades':           res['trades'],
+                'symbol':          symbol,
+                'stage2_distance': dist,
+                'stage2_activate': DISTANCE_SWEEP_ACTIVATE,
+                'sl_atr_mult':     pair_cfg['sl_atr_mult'],
+                'tp_sl_ratio':     pair_cfg['tp_sl_ratio'],
+                **res,
             }
             rows.append(row)
             print(f'  {dist:>8.2f} | '
@@ -846,7 +828,7 @@ def run_distance_sweep():
                   f'{res["trades"]:>5}')
 
     if not rows:
-        print('[ERROR] 結果なし。CSVデータを確認してください。')
+        print('[ERROR] 結果なし')
         return
 
     out_csv = str(Path(__file__).parent.parent / 'data' / 'stage2_distance_bt.csv')
@@ -855,45 +837,348 @@ def run_distance_sweep():
     df_out.to_csv(out_csv, index=False, encoding='utf-8')
     print(f'\n出力: {out_csv}')
 
-    # 比較表（ペア x distance）
     print('\n=== ペア別 PF比較表 ===')
     pivot_pf = df_out.pivot(index='symbol', columns='stage2_distance', values='pf')
     pivot_wr = df_out.pivot(index='symbol', columns='stage2_distance', values='win_rate')
     pivot_rr = df_out.pivot(index='symbol', columns='stage2_distance', values='rr_actual')
     pivot_n  = df_out.pivot(index='symbol', columns='stage2_distance', values='trades')
+    header   = f'  {"pair":>7} | ' + ' | '.join(f'd={d:.2f}' for d in DISTANCE_SWEEP_VALUES)
 
-    header = f'  {"pair":>7} | ' + ' | '.join(f'd={d:.2f}' for d in DISTANCE_SWEEP_VALUES)
-    print(f'\n[PF]')
-    print(header)
-    for sym in DISTANCE_SWEEP_PAIRS:
-        if sym not in pivot_pf.index:
-            continue
-        vals = ' | '.join(f'{pivot_pf.loc[sym, d]:6.3f}' for d in DISTANCE_SWEEP_VALUES)
-        print(f'  {sym:>7} | {vals}')
+    for label, pivot in [('[PF]', pivot_pf), ('[勝率%]', pivot_wr), ('[実RR]', pivot_rr), ('[取引数N]', pivot_n)]:
+        print(f'\n{label}')
+        print(header)
+        for sym in DISTANCE_SWEEP_PAIRS:
+            if sym not in pivot.index:
+                continue
+            if label == '[取引数N]':
+                vals = ' | '.join(f'{int(pivot.loc[sym, d]):6d}' for d in DISTANCE_SWEEP_VALUES)
+            elif label == '[勝率%]':
+                vals = ' | '.join(f'{pivot.loc[sym, d]:5.1f}%' for d in DISTANCE_SWEEP_VALUES)
+            else:
+                vals = ' | '.join(f'{pivot.loc[sym, d]:6.3f}' for d in DISTANCE_SWEEP_VALUES)
+            print(f'  {sym:>7} | {vals}')
 
-    print(f'\n[勝率%]')
-    print(header)
-    for sym in DISTANCE_SWEEP_PAIRS:
-        if sym not in pivot_wr.index:
-            continue
-        vals = ' | '.join(f'{pivot_wr.loc[sym, d]:5.1f}%' for d in DISTANCE_SWEEP_VALUES)
-        print(f'  {sym:>7} | {vals}')
 
-    print(f'\n[実RR]')
-    print(header)
-    for sym in DISTANCE_SWEEP_PAIRS:
-        if sym not in pivot_rr.index:
-            continue
-        vals = ' | '.join(f'{pivot_rr.loc[sym, d]:6.3f}' for d in DISTANCE_SWEEP_VALUES)
-        print(f'  {sym:>7} | {vals}')
+# ========================================================
+# ===== エントリーフィルターBT（新規追加）=====
+# ========================================================
 
-    print(f'\n[取引数N]')
-    print(header)
-    for sym in DISTANCE_SWEEP_PAIRS:
-        if sym not in pivot_n.index:
+# フィルター条件定義
+# 各フィルターはON/OFFで切り替え可能
+# filter_cfg例:
+#   {'hour': True,  'htf4h': False, 'adx': False}  → 時間帯のみON
+#   {'hour': True,  'htf4h': True,  'adx': False}  → 時間帯+HTF4h
+#   {'hour': True,  'htf4h': True,  'adx': True}   → 全フィルター
+
+# フィルター組み合わせ一覧（単体→複合の順）
+FILTER_COMBOS = [
+    {'label': 'no_filter',       'hour': False, 'htf4h': False, 'adx': False},
+    {'label': 'hour_only',       'hour': True,  'htf4h': False, 'adx': False},
+    {'label': 'htf4h_only',      'hour': False, 'htf4h': True,  'adx': False},
+    {'label': 'adx_only',        'hour': False, 'htf4h': False, 'adx': True},
+    {'label': 'hour+htf4h',      'hour': True,  'htf4h': True,  'adx': False},
+    {'label': 'hour+adx',        'hour': True,  'htf4h': False, 'adx': True},
+    {'label': 'htf4h+adx',       'hour': False, 'htf4h': True,  'adx': True},
+    {'label': 'all_filters',     'hour': True,  'htf4h': True,  'adx': True},
+]
+
+
+def simulate_with_filters(symbol, pair_cfg, filter_cfg, n_bars=5000):
+    """
+    エントリーフィルター付きBT（simulate_with_stage2ロジックベース）。
+    filter_cfg: {'hour': bool, 'htf4h': bool, 'adx': bool}
+    Stage2パラメータはBB_PAIRS_CFG準拠の現状設定を使用。
+    戻り値: {'pf', 'win_rate', 'rr_actual', 'trades', 'avg_exit_pct',
+              'tp_count', 'trail_count', 'sl_count'} or None
+    """
+    # 現在の稼働パラメータ（trail_monitor v10準拠）
+    STAGE2_ACTIVATE = 0.70
+    STAGE2_DISTANCE_MAP = {
+        'GBPJPY': 0.3,
+        'USDJPY': 0.3,
+    }
+    stage2_distance = STAGE2_DISTANCE_MAP.get(symbol, 0.3)
+
+    cfg = get_base_params()
+    cfg.update(pair_cfg)
+
+    df_5m = load_csv(symbol, '5m')
+    df_1h = load_csv(symbol, '1h')
+    if df_5m is None or df_1h is None:
+        return None
+
+    df_5m = df_5m.tail(n_bars).reset_index(drop=True)
+
+    close   = df_5m['close']
+    bb_u, bb_l, bb_ma, bb_std = calc_bb(close, cfg['bb_period'], cfg['bb_sigma'])
+    rsi     = calc_rsi(close, cfg['rsi_period'])
+    atr     = calc_atr(df_5m, cfg['atr_period'])
+    htf_lkp = build_htf_lookup(df_1h, cfg['htf_period'], cfg['htf_sigma'])
+
+    # フィルター用ルックアップ事前構築
+    htf4h_lkp = build_htf4h_ema_lookup(df_1h) if filter_cfg.get('htf4h') else None
+    adx_lkp   = build_adx_lookup(df_1h)       if filter_cfg.get('adx')   else None
+    hour_list  = HOUR_FILTER_CANDIDATES.get(symbol, []) if filter_cfg.get('hour') else None
+
+    spread    = 2 * cfg['pip_unit']
+    close_arr = close.values
+    n         = len(df_5m)
+
+    wins = losses = tp_count = trail_count = sl_count = 0
+    gross_profit = gross_loss = 0.0
+    exit_pcts = []
+    last_bar  = -cfg['cooldown_bars'] - 1
+
+    for i in range(cfg['bb_period'] + 1, n):
+        if i - last_bar < cfg['cooldown_bars']:
             continue
-        vals = ' | '.join(f'{int(pivot_n.loc[sym, d]):6d}' for d in DISTANCE_SWEEP_VALUES)
-        print(f'  {sym:>7} | {vals}')
+
+        c   = close_arr[i]
+        sl  = atr.iloc[i] * cfg['sl_atr_mult']
+        tp  = sl * cfg['tp_sl_ratio']
+        if sl == 0 or np.isnan(sl) or np.isnan(c):
+            continue
+
+        dt = df_5m['datetime'].iloc[i]
+
+        # --- 時間帯フィルター ---
+        if hour_list is not None:
+            if dt.hour not in hour_list:
+                continue
+
+        # --- HTF sigma（既存） ---
+        htf_idx = htf_lkp.index.searchsorted(dt, side='right') - 1
+        if htf_idx < 0:
+            continue
+        htf_sp = htf_lkp.iloc[htf_idx]
+        if np.isnan(htf_sp) or abs(htf_sp) >= cfg['htf_range_sigma']:
+            continue
+
+        # --- エントリー方向判定（BBタッチ+RSI） ---
+        direction = None
+        rsi_v = rsi.iloc[i]
+        if np.isnan(rsi_v):
+            continue
+        if c <= bb_l.iloc[i] and rsi_v < cfg['rsi_buy_max']:
+            direction = 'buy'
+        elif c >= bb_u.iloc[i] and rsi_v > cfg['rsi_sell_min']:
+            direction = 'sell'
+        if direction is None:
+            continue
+
+        # --- HTF 4h EMA20フィルター ---
+        if htf4h_lkp is not None:
+            htf4h_idx = htf4h_lkp.index.searchsorted(dt, side='right') - 1
+            if htf4h_idx < 0:
+                continue
+            htf4h_sig = htf4h_lkp.iloc[htf4h_idx]
+            # +1=Buy許可 / -1=Sell許可
+            if direction == 'buy'  and htf4h_sig != 1:
+                continue
+            if direction == 'sell' and htf4h_sig != -1:
+                continue
+
+        # --- ADXフィルター ---
+        if adx_lkp is not None:
+            adx_idx = adx_lkp.index.searchsorted(dt, side='right') - 1
+            if adx_idx < 0:
+                continue
+            adx_val = adx_lkp.iloc[adx_idx]
+            if np.isnan(adx_val) or adx_val <= 20:
+                continue
+
+        # --- 決済シミュレーション（Stage2トレーリングSL） ---
+        entry    = c + spread if direction == 'buy' else c - spread
+        tp_price = entry + tp  if direction == 'buy' else entry - tp
+        sl_price = entry - sl  if direction == 'buy' else entry + sl
+        tp_dist  = abs(tp_price - entry)
+
+        trail_sl  = sl_price
+        activated = False
+        hit       = None
+        exit_price = None
+
+        for j in range(i + 1, min(i + 300, n)):
+            h   = df_5m['high'].iloc[j]
+            l   = df_5m['low'].iloc[j]
+            mid = (h + l) / 2.0
+
+            if direction == 'buy':
+                progress = (mid - entry) / tp_dist if tp_dist > 0 else 0
+                if progress >= STAGE2_ACTIVATE:
+                    activated = True
+                if activated:
+                    new_trail = mid - tp_dist * stage2_distance
+                    if new_trail > trail_sl:
+                        trail_sl = new_trail
+                if l <= trail_sl:
+                    hit = 'trail_sl' if activated else 'sl'
+                    exit_price = trail_sl
+                    break
+                if h >= tp_price:
+                    hit = 'tp'
+                    exit_price = tp_price
+                    break
+            else:
+                progress = (entry - mid) / tp_dist if tp_dist > 0 else 0
+                if progress >= STAGE2_ACTIVATE:
+                    activated = True
+                if activated:
+                    new_trail = mid + tp_dist * stage2_distance
+                    if new_trail < trail_sl:
+                        trail_sl = new_trail
+                if h >= trail_sl:
+                    hit = 'trail_sl' if activated else 'sl'
+                    exit_price = trail_sl
+                    break
+                if l <= tp_price:
+                    hit = 'tp'
+                    exit_price = tp_price
+                    break
+
+        if hit is None or exit_price is None:
+            continue
+
+        if direction == 'buy':
+            exit_pct = (exit_price - entry) / tp_dist * 100
+        else:
+            exit_pct = (entry - exit_price) / tp_dist * 100
+
+        pnl = exit_price - entry if direction == 'buy' else entry - exit_price
+
+        if pnl > 0:
+            wins += 1
+            gross_profit += pnl
+        else:
+            losses += 1
+            gross_loss += abs(pnl)
+
+        if hit == 'tp':
+            tp_count += 1
+        elif hit == 'trail_sl':
+            trail_count += 1
+        elif hit == 'sl':
+            sl_count += 1
+        exit_pcts.append(exit_pct)
+        last_bar = i
+
+    trades = wins + losses
+    if trades == 0:
+        return None
+
+    return {
+        'trades':       trades,
+        'win_rate':     round(wins / trades * 100, 1),
+        'pf':           round(gross_profit / gross_loss, 3) if gross_loss > 0 else 99.0,
+        'rr_actual':    round(gross_profit / wins / (gross_loss / losses), 3) if wins > 0 and losses > 0 else 0.0,
+        'avg_exit_pct': round(float(np.mean(exit_pcts)), 1),
+        'tp_count':     tp_count,
+        'trail_count':  trail_count,
+        'sl_count':     sl_count,
+    }
+
+
+def run_filter_backtest():
+    """
+    エントリーフィルターBT。
+    対象: GBPJPY, USDJPY
+    フィルター: 単体(hour/htf4h/adx) + 組み合わせ
+    出力: optimizer/filter_bt_results.csv + JSON
+    """
+    print('=== エントリーフィルターBT ===')
+    print(f'対象ペア: {FILTER_BT_PAIRS}')
+    print(f'フィルター組み合わせ: {len(FILTER_COMBOS)}パターン')
+
+    rows = []
+
+    for symbol in FILTER_BT_PAIRS:
+        pair_cfg = BB_PAIRS_CFG.get(symbol)
+        if pair_cfg is None:
+            print(f'[WARN] {symbol} not in BB_PAIRS_CFG, skip')
+            continue
+
+        print(f'\n--- {symbol} ---')
+        print(f'  {"label":>16} | {"PF":>6} | {"勝率":>6} | {"実RR":>6} | {"avg_exit":>9} | TP/Trail/SL | {"N":>5}')
+        print(f'  {"-"*75}')
+
+        for combo in FILTER_COMBOS:
+            filter_cfg = {k: v for k, v in combo.items() if k != 'label'}
+            res = simulate_with_filters(symbol, pair_cfg, filter_cfg)
+
+            if res is None:
+                print(f'  {combo["label"]:>16} | データなし / N不足')
+                continue
+
+            row = {
+                'symbol':      symbol,
+                'filter':      combo['label'],
+                'hour':        combo['hour'],
+                'htf4h':       combo['htf4h'],
+                'adx':         combo['adx'],
+                **res,
+            }
+            rows.append(row)
+
+            trades = res['trades']
+            tp_rate    = round(res['tp_count']    / trades * 100, 1)
+            trail_rate = round(res['trail_count'] / trades * 100, 1)
+            sl_rate    = round(res['sl_count']    / trades * 100, 1)
+            print(f'  {combo["label"]:>16} | '
+                  f'{res["pf"]:>6.3f} | '
+                  f'{res["win_rate"]:>5.1f}% | '
+                  f'{res["rr_actual"]:>6.3f} | '
+                  f'{res["avg_exit_pct"]:>+8.1f}%TP | '
+                  f'{tp_rate:>4.1f}%/{trail_rate:>4.1f}%/{sl_rate:>4.1f}% | '
+                  f'{trades:>5}')
+
+    if not rows:
+        print('[ERROR] 結果なし。CSVデータを確認してください。')
+        return
+
+    # CSV出力
+    out_dir = Path(r'C:\Users\Administrator\fx_bot\optimizer')
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_csv  = str(out_dir / 'filter_bt_results.csv')
+    out_json = str(out_dir / 'filter_bt_results.json')
+
+    df_out = pd.DataFrame(rows)
+    df_out.to_csv(out_csv, index=False, encoding='utf-8')
+    with open(out_json, 'w', encoding='utf-8') as f:
+        json.dump(rows, f, ensure_ascii=False, indent=2)
+    print(f'\n出力: {out_csv}')
+    print(f'出力: {out_json}')
+
+    # サマリー：ペア別PF上位3（N>=20）
+    print('\n=== ペア別 PF上位3（N>=20）===')
+    for symbol in FILTER_BT_PAIRS:
+        pair_rows = [r for r in rows if r['symbol'] == symbol and r['trades'] >= 20]
+        if not pair_rows:
+            print(f'  {symbol}: 有効結果なし')
+            continue
+        top3 = sorted(pair_rows, key=lambda x: x['pf'], reverse=True)[:3]
+        print(f'  {symbol}:')
+        for r in top3:
+            print(f'    [{r["filter"]}] '
+                  f'PF={r["pf"]} 勝率={r["win_rate"]}% '
+                  f'実RR={r["rr_actual"]} N={r["trades"]}')
+
+    # ベースライン（no_filter）との差分表示
+    print('\n=== ベースライン比（PF差分）===')
+    for symbol in FILTER_BT_PAIRS:
+        base = next((r for r in rows if r['symbol'] == symbol and r['filter'] == 'no_filter'), None)
+        if base is None:
+            continue
+        print(f'  {symbol} (base PF={base["pf"]}, N={base["trades"]}):')
+        for r in rows:
+            if r['symbol'] != symbol or r['filter'] == 'no_filter':
+                continue
+            dpf = r['pf'] - base['pf']
+            dn  = r['trades'] - base['trades']
+            print(f'    [{r["filter"]:>16}] '
+                  f'PF={r["pf"]}({dpf:+.3f}) '
+                  f'勝率={r["win_rate"]}% '
+                  f'N={r["trades"]}({dn:+d})')
+
 
 # ===== メイン =====
 def main():
@@ -901,13 +1186,12 @@ def main():
     parser.add_argument('--symbol',    default='USDCAD')
     parser.add_argument('--output',    default=OUTPUT_FILE)
     parser.add_argument('--mode',      default='auto',
-                        choices=['auto', 'candidates', 'suggestions'],
-                        help='auto: candidates.jsonがあればそちら優先')
-    
-    parser.add_argument('--stage2', action='store_true', help='Stage2パラメータ比較BT')
-    parser.add_argument('--sl',     action='store_true', help='SL幅比較BT')
+                        choices=['auto', 'candidates', 'suggestions'])
+    parser.add_argument('--stage2',         action='store_true', help='Stage2パラメータ比較BT')
+    parser.add_argument('--sl',             action='store_true', help='SL幅比較BT')
     parser.add_argument('--grid',           action='store_true', help='sl_atr_mult x stage2_distanceグリッドサーチ')
     parser.add_argument('--distance-sweep', action='store_true', help='Stage2 distance 0.05/0.1/0.2/0.3 ペア別比較')
+    parser.add_argument('--filter-bt',      action='store_true', help='エントリーフィルターBT（GBPJPY/USDJPY）')
     args = parser.parse_args()
 
     if args.stage2:
@@ -922,6 +1206,10 @@ def main():
     if args.distance_sweep:
         run_distance_sweep()
         return
+    if args.filter_bt:
+        run_filter_backtest()
+        return
+
     print('=== backtest.py Phase3 開始 ===')
     print(f'symbol={args.symbol}  mode={args.mode}  output={args.output}')
 
@@ -931,19 +1219,19 @@ def main():
     )
 
     if use_candidates:
-        print(f'[モード] candidates.json（複合パラメータ）')
+        print('[モード] candidates.json（複合パラメータ）')
         results = run_backtest_from_candidates(args.symbol, args.output)
     else:
-        print(f'[モード] suggestions.json（単一パラメータ・後方互換）')
+        print('[モード] suggestions.json（単一パラメータ・後方互換）')
         results = run_backtest_from_suggestions(args.symbol, args.output)
 
-    # サマリー
     valid = [r for r in results if r.get('result') not in ('BASELINE', 'baseline') and r.get('trades', 0) >= 20]
     if valid:
         print('\n--- PF上位5 ---')
         for r in sorted(valid, key=lambda x: x['pf'], reverse=True)[:5]:
             label = r.get('id') or f'{r.get("param")}={r.get("candidate")}'
             print(f'  {label}  PF={r["pf"]}  勝率={r["win_rate"]}%  N={r["trades"]}')
+
 
 if __name__ == '__main__':
     main()
