@@ -175,13 +175,19 @@ def fetch_from_mt5(
 
 
 def _save_rows_to_csv(rows: list[dict], path: Path):
-    fieldnames = list(rows[0].keys())
-    # float/int をすべて str に変換してCSV書き込み
-    str_rows = [{k: str(v) for k, v in r.items()} for r in rows]
-    with open(path, 'w', newline='', encoding='utf-8-sig') as f:
-        w = csv.DictWriter(f, fieldnames=fieldnames)
-        w.writeheader()
-        w.writerows(str_rows)
+    if not rows:
+        print(f'[ERROR] _save_rows_to_csv: 保存対象データが空です ({path})')
+        return
+    try:
+        fieldnames = list(rows[0].keys())
+        str_rows = [{k: str(v) for k, v in r.items()} for r in rows]
+        with open(path, 'w', newline='', encoding='utf-8-sig') as f:
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            w.writerows(str_rows)
+    except (KeyError, ValueError) as e:
+        print(f'[ERROR] _save_rows_to_csv: CSV形式エラー: {e} ({path})')
+        raise
 
 
 # ------------------------------------------------------------------ #

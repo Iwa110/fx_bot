@@ -23,10 +23,10 @@ RUN_DIR  = BASE_DIR / 'runs'
 LOG_DIR  = BASE_DIR / 'logs'
 
 APPROVAL_CRITERIA = {
-    'pf_min':        1.00,
-    'dd_max':       -0.15,
-    'win_rate_min':  0.45,
-    'tp_reach_min':  0.20,
+    'pf_min':        1.30,
+    'dd_max':       -0.08,
+    'win_rate_min':  0.50,
+    'tp_reach_min':  0.40,
 }
 
 TARGET_STRATEGIES = [

@@ -180,9 +180,9 @@ def is_dup(symbol, strategy, logf):
     return False
 
 def is_in_cooldown(symbol):
-    now_local  = datetime.now()                        # 修正: UTC→ローカル
-    from_local = now_local - timedelta(minutes=COOLDOWN_MINUTES)
-    deals = mt5.history_deals_get(from_local, now_local)  # 修正: ローカル時刻
+    now_utc  = datetime.now(timezone.utc)
+    from_utc = now_utc - timedelta(minutes=COOLDOWN_MINUTES)
+    deals = mt5.history_deals_get(from_utc, now_utc)
     if not deals:
         return False
     for d in deals:
@@ -193,8 +193,8 @@ def is_in_cooldown(symbol):
         if d.entry != mt5.DEAL_ENTRY_OUT:
             continue
         if d.reason == mt5.DEAL_REASON_SL:
-            deal_time = datetime.fromtimestamp(d.time)  # 修正: ローカル変換
-            elapsed   = (now_local - deal_time).total_seconds() / 60
+            deal_time = datetime.fromtimestamp(d.time, tz=timezone.utc)
+            elapsed   = (now_utc - deal_time).total_seconds() / 60
             if elapsed <= COOLDOWN_MINUTES:
                 log(symbol + ': クールダウン中 SL後' + f'{elapsed:.1f}' + '分')
                 return True
@@ -575,12 +575,6 @@ def calc_bb_signal(symbol, cfg):
         if sl_mult_pair != 2.0:
             floor = rm.ATR_FLOOR_JPY if is_jpy else rm.ATR_FLOOR_NONJPY
             sl_dist = max(atr, floor) * sl_mult_pair
-        # ペア別sl_atr_multで上書き（rm側はsl=2.0固定のため）
-        sl_mult_pair = cfg.get('sl_atr_mult', 2.0)
-        if sl_mult_pair != 2.0:
-            floor = rm.ATR_FLOOR_JPY if is_jpy else rm.ATR_FLOOR_NONJPY
-            atr_eff = max(atr, floor)
-            sl_dist = atr_eff * sl_mult_pair
     except Exception as e:
         log(symbol + ': TP/SL計算エラー: ' + str(e))
         return None

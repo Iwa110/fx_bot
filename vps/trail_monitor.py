@@ -335,13 +335,21 @@ def update_trailing_stops():
         if new_sl is None:
             continue
 
-        result = mt5.order_send({
+        request = {
             'action':   mt5.TRADE_ACTION_SLTP,
             'symbol':   symbol,
             'position': p.ticket,
             'tp':       p.tp,
             'sl':       new_sl,
-        })
+        }
+        result = None
+        for attempt in range(3):
+            result = mt5.order_send(request)
+            if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
+                break
+            if attempt < 2:
+                log('TrailSL再試行(' + str(attempt + 1) + '): ' + symbol +
+                    ' code=' + str(result.retcode if result else 'None'))
 
         if result is not None and result.retcode == mt5.TRADE_RETCODE_DONE:
             direction  = 1 if p.type == 0 else -1
@@ -356,7 +364,7 @@ def update_trailing_stops():
                 ' [' + stage + ']')
             updated += 1
         elif result is not None and result.retcode not in [10027, 10025]:
-            log('SL更新失敗: ' + symbol +
+            log('SL更新失敗(3回試行): ' + symbol +
                 ' code=' + str(result.retcode) +
                 ' ' + (result.comment if result.comment else ''))
 
