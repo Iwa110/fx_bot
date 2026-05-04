@@ -1,4 +1,4 @@
-# trail_monitor.py v10
+# trail_monitor.py v11
 # トレーリングストップ監視スクリプト
 #
 # 【対象戦略】
@@ -30,6 +30,7 @@
 #   v10 STR/MOM_JPYペア別設定分離
 #       get_trail_config(strategy, symbol)に変更
 #       calc_new_sl/update_trailing_stops/print_heartbeat の呼び出し側を修正
+#   v11 stage2_distance updated.
 
 import MetaTrader5 as mt5
 import json, os, time, urllib.request, sys
@@ -58,11 +59,13 @@ STAGE2_LOCK_DEFAULT  = 0.2   # Stage2 SL位置のデフォルト: entry + ATR×0
 #   stage2=Falseの戦略には不要
 TRAIL_CONFIG = {
     'BB_':        {'stage2': True,  'stage3_activate': 1.2, 'stage3_distance': 0.8,  'stage2_distance': 0.3},
-    'BB_USDJPY':  {'stage2': True,  'stage3_activate': 1.2, 'stage3_distance': 0.15, 'stage2_distance': 0.3},
-    'BB_EURJPY':  {'stage2': True,  'stage3_activate': 1.2, 'stage3_distance': 0.8,  'stage2_distance': 0.3},
-    'BB_GBPJPY':  {'stage2': True,  'stage3_activate': 1.2, 'stage3_distance': 0.8,  'stage2_distance': 0.3},
-    'BB_EURUSD':  {'stage2': True,  'stage3_activate': 1.2, 'stage3_distance': 0.8,  'stage2_distance': 0.1},
-    'BB_GBPUSD':  {'stage2': True,  'stage3_activate': 1.2, 'stage3_distance': 0.8,  'stage2_distance': 0.3},
+    'BB_GBPJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 1.0},  # PF=1.02 勝率=38.4% N=276 (旧:0.3 -> 新:1.0, +0.70)
+    'BB_USDJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 0.7},  # PF=1.268  勝率=48.6% N=138 (旧:0.3 -> 新:0.7, +0.40)
+    'BB_EURUSD': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 0.1},  # PF=0.663  勝率=33.7% N=246 (旧:0.1 -> 新:0.1, 変更なし)
+    'BB_GBPUSD': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 1.0},  # PF=0.777  勝率=32.1% N=293 (旧:0.3 -> 新:1.0, +0.70)
+    'BB_EURJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 0.7},  # PF=1.041  勝率=44.7% N=284 (旧:0.3 -> 新:0.7, +0.40)
+    'BB_AUDJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 1.0},  # PF=0.647  勝率=29.8% N=292 (旧:0.3 -> 新:1.0, +0.70)
+
     'MOM_JPY':          {'stage2': False, 'stage3_activate': 1.0, 'stage3_distance': 0.8},
     'MOM_JPY_USDJPY':   {'stage2': False, 'stage3_activate': 1.0, 'stage3_distance': 0.8},  # 個別上書き用
     'MOM_GBJ':          {'stage2': False, 'stage3_activate': 0.8, 'stage3_distance': 0.7},
@@ -370,7 +373,7 @@ def main():
     webhook = env.get('DISCORD_WEBHOOK', '')
 
     print('=' * 55)
-    print('トレーリングストップ常駐モニター v10 起動')
+    print('トレーリングストップ常駐モニター v11 起動')
     print('更新間隔      : ' + str(TRAIL_INTERVAL) + '秒')
     print('最小更新幅    : ATR*' + str(MIN_UPDATE_MULT))
     print('Stage2        : 利益>=ATR*' + str(STAGE2_ACTIVATE) + ' → SL=entry+ATR*stage2_distance (戦略別)')
