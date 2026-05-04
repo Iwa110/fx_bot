@@ -169,10 +169,10 @@ def get_trail_config(strategy, symbol=None):
 # ══════════════════════════════════════════
 def calc_new_sl(p, atr, pip):
     """
-    3段階SLを計算して(new_sl, stage_label)を返す。
+    2段階SLを計算して(new_sl, stage_label)を返す。
     更新不要の場合は(None, '')を返す。
 
-    優先度: Stage3 > Stage2 > Stage1
+    優先度: Stage3 > Stage2
     （より有利なステージが常に上書き）
     """
     cfg = get_trail_config(p.comment.replace('FXBot_', ''), p.symbol)
@@ -190,14 +190,6 @@ def calc_new_sl(p, atr, pip):
 
     new_sl = None
     stage  = ''
-
-    # ── Stage1: ATR×0.3以上でBEライン（廃止・実質無効）──
-    if cfg['stage1'] and profit_dist >= atr * STAGE1_ACTIVATE:
-        candidate   = round(entry, 5)
-        improvement = (candidate - current_sl) * direction
-        if improvement > min_update:
-            new_sl = candidate
-            stage  = 'Stage1(BE:profit>=ATR*' + str(STAGE1_ACTIVATE) + ')'
 
     # ── Stage2: ATR×0.7以上で小利益確定 ────────────────
     if cfg['stage2'] and profit_dist >= atr * STAGE2_ACTIVATE:
@@ -381,7 +373,6 @@ def main():
     print('トレーリングストップ常駐モニター v10 起動')
     print('更新間隔      : ' + str(TRAIL_INTERVAL) + '秒')
     print('最小更新幅    : ATR*' + str(MIN_UPDATE_MULT))
-    print('Stage1        : 廃止（BEライン → 手数料損が発生するため）')
     print('Stage2        : 利益>=ATR*' + str(STAGE2_ACTIVATE) + ' → SL=entry+ATR*stage2_distance (戦略別)')
     print('Stage3        : 利益>=ATR*activate → SL=現在価格-ATR*distance (トレーリング)')
     print('stage2_distance: TRAIL_CONFIGで戦略別設定、省略時=' + str(STAGE2_LOCK_DEFAULT))
