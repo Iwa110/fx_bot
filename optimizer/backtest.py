@@ -45,6 +45,7 @@ USDCAD_CFG = {
 BB_PAIRS_CFG = {
     'GBPJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
     'EURJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5},
+    'AUDJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
     'USDJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 2.0, 'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5},
     'EURUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.5, 'tp_sl_ratio': 1.5},
     'GBPUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.5, 'tp_sl_ratio': 1.5},
@@ -1180,6 +1181,174 @@ def run_filter_backtest():
                   f'N={r["trades"]}({dn:+d})')
 
 
+# ===== Stage2 distance グリッドサーチ最適化（全ペア対応） =====
+STAGE2_OPT_PAIRS     = ['GBPJPY', 'USDJPY', 'EURUSD', 'GBPUSD', 'EURJPY', 'AUDJPY']
+STAGE2_OPT_DISTANCES = [0.1, 0.2, 0.3, 0.4, 0.5, 0.7, 1.0]
+STAGE2_OPT_SL_MULTS  = [1.5, 2.0, 2.5, 3.0]
+STAGE2_OPT_ACTIVATE  = 0.7
+STAGE2_OPT_MIN_N     = 30
+
+
+def run_stage2_opt():
+    """
+    BB戦略 stage2_distance x sl_atr_mult グリッドサーチ。
+    対象: GBPJPY/USDJPY/EURUSD/GBPUSD/EURJPY/AUDJPY
+    評価優先: PF > 勝率 > N（N<30は除外）
+    出力: stage2_opt_results.csv + TRAIL_CONFIG更新案
+    """
+    print('=== BB stage2_distance 最適化グリッドサーチ ===')
+    print(f'pairs    : {STAGE2_OPT_PAIRS}')
+    print(f'distances: {STAGE2_OPT_DISTANCES}')
+    print(f'sl_mults : {STAGE2_OPT_SL_MULTS}')
+    print(f'activate : {STAGE2_OPT_ACTIVATE} (固定)')
+    print(f'min_N    : {STAGE2_OPT_MIN_N}')
+
+    all_rows = []
+
+    for symbol in STAGE2_OPT_PAIRS:
+        pair_cfg = BB_PAIRS_CFG.get(symbol)
+        if pair_cfg is None:
+            print(f'\n[WARN] {symbol} not in BB_PAIRS_CFG, skip')
+            continue
+
+        print(f'\n{"="*70}')
+        print(f'  {symbol}  (bb_sigma={pair_cfg["bb_sigma"]} tp_sl_ratio={pair_cfg["tp_sl_ratio"]})')
+        print(f'{"="*70}')
+        hdr = (f'  {"sl_mult":>7} | {"s2_dist":>7} | {"PF":>6} | '
+               f'{"勝率":>6} | {"実RR":>6} | {"avg_exit":>9} | '
+               f'{"TP":>4}/{"Trail":>5}/{"SL":>4} | {"N":>5}')
+        print(hdr)
+        print('  ' + '-' * 77)
+
+        pair_rows = []
+        for sl_mult in STAGE2_OPT_SL_MULTS:
+            for s2_dist in STAGE2_OPT_DISTANCES:
+                res = simulate_with_stage2(
+                    symbol, pair_cfg,
+                    stage2_activate=STAGE2_OPT_ACTIVATE,
+                    stage2_distance=s2_dist,
+                    sl_atr_mult=sl_mult,
+                )
+                if res is None:
+                    print(f'  {sl_mult:>7.1f} | {s2_dist:>7.2f} | データなし')
+                    continue
+
+                n = res['trades']
+                n_mark = '' if n >= STAGE2_OPT_MIN_N else ' *'
+                row = {
+                    'symbol':          symbol,
+                    'sl_atr_mult':     sl_mult,
+                    'stage2_distance': s2_dist,
+                    'stage2_activate': STAGE2_OPT_ACTIVATE,
+                    **res,
+                }
+                all_rows.append(row)
+                pair_rows.append(row)
+
+                print(f'  {sl_mult:>7.1f} | {s2_dist:>7.2f} | '
+                      f'{res["pf"]:>6.3f} | '
+                      f'{res["win_rate"]:>5.1f}% | '
+                      f'{res["rr_actual"]:>6.3f} | '
+                      f'{res["avg_exit_pct"]:>+8.1f}%TP | '
+                      f'{res["tp_count"]:>4}/{res["trail_count"]:>5}/{res["sl_count"]:>4} | '
+                      f'{n:>5}{n_mark}')
+
+        # ペア別推奨（N>=30）
+        valid = [r for r in pair_rows if r['trades'] >= STAGE2_OPT_MIN_N]
+        if valid:
+            best = max(valid, key=lambda x: (x['pf'], x['win_rate']))
+            print(f'\n  [{symbol}] 推奨: sl_mult={best["sl_atr_mult"]} '
+                  f's2_dist={best["stage2_distance"]} '
+                  f'PF={best["pf"]} 勝率={best["win_rate"]}% '
+                  f'実RR={best["rr_actual"]} N={best["trades"]}')
+        else:
+            print(f'\n  [{symbol}] N<{STAGE2_OPT_MIN_N}のため推奨なし')
+
+    if not all_rows:
+        print('[ERROR] 結果なし。データを確認してください。')
+        return
+
+    # CSV出力
+    out_dir = Path(__file__).parent
+    out_csv = str(out_dir / 'stage2_opt_results.csv')
+    df_out = pd.DataFrame(all_rows)
+    df_out.to_csv(out_csv, index=False, encoding='utf-8')
+    print(f'\n出力: {out_csv}')
+
+    # ===== TRAIL_CONFIG更新案 =====
+    print('\n' + '=' * 70)
+    print('  TRAIL_CONFIG 更新案（trail_monitor.py v10用）')
+    print('  ※ コピペして使用してください')
+    print('=' * 70)
+
+    current_s2dist = {
+        'BB_GBPJPY': 0.3,
+        'BB_USDJPY': 0.3,
+        'BB_EURJPY': 0.3,
+        'BB_AUDJPY': 0.3,
+        'BB_EURUSD': 0.1,
+        'BB_GBPUSD': 0.3,
+    }
+
+    recommendations = {}
+    for symbol in STAGE2_OPT_PAIRS:
+        valid = [r for r in all_rows
+                 if r['symbol'] == symbol and r['trades'] >= STAGE2_OPT_MIN_N]
+        if not valid:
+            recommendations[symbol] = None
+            continue
+        best = max(valid, key=lambda x: (x['pf'], x['win_rate']))
+        recommendations[symbol] = best
+
+    print('\nTRAIL_CONFIG = {')
+    trail_key_map = {
+        'GBPJPY': 'BB_GBPJPY',
+        'USDJPY': 'BB_USDJPY',
+        'EURJPY': 'BB_EURJPY',
+        'AUDJPY': 'BB_AUDJPY',
+        'EURUSD': 'BB_EURUSD',
+        'GBPUSD': 'BB_GBPUSD',
+    }
+    for symbol in STAGE2_OPT_PAIRS:
+        key  = trail_key_map[symbol]
+        best = recommendations[symbol]
+        if best is None:
+            dist = current_s2dist.get(key, 0.3)
+            comment = f'# N不足のため現状維持'
+        else:
+            dist    = best['stage2_distance']
+            old_dist = current_s2dist.get(key, 0.3)
+            change  = f'+{dist-old_dist:.2f}' if dist != old_dist else '変更なし'
+            comment = (f'# PF={best["pf"]} 勝率={best["win_rate"]}% '
+                       f'N={best["trades"]} (旧:{old_dist} -> 新:{dist}, {change})')
+        print(f'    \'{key}\': '
+              f'{{"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, '
+              f'"stage2_distance": {dist}}},  {comment}')
+    print('    ...')
+    print('}')
+
+    # ペア別サマリー表（PF上位5 per pair）
+    print('\n' + '=' * 70)
+    print('  ペア別 PF上位5（N>=30）')
+    print('=' * 70)
+    for symbol in STAGE2_OPT_PAIRS:
+        valid = [r for r in all_rows
+                 if r['symbol'] == symbol and r['trades'] >= STAGE2_OPT_MIN_N]
+        if not valid:
+            print(f'\n  {symbol}: 有効結果なし（N<{STAGE2_OPT_MIN_N}）')
+            continue
+        top5 = sorted(valid, key=lambda x: x['pf'], reverse=True)[:5]
+        print(f'\n  {symbol}:')
+        print(f'  {"sl_mult":>7} | {"s2_dist":>7} | {"PF":>6} | {"勝率":>6} | {"実RR":>6} | {"N":>5}')
+        for r in top5:
+            print(f'  {r["sl_atr_mult"]:>7.1f} | '
+                  f'{r["stage2_distance"]:>7.2f} | '
+                  f'{r["pf"]:>6.3f} | '
+                  f'{r["win_rate"]:>5.1f}% | '
+                  f'{r["rr_actual"]:>6.3f} | '
+                  f'{r["trades"]:>5}')
+
+
 # ===== メイン =====
 def main():
     parser = argparse.ArgumentParser()
@@ -1192,6 +1361,7 @@ def main():
     parser.add_argument('--grid',           action='store_true', help='sl_atr_mult x stage2_distanceグリッドサーチ')
     parser.add_argument('--distance-sweep', action='store_true', help='Stage2 distance 0.05/0.1/0.2/0.3 ペア別比較')
     parser.add_argument('--filter-bt',      action='store_true', help='エントリーフィルターBT（GBPJPY/USDJPY）')
+    parser.add_argument('--stage2-opt',     action='store_true', help='stage2_distance x sl_atr_mult グリッドサーチ（6ペア）')
     args = parser.parse_args()
 
     if args.stage2:
@@ -1208,6 +1378,9 @@ def main():
         return
     if args.filter_bt:
         run_filter_backtest()
+        return
+    if args.stage2_opt:
+        run_stage2_opt()
         return
 
     print('=== backtest.py Phase3 開始 ===')
