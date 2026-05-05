@@ -1,10 +1,10 @@
 """
-日次戦略スクリプト v3.2（毎朝7時実行）
-修正点 v3.1→v3.2:
-  [PARAM1] MOM filter_th 0.005→0.002（全3ペア: MOM_ENZ/MOM_ECA/MOM_GBU）
-  [PARAM2] MOM_ENZ mom_th 0.010→0.007（EURNZDシグナル感度調整）
-  [PARAM3] CORR z_entry 2.5→1.1（AUDNZDエントリー閾値緩和）
-  [PARAM4] TRI entry_th 0.0008→0.00015（三角裁定エントリー閾値緩和）
+日次戦略スクリプト v3.3（毎朝7時実行）
+修正点 v3.2→v3.3:
+  [REFACTOR] MOM統合: check_mom/check_mom_new → check_mom_unified
+  [REFACTOR] MOM_JPY/MOM_GBJ を MOM_CONFIG に移行・ループ処理に統一
+  [PARAM5] MOM_JPY mom_th 0.010→0.007, filter_th 0.005→0.002
+  [PARAM6] MOM_GBJ mom_th 0.010→0.007, filter_th 0.005→0.002
 """
 import MetaTrader5 as mt5
 import json, os, ssl, urllib.request
@@ -34,31 +34,12 @@ STR_TICKERS = {
 TRADE_PAIRS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'EURGBP',
                'USDCAD', 'USDCHF', 'NZDUSD', 'EURJPY', 'GBPJPY']
 
-MOM_NEW_CONFIG = {
-    'MOM_ENZ': {
-        'symbol':        'EURNZD',
-        'filter_symbol': 'EURUSD',
-        'is_jpy':        False,
-        'period':        10,
-        'mom_th':        0.007,
-        'filter_th':     0.002,
-    },
-    'MOM_ECA': {
-        'symbol':        'EURCAD',
-        'filter_symbol': 'EURUSD',
-        'is_jpy':        False,
-        'period':        10,
-        'mom_th':        0.01,
-        'filter_th':     0.002,
-    },
-    'MOM_GBU': {
-        'symbol':        'GBPUSD',
-        'filter_symbol': 'EURUSD',
-        'is_jpy':        False,
-        'period':        10,
-        'mom_th':        0.01,
-        'filter_th':     0.002,
-    },
+MOM_CONFIG = {
+    'MOM_JPY': {'symbol': 'USDJPY', 'filter_symbol': 'EURJPY',  'is_jpy': True,  'period': 10, 'mom_th': 0.007, 'filter_th': 0.002},
+    'MOM_GBJ': {'symbol': 'GBPJPY', 'filter_symbol': 'USDJPY',  'is_jpy': True,  'period': 10, 'mom_th': 0.007, 'filter_th': 0.002},
+    'MOM_ENZ': {'symbol': 'EURNZD', 'filter_symbol': 'EURUSD',  'is_jpy': False, 'period': 10, 'mom_th': 0.007, 'filter_th': 0.002},
+    'MOM_ECA': {'symbol': 'EURCAD', 'filter_symbol': 'USDCAD',  'is_jpy': False, 'period': 10, 'mom_th': 0.010, 'filter_th': 0.002},
+    'MOM_GBU': {'symbol': 'GBPUSD', 'filter_symbol': 'EURUSD',  'is_jpy': False, 'period': 10, 'mom_th': 0.010, 'filter_th': 0.002},
 }
 MAGIC_MAP = {
     'MOM_JPY': 20240101,
@@ -328,25 +309,34 @@ def place_order(symbol, direction, lot, tp_dist, sl_dist,
 # ══════════════════════════════════════════
 # シグナル関数
 # ══════════════════════════════════════════
-def check_mom(symbol, filter_symbol, period=10, mom_th=0.01, filter_th=0.005):
+def check_mom_unified(cfg, strategy_name=''):
+    symbol        = cfg['symbol']
+    filter_symbol = cfg['filter_symbol']
+    period        = cfg['period']
+    mom_th        = cfg['mom_th']
+    filter_th     = cfg['filter_th']
+
     rates  = mt5.copy_rates_from_pos(symbol,        mt5.TIMEFRAME_D1, 0, period + 2)
     frates = mt5.copy_rates_from_pos(filter_symbol, mt5.TIMEFRAME_D1, 0, period + 2)
     if rates is None or frates is None or len(rates) <= period:
-        return None
+        log_print(f'[DEBUG] {strategy_name} {symbol}: データ取得失敗')
+        return None, None
+
     mom  = (rates[-1]['close']  - rates[-period - 1]['close'])  / rates[-period - 1]['close']
     fmom = (frates[-1]['close'] - frates[-period - 1]['close']) / frates[-period - 1]['close']
+    sig  = 'BUY' if mom > mom_th and fmom > filter_th else 'SELL' if mom < -mom_th and fmom < -filter_th else 'なし'
 
-    # [DEBUG] シグナル判定値をログ出力
     log_print(
-        f'[DEBUG] check_mom {symbol}/{filter_symbol} '
+        f'[DEBUG] {strategy_name} {symbol}/{filter_symbol} '
         f'mom={mom:+.4f}(閾値±{mom_th}) '
-        f'fmom={fmom:+.4f}(閾値±{filter_th}) '
-        f'→ {"BUY" if mom > mom_th and fmom > filter_th else "SELL" if mom < -mom_th and fmom < -filter_th else "なし"}'
+        f'fmom={fmom:+.4f}(閾値±{filter_th}) → {sig}'
     )
 
-    if mom >  mom_th  and fmom >  filter_th: return 'buy'
-    if mom < -mom_th  and fmom < -filter_th: return 'sell'
-    return None
+    reason = (f'{symbol}モメンタム mom={mom:+.4f} filter={fmom:+.4f} '
+              f'ATR利用 period={period}')
+    if mom >  mom_th  and fmom >  filter_th: return 'buy',  reason
+    if mom < -mom_th  and fmom < -filter_th: return 'sell', reason
+    return None, None
 
 def check_corr():
     """
@@ -455,34 +445,6 @@ def check_str():
     log_print(f'[DEBUG] check_str: {best_pair} {direction.upper()} score={best_score:.4f}')
     return best_pair, direction, f'最強:{strongest} 最弱:{weakest}'
 
-def check_mom_new(cfg):
-    symbol        = cfg['symbol']
-    filter_symbol = cfg['filter_symbol']
-    period        = cfg['period']
-    mom_th        = cfg['mom_th']
-    filter_th     = cfg['filter_th']
-
-    rates  = mt5.copy_rates_from_pos(symbol,        mt5.TIMEFRAME_D1, 0, period + 2)
-    frates = mt5.copy_rates_from_pos(filter_symbol, mt5.TIMEFRAME_D1, 0, period + 2)
-    if rates is None or frates is None or len(rates) <= period:
-        log_print(f'[DEBUG] check_mom_new {symbol}: データ取得失敗')
-        return None, None
-
-    mom  = (rates[-1]['close']  - rates[-period - 1]['close'])  / rates[-period - 1]['close']
-    fmom = (frates[-1]['close'] - frates[-period - 1]['close']) / frates[-period - 1]['close']
-
-    log_print(
-        f'[DEBUG] check_mom_new {symbol}/{filter_symbol} '
-        f'mom={mom:+.4f}(閾値±{mom_th}) '
-        f'fmom={fmom:+.4f}(閾値±{filter_th}) '
-        f'→ {"BUY" if mom > mom_th and fmom > filter_th else "SELL" if mom < -mom_th and fmom < -filter_th else "なし"}'
-    )
-
-    reason = (f'{symbol}モメンタム mom={mom:+.4f} filter={fmom:+.4f} '
-              f'ATR利用 period={period}')
-    if mom >  mom_th  and fmom >  filter_th: return 'buy',  reason
-    if mom < -mom_th  and fmom < -filter_th: return 'sell', reason
-    return None, None
 # ══════════════════════════════════════════
 # TRI（EUR/GBP三角裁定）シグナル関数
 # ══════════════════════════════════════════
@@ -526,7 +488,7 @@ def check_tri():
 # メイン
 # ══════════════════════════════════════════
 def main():
-    log_print(f'===== 日次戦略v3.1 実行開始 =====')
+    log_print(f'===== 日次戦略v3.3 実行開始 =====')
 
     config  = load_env()
     webhook = config.get('DISCORD_WEBHOOK', '')
@@ -581,45 +543,35 @@ def main():
 
     log_print(f'現在ポジション数: {count_total()}/{MAX_TOTAL}')
 
-    # ── MOM_JPY（USD/JPY）──────────────────────────────────────────
-    log_print('--- MOM_JPY チェック開始 ---')
-    if count_by('MOM_JPY') < 1 and not is_dup('MOM_JPY', 'USDJPY', trade_log) \
-            and count_total() < MAX_TOTAL:
-        d = check_mom('USDJPY', 'EURJPY')
-        if d:
-            atr = get_atr('USDJPY')
-            if atr:
-                tp_dist, sl_dist = rm.calc_tp_sl(atr, 'MOM_JPY')
-                lot = rm.calc_lot(balance, sl_dist, 'USDJPY')
-                if place_order('USDJPY', d, lot, tp_dist, sl_dist, 'MOM_JPY',
-                               f'USD/JPYモメンタム ATR={atr:.3f}', trade_log, webhook):
-                    executed += 1
-            else:
-                log_print('[DEBUG] MOM_JPY: ATR取得失敗')
-        else:
-            log_print('[DEBUG] MOM_JPY: シグナルなし')
-    else:
-        log_print(f'[DEBUG] MOM_JPY: スキップ（既存ポジ={count_by("MOM_JPY")} 合計={count_total()}）')
+    # ── MOM戦略（全5ペア統合ループ）──────────────────────────────────
+    for strategy_name, cfg in MOM_CONFIG.items():
+        symbol = cfg['symbol']
+        log_print(f'--- {strategy_name} チェック開始 ---')
+        if count_by(strategy_name) >= 1:
+            log_print(f'[DEBUG] {strategy_name}: 既存ポジションあり → スキップ')
+            continue
+        if is_dup(strategy_name, symbol, trade_log):
+            log_print(f'[DEBUG] {strategy_name}: ログ重複 → スキップ')
+            continue
+        if count_total() >= MAX_TOTAL:
+            log_print(f'MAX_TOTAL({MAX_TOTAL})到達 → MOMスキップ')
+            break
 
-    # ── MOM_GBJ（GBP/JPY）──────────────────────────────────────────
-    log_print('--- MOM_GBJ チェック開始 ---')
-    if count_by('MOM_GBJ') < 1 and not is_dup('MOM_GBJ', 'GBPJPY', trade_log) \
-            and count_total() < MAX_TOTAL:
-        d = check_mom('GBPJPY', 'USDJPY')
-        if d:
-            atr = get_atr('GBPJPY')
-            if atr:
-                tp_dist, sl_dist = rm.calc_tp_sl(atr, 'MOM_GBJ')
-                lot = rm.calc_lot(balance, sl_dist, 'GBPJPY')
-                if place_order('GBPJPY', d, lot, tp_dist, sl_dist, 'MOM_GBJ',
-                               f'GBP/JPYモメンタム ATR={atr:.3f}', trade_log, webhook):
-                    executed += 1
-            else:
-                log_print('[DEBUG] MOM_GBJ: ATR取得失敗')
-        else:
-            log_print('[DEBUG] MOM_GBJ: シグナルなし')
-    else:
-        log_print(f'[DEBUG] MOM_GBJ: スキップ（既存ポジ={count_by("MOM_GBJ")} 合計={count_total()}）')
+        d, reason = check_mom_unified(cfg, strategy_name)
+        if d is None:
+            log_print(f'[DEBUG] {strategy_name}: シグナルなし')
+            continue
+
+        atr = get_atr(symbol)
+        if atr is None:
+            log_print(f'[DEBUG] {strategy_name}: ATR取得失敗 → スキップ')
+            continue
+
+        tp_dist, sl_dist = rm.calc_tp_sl(atr, strategy_name)
+        lot = rm.calc_lot(balance, sl_dist, symbol)
+        if place_order(symbol, d, lot, tp_dist, sl_dist,
+                       strategy_name, reason, trade_log, webhook):
+            executed += 1
 
     # ── CORR（AUDNZD）──────────────────────────────────────────────
     # [FIX BUG2] 発注ペアをAUDUSD→AUDNZDに修正
@@ -666,36 +618,7 @@ def main():
     else:
         log_print(f'[DEBUG] STR: スキップ（既存ポジ={count_by("STR")} 合計={count_total()}）')
 
-    # ── 新規MOM戦略（MOM_ENZ / MOM_ECA / MOM_GBU）─────────────────
-    for strategy_name, cfg in MOM_NEW_CONFIG.items():
-        symbol = cfg['symbol']
-        log_print(f'--- {strategy_name} チェック開始 ---')
-        if count_by(strategy_name) >= 1:
-            log_print(f'[DEBUG] {strategy_name}: 既存ポジションあり → スキップ')
-            continue
-        if is_dup(strategy_name, symbol, trade_log):
-            log_print(f'[DEBUG] {strategy_name}: ログ重複 → スキップ')
-            continue
-        if count_total() >= MAX_TOTAL:
-            log_print(f'MAX_TOTAL({MAX_TOTAL})到達 → 新規MOMスキップ')
-            break
-
-        d, reason = check_mom_new(cfg)
-        if d is None:
-            log_print(f'[DEBUG] {strategy_name}: シグナルなし')
-            continue
-
-        atr = get_atr(symbol)
-        if atr is None:
-            log_print(f'[DEBUG] {strategy_name}: ATR取得失敗 → スキップ')
-            continue
-
-        tp_dist, sl_dist = rm.calc_tp_sl(atr, strategy_name)
-        lot = rm.calc_lot(balance, sl_dist, symbol)
-        if place_order(symbol, d, lot, tp_dist, sl_dist,
-                       strategy_name, reason, trade_log, webhook):
-            executed += 1
-# ── TRI（EUR/GBP三角裁定）──────────────────────────────────────
+    # ── TRI（EUR/GBP三角裁定）──────────────────────────────────────
     log_print('--- TRI チェック開始 ---')
     if count_by('TRI') < 1 and not is_dup('TRI', 'EURGBP', trade_log) \
             and count_total() < MAX_TOTAL:
@@ -725,7 +648,7 @@ def main():
     if datetime.now().weekday() == 0:
         rm.print_stats_summary()
 
-    log_print(f'===== 日次戦略v3.2完了: 発注{executed}件 =====')
+    log_print(f'===== 日次戦略v3.3完了: 発注{executed}件 =====')
     mt5.shutdown()
 
 if __name__ == '__main__':
