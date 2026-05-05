@@ -13,6 +13,41 @@ from datetime import datetime, timedelta
 DATA_DIR    = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data')
 RESULT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'mom_bt_result.csv')
 
+DOWNLOAD_YEARS = 3  # 直近何年分をダウンロードするか
+
+
+def download_symbol(symbol):
+    """yfinanceでD1データをダウンロードしてCSV保存。失敗時はNoneを返す。"""
+    try:
+        import yfinance as yf
+    except ImportError:
+        print('  [ERROR] yfinanceが未インストールです: pip install yfinance')
+        return None
+
+    os.makedirs(DATA_DIR, exist_ok=True)
+    path = os.path.join(DATA_DIR, f'{symbol}_D1.csv')
+    ticker = f'{symbol}=X'
+    end   = datetime.now()
+    start = end - timedelta(days=365 * DOWNLOAD_YEARS)
+    print(f'  ダウンロード中: {ticker} ({start.date()} ~ {end.date()})')
+    try:
+        df = yf.download(ticker, start=start.strftime('%Y-%m-%d'),
+                         end=end.strftime('%Y-%m-%d'), interval='1d', progress=False)
+        if df is None or len(df) == 0:
+            print(f'  [WARN] データ取得0件: {ticker}')
+            return None
+        # MultiIndexの場合はflatten
+        if hasattr(df.columns, 'levels'):
+            df.columns = [c[0] for c in df.columns]
+        df.index.name = 'Date'
+        df = df[['Open', 'High', 'Low', 'Close', 'Volume']].dropna()
+        df.to_csv(path)
+        print(f'  保存: {path} ({len(df)}件)')
+        return path
+    except Exception as e:
+        print(f'  [ERROR] ダウンロード失敗 {ticker}: {e}')
+        return None
+
 STRATEGIES = {
     'MOM_JPY': {'symbol': 'USDJPY', 'filter_symbol': 'EURJPY',  'is_jpy': True},
     'MOM_GBJ': {'symbol': 'GBPJPY', 'filter_symbol': 'USDJPY',  'is_jpy': True},
@@ -206,10 +241,14 @@ def main():
         all_symbols.add(info['symbol'])
         all_symbols.add(info['filter_symbol'])
 
-    for sym in all_symbols:
+    for sym in sorted(all_symbols):
         rows = load_csv(sym)
         if rows is None:
-            print(f'  [WARN] データなし: {sym}')
+            print(f'  [WARN] データなし: {sym} → ダウンロード試行')
+            download_symbol(sym)
+            rows = load_csv(sym)
+        if rows is None:
+            print(f'  [ERROR] {sym} のデータ取得に失敗しました')
         else:
             data_cache[sym] = rows
             print(f'  データ読込: {sym} {len(rows)}件')
