@@ -1,8 +1,8 @@
-# trail_monitor.py v11
+# trail_monitor.py v12
 # トレーリングストップ監視スクリプト
 #
 # 【対象戦略】
-#   BB_ / MOM_JPY / MOM_GBJ / STR / SMC_GBPAUD
+#   BB_ / MOM_JPY / MOM_GBJ / MOM_ENZ / MOM_ECA / MOM_GBU / STR / SMC_GBPAUD
 #
 # 【TRAIL_CONFIG パラメータ】
 #   stage1          : 損益トントン移動（廃止・実質無効）
@@ -31,6 +31,8 @@
 #       get_trail_config(strategy, symbol)に変更
 #       calc_new_sl/update_trailing_stops/print_heartbeat の呼び出し側を修正
 #   v11 stage2_distance updated.
+#   v12 MOM_ENZ/MOM_ECA/MOM_GBU追加（3ペアBT結果適用）
+#       MOM_JPY/MOM_GBJ パラメータ再検証・更新（stage2=True化）
 
 import MetaTrader5 as mt5
 import json, os, time, urllib.request, sys
@@ -66,10 +68,16 @@ TRAIL_CONFIG = {
     'BB_EURJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 0.7},  # PF=1.041  勝率=44.7% N=284 (旧:0.3 -> 新:0.7, +0.40)
     'BB_AUDJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 1.0},  # PF=0.647  勝率=29.8% N=292 (旧:0.3 -> 新:1.0, +0.70)
 
-    'MOM_JPY':          {'stage2': False, 'stage3_activate': 1.0, 'stage3_distance': 0.8},
-    'MOM_JPY_USDJPY':   {'stage2': False, 'stage3_activate': 1.0, 'stage3_distance': 0.8},  # 個別上書き用
-    'MOM_GBJ':          {'stage2': False, 'stage3_activate': 0.8, 'stage3_distance': 0.7},
-    'MOM_GBJ_GBPJPY':   {'stage2': False, 'stage3_activate': 0.8, 'stage3_distance': 0.7},  # 個別上書き用
+    'MOM_JPY':          {'stage2': True,  'stage3_activate': 0.7, 'stage3_distance': 0.3,  'stage2_distance': 1.0},  # PF=1.379 WR=51.8% n=135 (v12 BT更新)
+    'MOM_JPY_USDJPY':   {'stage2': True,  'stage3_activate': 0.7, 'stage3_distance': 0.3,  'stage2_distance': 1.0},  # 個別上書き用
+    'MOM_GBJ':          {'stage2': True,  'stage3_activate': 0.5, 'stage3_distance': 0.8,  'stage2_distance': 1.0},  # PF=1.738 WR=45.9% n=98  (v12 BT更新)
+    'MOM_GBJ_GBPJPY':   {'stage2': True,  'stage3_activate': 0.5, 'stage3_distance': 0.8,  'stage2_distance': 1.0},  # 個別上書き用
+    'MOM_ENZ':          {'stage2': True,  'stage3_activate': 0.7, 'stage3_distance': 0.3,  'stage2_distance': 1.0},  # PF=1.759 WR=71.3% n=108 (v12 新規)
+    'MOM_ENZ_EURNZD':   {'stage2': True,  'stage3_activate': 0.7, 'stage3_distance': 0.3,  'stage2_distance': 1.0},  # 個別上書き用
+    'MOM_ECA':          {'stage2': True,  'stage3_activate': 0.5, 'stage3_distance': 0.3,  'stage2_distance': 1.0},  # PF=2.846 WR=76.5% n=17  (v12 新規・n少注意)
+    'MOM_ECA_EURCAD':   {'stage2': True,  'stage3_activate': 0.5, 'stage3_distance': 0.3,  'stage2_distance': 1.0},  # 個別上書き用
+    'MOM_GBU':          {'stage2': True,  'stage3_activate': 0.5, 'stage3_distance': 0.3,  'stage2_distance': 1.0},  # PF=1.322 WR=70.7% n=188 (v12 新規)
+    'MOM_GBU_GBPUSD':   {'stage2': True,  'stage3_activate': 0.5, 'stage3_distance': 0.3,  'stage2_distance': 1.0},  # 個別上書き用
     'STR':              {'stage2': True,  'stage3_activate': 0.8, 'stage3_distance': 0.6,  'stage2_distance': 0.2},
     'STR_EURUSD':       {'stage2': True,  'stage3_activate': 0.8, 'stage3_distance': 0.6,  'stage2_distance': 0.2},
     'STR_GBPUSD':       {'stage2': True,  'stage3_activate': 0.8, 'stage3_distance': 0.6,  'stage2_distance': 0.2},
@@ -373,7 +381,7 @@ def main():
     webhook = env.get('DISCORD_WEBHOOK', '')
 
     print('=' * 55)
-    print('トレーリングストップ常駐モニター v11 起動')
+    print('トレーリングストップ常駐モニター v12 起動')
     print('更新間隔      : ' + str(TRAIL_INTERVAL) + '秒')
     print('最小更新幅    : ATR*' + str(MIN_UPDATE_MULT))
     print('Stage2        : 利益>=ATR*' + str(STAGE2_ACTIVATE) + ' → SL=entry+ATR*stage2_distance (戦略別)')

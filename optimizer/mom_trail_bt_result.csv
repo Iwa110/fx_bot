@@ -1,0 +1,6 @@
+strategy,symbol,stage2,stage2_distance,stage3_activate,stage3_distance,PF,win_rate,n
+MOM_JPY,USDJPY,True,1.0,0.7,0.3,1.3785,0.5185,135
+MOM_GBJ,GBPJPY,True,1.0,0.5,0.8,1.7377,0.4592,98
+MOM_ENZ,EURNZD,True,1.0,0.7,0.3,1.7586,0.713,108
+MOM_ECA,EURCAD,True,1.0,0.5,0.3,2.8465,0.7647,17
+MOM_GBU,GBPUSD,True,1.0,0.5,0.3,1.3224,0.7074,188
