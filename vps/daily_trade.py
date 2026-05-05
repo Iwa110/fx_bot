@@ -1,10 +1,13 @@
 """
-日次戦略スクリプト v3.3（毎朝7時実行）
-修正点 v3.2→v3.3:
-  [REFACTOR] MOM統合: check_mom/check_mom_new → check_mom_unified
-  [REFACTOR] MOM_JPY/MOM_GBJ を MOM_CONFIG に移行・ループ処理に統一
-  [PARAM5] MOM_JPY mom_th 0.010→0.007, filter_th 0.005→0.002
-  [PARAM6] MOM_GBJ mom_th 0.010→0.007, filter_th 0.005→0.002
+日次戦略スクリプト v3.4（毎朝7時実行）
+修正点 v3.3→v3.4:
+  [BT] MOM全戦略パラメータをBT最適値に更新 (mom_bt.py グリッドサーチ結果)
+  [FEAT] check_mom_unified: EMA200フィルター・月曜閾値倍率を追加
+  MOM_JPY: mom_th 0.007→0.015, filter_th 0.002→0.005, monday_mult=1.5
+  MOM_GBJ: period 10→7, mom_th 0.007→0.015, monday_mult=1.0
+  MOM_ENZ: period 10→14, filter_th 0.002→0.005, monday_mult=1.5 (PF=1.15 注意)
+  MOM_ECA: period 10→7, mom_th 0.010→0.015, use_ema200=True (n=11 過学習注意)
+  MOM_GBU: use_ema200=True (mom_th/filter_th据え置き)
 """
 import MetaTrader5 as mt5
 import json, os, ssl, urllib.request
@@ -35,11 +38,16 @@ TRADE_PAIRS = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDJPY', 'EURGBP',
                'USDCAD', 'USDCHF', 'NZDUSD', 'EURJPY', 'GBPJPY']
 
 MOM_CONFIG = {
-    'MOM_JPY': {'symbol': 'USDJPY', 'filter_symbol': 'EURJPY',  'is_jpy': True,  'period': 10, 'mom_th': 0.007, 'filter_th': 0.002},
-    'MOM_GBJ': {'symbol': 'GBPJPY', 'filter_symbol': 'USDJPY',  'is_jpy': True,  'period': 10, 'mom_th': 0.007, 'filter_th': 0.002},
-    'MOM_ENZ': {'symbol': 'EURNZD', 'filter_symbol': 'EURUSD',  'is_jpy': False, 'period': 10, 'mom_th': 0.007, 'filter_th': 0.002},
-    'MOM_ECA': {'symbol': 'EURCAD', 'filter_symbol': 'USDCAD',  'is_jpy': False, 'period': 10, 'mom_th': 0.010, 'filter_th': 0.002},
-    'MOM_GBU': {'symbol': 'GBPUSD', 'filter_symbol': 'EURUSD',  'is_jpy': False, 'period': 10, 'mom_th': 0.010, 'filter_th': 0.002},
+    # BT結果: PF=1.571 n=58  period=10 mom_th=0.015 filter_th=0.005 ema200=False mon=1.5
+    'MOM_JPY': {'symbol': 'USDJPY', 'filter_symbol': 'EURJPY',  'is_jpy': True,  'period': 10, 'mom_th': 0.015, 'filter_th': 0.005, 'use_ema200': False, 'monday_mult': 1.5},
+    # BT結果: PF=1.446 n=47  period=7  mom_th=0.015 filter_th=0.002 ema200=False mon=1.0
+    'MOM_GBJ': {'symbol': 'GBPJPY', 'filter_symbol': 'USDJPY',  'is_jpy': True,  'period':  7, 'mom_th': 0.015, 'filter_th': 0.002, 'use_ema200': False, 'monday_mult': 1.0},
+    # BT結果: PF=1.150 n=53  period=14 mom_th=0.007 filter_th=0.005 ema200=False mon=1.5 (PF<1.2注意)
+    'MOM_ENZ': {'symbol': 'EURNZD', 'filter_symbol': 'EURUSD',  'is_jpy': False, 'period': 14, 'mom_th': 0.007, 'filter_th': 0.005, 'use_ema200': False, 'monday_mult': 1.5},
+    # BT結果: PF=4.109 n=11  period=7  mom_th=0.015 filter_th=0.002 ema200=True  mon=1.5 (n少注意)
+    'MOM_ECA': {'symbol': 'EURCAD', 'filter_symbol': 'USDCAD',  'is_jpy': False, 'period':  7, 'mom_th': 0.015, 'filter_th': 0.002, 'use_ema200': True,  'monday_mult': 1.5},
+    # BT結果: PF=1.427 n=56  period=10 mom_th=0.007 filter_th=0.002 ema200=True  mon=1.0
+    'MOM_GBU': {'symbol': 'GBPUSD', 'filter_symbol': 'EURUSD',  'is_jpy': False, 'period': 10, 'mom_th': 0.007, 'filter_th': 0.002, 'use_ema200': True,  'monday_mult': 1.0},
 }
 MAGIC_MAP = {
     'MOM_JPY': 20240101,
@@ -315,6 +323,8 @@ def check_mom_unified(cfg, strategy_name=''):
     period        = cfg['period']
     mom_th        = cfg['mom_th']
     filter_th     = cfg['filter_th']
+    use_ema200    = cfg.get('use_ema200', False)
+    monday_mult   = cfg.get('monday_mult', 1.0)
 
     rates  = mt5.copy_rates_from_pos(symbol,        mt5.TIMEFRAME_D1, 0, period + 2)
     frates = mt5.copy_rates_from_pos(filter_symbol, mt5.TIMEFRAME_D1, 0, period + 2)
@@ -324,19 +334,41 @@ def check_mom_unified(cfg, strategy_name=''):
 
     mom  = (rates[-1]['close']  - rates[-period - 1]['close'])  / rates[-period - 1]['close']
     fmom = (frates[-1]['close'] - frates[-period - 1]['close']) / frates[-period - 1]['close']
-    sig  = 'BUY' if mom > mom_th and fmom > filter_th else 'SELL' if mom < -mom_th and fmom < -filter_th else 'なし'
+
+    eff_mom_th = mom_th * monday_mult if datetime.now().weekday() == 0 else mom_th
+    sig = 'BUY' if mom > eff_mom_th and fmom > filter_th else \
+          'SELL' if mom < -eff_mom_th and fmom < -filter_th else 'なし'
 
     log_print(
         f'[DEBUG] {strategy_name} {symbol}/{filter_symbol} '
-        f'mom={mom:+.4f}(閾値±{mom_th}) '
+        f'mom={mom:+.4f}(閾値±{eff_mom_th:.4f}) '
         f'fmom={fmom:+.4f}(閾値±{filter_th}) → {sig}'
     )
 
+    if mom > eff_mom_th and fmom > filter_th:
+        direction = 'buy'
+    elif mom < -eff_mom_th and fmom < -filter_th:
+        direction = 'sell'
+    else:
+        return None, None
+
+    if use_ema200:
+        ema200 = get_ema(symbol, 200)
+        if ema200 is not None:
+            price = get_price(symbol)
+            if price is not None:
+                mid = price['mid']
+                if direction == 'buy' and mid <= ema200:
+                    log_print(f'[DEBUG] {strategy_name} BUY: EMA200除外 ({mid:.5f}<={ema200:.5f})')
+                    return None, None
+                if direction == 'sell' and mid >= ema200:
+                    log_print(f'[DEBUG] {strategy_name} SELL: EMA200除外 ({mid:.5f}>={ema200:.5f})')
+                    return None, None
+                log_print(f'[DEBUG] {strategy_name} EMA200={ema200:.5f} 現在値={mid:.5f} → OK')
+
     reason = (f'{symbol}モメンタム mom={mom:+.4f} filter={fmom:+.4f} '
               f'ATR利用 period={period}')
-    if mom >  mom_th  and fmom >  filter_th: return 'buy',  reason
-    if mom < -mom_th  and fmom < -filter_th: return 'sell', reason
-    return None, None
+    return direction, reason
 
 def check_corr():
     """
