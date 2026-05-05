@@ -24,7 +24,7 @@ MAX_TOTAL     = 9
 SUMMARY_HOURS = {7, 12, 16, 21}
 
 CORR_P = {'corr_window': 60, 'z_entry': 1.1, 'z_exit': 0.3, 'sl_pct': 0.02, 'rr': 1.5}
-STR_P  = {'lookback': 5, 'min_spread': 0.015, 'hold_period': 5}
+STR_P  = {'lookback': 10, 'min_spread': 0.015, 'hold_period': 5}  # BT最適: lb=10がPF=1.749(lb=14→10)
 STR_TICKERS = {
     'EURUSD': ('EUR', 'USD'), 'GBPUSD': ('GBP', 'USD'), 'AUDUSD': ('AUD', 'USD'),
     'USDJPY': ('USD', 'JPY'), 'EURGBP': ('EUR', 'GBP'), 'USDCAD': ('USD', 'CAD'),
@@ -175,13 +175,24 @@ def get_atr(symbol, length=14):
     ]
     return sum(trs[-length:]) / length
 
+def get_ema(symbol, period=200):
+    """[STR_FIX P2] D1 EMA計算（EWM相当: alpha=2/(period+1)）"""
+    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_D1, 0, period + 5)
+    if rates is None or len(rates) < period:
+        return None
+    closes = [r['close'] for r in rates]
+    alpha = 2.0 / (period + 1)
+    ema = closes[0]
+    for c in closes[1:]:
+        ema = alpha * c + (1 - alpha) * ema
+    return ema
+
 def check_closed(trade_log, webhook):
     if not trade_log['orders']:
         return
     current      = {p.ticket for p in get_positions()}
     newly_closed = [o for o in trade_log['orders'] if o['ticket'] not in current]
-    if not newly_closed:
-        return
+    # [STR_FIX P1] newly_closed空でもhold_period判定のため処理継続
     from_date = datetime(date.today().year, date.today().month, date.today().day)
     deals     = mt5.history_deals_get(from_date, datetime.now())
     deal_map  = {}
@@ -208,6 +219,54 @@ def check_closed(trade_log, webhook):
         trade_log['closed'].append({**order, 'profit': profit, 'reason': reason})
     closed_tickets      = {o['ticket'] for o in newly_closed}
     trade_log['orders'] = [o for o in trade_log['orders'] if o['ticket'] not in closed_tickets]
+
+    # [STR_FIX P1] STRのhold_period経過ポジションを強制クローズ
+    hold_days     = STR_P['hold_period']
+    now_dt        = datetime.now()
+    positions_map = {p.ticket: p for p in get_positions()}
+    for order in list(trade_log['orders']):
+        if order.get('strategy') != 'STR':
+            continue
+        try:
+            entry_dt = datetime.strptime(order['time'], '%Y-%m-%d %H:%M')
+        except (ValueError, KeyError):
+            continue
+        elapsed = (now_dt - entry_dt).days
+        if elapsed < hold_days:
+            continue
+        pos = positions_map.get(order['ticket'])
+        if not pos:
+            continue
+        tick = mt5.symbol_info_tick(pos.symbol)
+        if not tick:
+            log_print(f'[STR_FIX P1] hold_exit: ティック取得失敗 {pos.symbol}')
+            continue
+        close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        price = tick.bid if close_type == mt5.ORDER_TYPE_SELL else tick.ask
+        res = mt5.order_send({
+            'action':       mt5.TRADE_ACTION_DEAL,
+            'symbol':       pos.symbol,
+            'volume':       pos.volume,
+            'type':         close_type,
+            'position':     pos.ticket,
+            'price':        price,
+            'deviation':    20,
+            'magic':        MAGIC_MAP['STR'],
+            'comment':      'FXBot_STR_hold_exit',
+            'type_time':    mt5.ORDER_TIME_GTC,
+            'type_filling': mt5.ORDER_FILLING_IOC,
+        })
+        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+            log_print(f'[STR_FIX P1] hold_exit: {pos.symbol} {elapsed}日経過 → クローズ完了')
+            send_discord(
+                f'【FX Bot】{now_dt.strftime("%Y-%m-%d %H:%M")}\n'
+                f'⏱ STR hold_period({hold_days}日)到達: {pos.symbol} クローズ',
+                webhook
+            )
+        else:
+            retcode = res.retcode if res else 'None'
+            log_print(f'[STR_FIX P1] hold_exit: {pos.symbol} クローズ失敗 retcode={retcode}')
+
     save_trade_log(trade_log)
 
 def place_order(symbol, direction, lot, tp_dist, sl_dist,
@@ -362,12 +421,37 @@ def check_str():
             best_score = score
             best_pair  = sym
 
+    # [STR_FIX P4] スコア正規化: 最強・最弱の絶対値合計で除算
+    norm_denom = abs(sc[0][1]) + abs(sc[-1][1])
+    if norm_denom > 0 and best_score > 0:
+        best_score = best_score / norm_denom
+    log_print(f'[STR_FIX P4] 正規化後score={best_score:.4f} denom={norm_denom:.4f}')
+
     if not best_pair or best_score <= 0:
         log_print('[DEBUG] check_str: 有効なペアなし')
         return None
 
     base, quote = STR_TICKERS[best_pair]
     direction   = 'buy' if scores.get(base, 0) > scores.get(quote, 0) else 'sell'
+
+    # [STR_FIX P2] HTFトレンドフィルター（D1 EMA200）
+    ema200 = get_ema(best_pair, 200)
+    if ema200 is None:
+        log_print(f'[STR_FIX P2] {best_pair}: EMA200取得失敗 → フィルタースキップ')
+    else:
+        current_price = get_price(best_pair)
+        if current_price is None:
+            log_print(f'[STR_FIX P2] {best_pair}: 現在価格取得失敗 → フィルタースキップ')
+        else:
+            mid = current_price['mid']
+            if direction == 'buy' and mid <= ema200:
+                log_print(f'[STR_FIX P2] {best_pair} BUY: 現在値{mid:.5f} <= EMA200({ema200:.5f}) → フィルター除外')
+                return None
+            if direction == 'sell' and mid >= ema200:
+                log_print(f'[STR_FIX P2] {best_pair} SELL: 現在値{mid:.5f} >= EMA200({ema200:.5f}) → フィルター除外')
+                return None
+            log_print(f'[STR_FIX P2] {best_pair} {direction.upper()}: EMA200={ema200:.5f} 現在値={mid:.5f} → OK')
+
     log_print(f'[DEBUG] check_str: {best_pair} {direction.upper()} score={best_score:.4f}')
     return best_pair, direction, f'最強:{strongest} 最弱:{weakest}'
 
