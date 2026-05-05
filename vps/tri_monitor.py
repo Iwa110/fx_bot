@@ -123,7 +123,7 @@ def main():
     result = mt5.order_send({
         'action': mt5.TRADE_ACTION_DEAL, 'symbol': 'EURGBP',
         'volume': LOT, 'type': order_type, 'price': entry,
-        'tp': tp, 'sl': sl, 'deviation': 20, 'magic': 20240101,
+        'tp': tp, 'sl': sl, 'deviation': 20, 'magic': 20240108,
         'comment': 'FXBot_TRI', 'type_time': mt5.ORDER_TIME_GTC,
         'type_filling': mt5.ORDER_FILLING_FOK,
     })
