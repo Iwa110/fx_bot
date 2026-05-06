@@ -477,9 +477,10 @@ def check_str():
 # TRI（EUR/GBP三角裁定）シグナル関数
 # ══════════════════════════════════════════
 TRI_P = {
-    'entry_th': 0.00015,
-    'exit_th':  0.0001,
-    'sl_th':    0.0012,
+    # BT結果: PF=3.272 n=113 entry_th=0.0007 tp_ratio=0.7 sl_th=0.002
+    'entry_th': 0.0007,
+    'tp_ratio': 0.7,
+    'sl_th':    0.002,
 }
 def check_tri():
     """
@@ -657,10 +658,8 @@ def main():
         tri = check_tri()
         if tri:
             d, diff, theory = tri
-            # SL距離: 乖離がsl_thに達した場合の価格差
             sl_dist = TRI_P['sl_th']
-            # TP距離: 乖離がexit_thまで縮小した場合の価格差
-            tp_dist = abs(diff) - TRI_P['exit_th']
+            tp_dist = abs(diff) * TRI_P['tp_ratio']
             if tp_dist <= 0:
                 log_print(f'[DEBUG] TRI: tp_dist={tp_dist:.5f}<=0 → スキップ')
             else:

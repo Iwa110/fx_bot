@@ -1,3 +1,5 @@
+# DEPRECATED: daily_trade.py に統合済み。このファイルは使用しない。
+# タスクスケジューラから tri_monitor.py の登録を削除すること。
 """
 TRI戦略専用モニター（5分毎実行）
 - EUR/GBP三角裁定の乖離を素早く検知・発注
