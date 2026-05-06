@@ -1,0 +1,20 @@
+{
+  "EURUSD": {
+    "entry_sigma": 2.5,
+    "tp_atr_mult": 1.0,
+    "sl_atr_mult": 1.5,
+    "pf": 1.232,
+    "win_rate": 0.628,
+    "n": 843,
+    "avg_pips": 2.1
+  },
+  "GBPUSD": {
+    "entry_sigma": 2.5,
+    "tp_atr_mult": 1.0,
+    "sl_atr_mult": 2.0,
+    "pf": 1.201,
+    "win_rate": 0.703,
+    "n": 691,
+    "avg_pips": 2.3
+  }
+}
