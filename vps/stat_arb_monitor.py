@@ -345,6 +345,11 @@ def main():
         try:
             for symbol_a, symbol_b in active_pairs:
                 process_pair(symbol_a, symbol_b)
+            try:
+                import heartbeat_check as hb_mod
+                hb_mod.record_heartbeat('stat_arb_monitor')
+            except Exception:
+                pass
         except Exception as e:
             log(f'[ERROR] {e}')
 

@@ -9,12 +9,14 @@ BASE    = os.path.dirname(os.path.abspath(__file__))
 HB_PATH = os.path.join(BASE, 'heartbeat.json')
 
 # 各スクリプトの許容停止時間（分）
+# 監視対象: bb_monitor v17 / trail_monitor v11(SMC_GBPAUD含む) /
+#           mail_monitor / daily_trade / stat_arb_monitor
 THRESHOLDS = {
-    'tri_monitor':  10,   # 5分毎 → 10分以上停止で警告
-    'bb_monitor':   10,   # 5分毎 → 10分以上停止で警告
-    'mail_monitor': 10,   # 5分毎 → 10分以上停止で警告
-    'trail_monitor': 5,   # 常駐 → 5分以上停止で警告
-    'daily_trade':  1440, # 日次 → 1日以上停止で警告
+    'bb_monitor':        10,   # 5分毎 → 10分以上停止で警告
+    'trail_monitor':      5,   # 常駐 → 5分以上停止で警告
+    'mail_monitor':      10,   # 5分毎呼び出し → 10分以上停止で警告
+    'daily_trade':     1440,   # 日次 → 1日以上停止で警告
+    'stat_arb_monitor':  15,   # 10秒毎 → 15分以上停止で警告
 }
 
 def load_heartbeat():
