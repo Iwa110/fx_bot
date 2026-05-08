@@ -50,7 +50,7 @@ def calc_tp_sl(atr: float, strategy: str, is_jpy: bool = False) -> tuple:
         'TRI':     {'tp': 1.5, 'sl': 4.0},
         'MOM_JPY': {'tp': 3.0, 'sl': 1.0},
         'MOM_GBJ': {'tp': 1.0, 'sl': 0.5},
-        'CORR':    {'tp': 2.5, 'sl': 1.5},
+        'CORR':    {'tp': 1.5, 'sl': 2.0},  # corr_bt Stage2最優 PF=1.924
         'STR':     {'tp': 2.5, 'sl': 1.5},
         'BB':      {'tp': 3.0, 'sl': 2.0},
     }

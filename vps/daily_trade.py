@@ -26,7 +26,7 @@ DEMO_MODE     = True
 MAX_TOTAL     = 9
 SUMMARY_HOURS = {7, 12, 16, 21}
 
-CORR_P = {'corr_window': 60, 'z_entry': 1.1, 'z_exit': 0.3, 'sl_pct': 0.02, 'rr': 1.5}
+CORR_P = {'corr_window': 60, 'z_entry': 2.0, 'z_exit': 0.0, 'hold_period': 5}  # corr_bt最優 PF=1.924
 STR_P  = {'lookback': 10, 'min_spread': 0.015, 'hold_period': 5}  # BT最適: lb=10がPF=1.749(lb=14→10)
 STR_TICKERS = {
     'EURUSD': ('EUR', 'USD'), 'GBPUSD': ('GBP', 'USD'), 'AUDUSD': ('AUD', 'USD'),
@@ -256,6 +256,65 @@ def check_closed(trade_log, webhook):
             retcode = res.retcode if res else 'None'
             log_print(f'[STR_FIX P1] hold_exit: {pos.symbol} クローズ失敗 retcode={retcode}')
 
+    # CORR: Zスコア回帰決済 + hold_period 強制クローズ
+    hold_days_corr = CORR_P['hold_period']
+    for order in list(trade_log['orders']):
+        if order.get('strategy') != 'CORR':
+            continue
+        try:
+            entry_dt = datetime.strptime(order['time'], '%Y-%m-%d %H:%M')
+        except (ValueError, KeyError):
+            continue
+        pos = positions_map.get(order['ticket'])
+        if not pos:
+            continue
+        tick = mt5.symbol_info_tick(pos.symbol)
+        if not tick:
+            log_print(f'[CORR] ティック取得失敗 {pos.symbol}')
+            continue
+
+        elapsed      = (now_dt - entry_dt).days
+        should_close = False
+        close_reason = ''
+
+        if elapsed >= hold_days_corr:
+            should_close = True
+            close_reason = f'hold_period({hold_days_corr}日)到達 ({elapsed}日経過)'
+        else:
+            z = _calc_corr_z()
+            if z is not None and abs(z) <= CORR_P['z_exit']:
+                should_close = True
+                close_reason = f'Zスコア回帰 z={z:+.2f}(<=±{CORR_P["z_exit"]})'
+
+        if not should_close:
+            continue
+
+        close_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.ORDER_TYPE_BUY else mt5.ORDER_TYPE_BUY
+        price = tick.bid if close_type == mt5.ORDER_TYPE_SELL else tick.ask
+        res = mt5.order_send({
+            'action':       mt5.TRADE_ACTION_DEAL,
+            'symbol':       pos.symbol,
+            'volume':       pos.volume,
+            'type':         close_type,
+            'position':     pos.ticket,
+            'price':        price,
+            'deviation':    20,
+            'magic':        MAGIC_MAP['CORR'],
+            'comment':      'FXBot_CORR_exit',
+            'type_time':    mt5.ORDER_TIME_GTC,
+            'type_filling': mt5.ORDER_FILLING_IOC,
+        })
+        if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+            log_print(f'[CORR] exit: {pos.symbol} {close_reason} → クローズ完了')
+            send_discord(
+                f'【FX Bot】{now_dt.strftime("%Y-%m-%d %H:%M")}\n'
+                f'⏱ CORR {close_reason}: {pos.symbol} クローズ',
+                webhook
+            )
+        else:
+            retcode = res.retcode if res else 'None'
+            log_print(f'[CORR] exit: {pos.symbol} クローズ失敗 retcode={retcode}')
+
     save_trade_log(trade_log)
 
 def place_order(symbol, direction, lot, tp_dist, sl_dist,
@@ -370,30 +429,30 @@ def check_mom_unified(cfg, strategy_name=''):
               f'ATR利用 period={period}')
     return direction, reason
 
-def check_corr():
-    """
-    [FIX BUG2/3] AUDNZDを直接取得してZスコア計算。
-    旧コードはAUDUSB/NZDUSDの比率を使い、発注もAUDUSDという二重の誤りがあった。
-    """
+def _calc_corr_z():
+    """AUDNZDのローリングZスコアを計算して返す（BT準拠: 直近corr_window本を使用）。"""
     win   = CORR_P['corr_window']
     rates = mt5.copy_rates_from_pos('AUDNZD', mt5.TIMEFRAME_D1, 0, win + 5)
     if rates is None or len(rates) < win:
-        log_print('[DEBUG] check_corr AUDNZDデータ取得失敗')
+        log_print('[DEBUG] _calc_corr_z AUDNZDデータ取得失敗')
         return None
-
-    closes = [r['close'] for r in rates]
+    closes = [r['close'] for r in rates][-win:]  # 直近win本のみ（BT準拠）
     mean   = sum(closes) / len(closes)
     std    = (sum((c - mean) ** 2 for c in closes) / len(closes)) ** 0.5
     if std == 0:
-        log_print('[DEBUG] check_corr std=0 → スキップ')
+        log_print('[DEBUG] _calc_corr_z std=0 → スキップ')
         return None
+    return (closes[-1] - mean) / std
 
-    z = (closes[-1] - mean) / std
+
+def check_corr():
+    z = _calc_corr_z()
+    if z is None:
+        return None
     log_print(
         f'[DEBUG] check_corr AUDNZD z={z:+.2f}(閾値±{CORR_P["z_entry"]}) '
         f'→ {"SELL" if z > CORR_P["z_entry"] else "BUY" if z < -CORR_P["z_entry"] else "なし"}'
     )
-
     if abs(z) < CORR_P['z_entry']:
         return None
     return ('sell' if z > 0 else 'buy'), z
