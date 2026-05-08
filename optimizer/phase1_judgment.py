@@ -57,6 +57,24 @@ DEFAULT_CSV  = Path(__file__).parent / 'history.csv'
 
 
 # ------------------------------------------------------------------ #
+#  MT5残高取得
+# ------------------------------------------------------------------ #
+def _fetch_balance_from_mt5() -> float:
+    """MT5が起動済みなら口座残高（円）を返す。取得できなければ None。"""
+    try:
+        import MetaTrader5 as mt5
+        # すでに初期化済みかどうかを確認（初期化済みなら再初期化しない）
+        info = mt5.account_info()
+        if info is None:
+            if not mt5.initialize():
+                return None
+            info = mt5.account_info()
+        return float(info.balance) if info else None
+    except Exception:
+        return None
+
+
+# ------------------------------------------------------------------ #
 #  ユーティリティ
 # ------------------------------------------------------------------ #
 def _parse_time(tv) -> datetime:
@@ -502,8 +520,10 @@ def main():
     parser.add_argument('--days',    type=int,   default=DEFAULT_DAYS,
                         help='MT5 API取得期間・日数 (default: {})'.format(DEFAULT_DAYS))
     parser.add_argument('--balance', type=float, default=None,
-                        help='口座残高(JPY換算)。指定するとDD%%判定が有効になる')
+                        help='口座残高(JPY換算)を手動指定（省略時はMT5から自動取得）')
     args = parser.parse_args()
+
+    balance = args.balance  # 手動指定を優先
 
     if args.csv:
         if not args.csv.exists():
@@ -511,6 +531,9 @@ def main():
             sys.exit(1)
         print('[INFO] CSVから読み込み: {}'.format(args.csv))
         trades = parse_csv(args.csv, magic=None)
+        # CSV モードでも --balance 未指定なら MT5 から残高だけ取得を試みる
+        if balance is None:
+            balance = _fetch_balance_from_mt5()
     else:
         print('[INFO] MT5 API経由で取得中（magic=全件）...')
         try:
@@ -520,6 +543,14 @@ def main():
             print()
             print('フォールバック: python phase1_judgment.py --csv history.csv')
             sys.exit(1)
+        # MT5 モードでは --balance 未指定なら接続済みセッションから自動取得
+        if balance is None:
+            balance = _fetch_balance_from_mt5()
+
+    if balance:
+        print('[INFO] 口座残高: {:,.0f}円'.format(balance))
+    else:
+        print('[INFO] 口座残高: 取得できず（DD%判定スキップ）')
 
     print('[INFO] 総トレード数: {}件'.format(len(trades)))
     if not trades:
@@ -534,7 +565,7 @@ def main():
     print('[INFO] 内訳: BB={}件  SMC={}件  stat_arb={}件'.format(
         total_bb, total_smc, total_sarb))
 
-    print_report(groups, args.balance)
+    print_report(groups, balance)
 
 
 if __name__ == '__main__':
