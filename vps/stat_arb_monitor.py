@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 import time
+import json
 import heartbeat_check as hb
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
@@ -37,9 +38,10 @@ TP_Z = 0.5
 LOT_A = 0.01
 LOT_STEP = 0.01
 MAX_JPY_LOT = 0.4
+MAX_NON_JPY_LOT = 1.0
 
 # Risk / position limits
-MAX_TOTAL_POS = 13
+MAX_TOTAL_POS = 2   # stat_arb固有ペア数上限（他戦略のポジションを除外）
 COOLDOWN_SEC = 15 * 60
 
 # Retry for leg-B fill
@@ -68,7 +70,9 @@ def is_jpy_pair(symbol):
 
 def get_total_positions():
     positions = mt5.positions_get()
-    return len(positions) if positions else 0
+    if not positions:
+        return 0
+    return len([p for p in positions if p.magic == MAGIC])
 
 
 def get_pair_positions(symbol_a, symbol_b):
@@ -230,11 +234,14 @@ def try_entry(symbol_a, symbol_b, direction, lot_a, lot_b):
         time.sleep(RETRY_WAIT)
 
     # Leg-B failed -> force close Leg-A
+    # res_a.order はorder ticketでありposition ticketと異なるブローカーがある。
+    # 発注時刻の30秒以内かつMAGIC一致で絞り込む。
     log(f'[ENTRY] Leg-B all retries failed. Force closing Leg-A')
-    pos_a = mt5.positions_get(symbol=symbol_a)
-    if pos_a:
-        for p in pos_a:
-            if p.magic == MAGIC and p.ticket == res_a.order:
+    entry_ts = time.time()
+    pos_a_all = mt5.positions_get(symbol=symbol_a)
+    if pos_a_all:
+        for p in pos_a_all:
+            if p.magic == MAGIC and (entry_ts - p.time) <= 30:
                 close_position(p)
     return False
 
@@ -247,9 +254,49 @@ def try_exit_pair(symbol_a, symbol_b, pos_a_list, pos_b_list, reason=''):
     for p in pos_b_list:
         close_position(p)
 
+# ─── COINTEGRATION STATE ──────────────────────────────────────────────────────
+
+coint_ok = {}       # pair_key -> bool
+coint_checked_month = {}   # pair_key -> int (month number)
+
+
+def ensure_coint(symbol_a, symbol_b):
+    pair_key = f'{symbol_a}_{symbol_b}'
+    now_month = datetime.now(timezone.utc).month
+    if coint_ok.get(pair_key) is None or coint_checked_month.get(pair_key) != now_month:
+        ok, pval = check_cointegration(symbol_a, symbol_b)
+        coint_ok[pair_key] = ok
+        coint_checked_month[pair_key] = now_month
+        if not ok:
+            log(f'[COINT] {pair_key} NG (p={pval:.4f}). Skipping entries this month.')
+    return coint_ok[pair_key]
+
 # ─── COOLDOWN TRACKING ────────────────────────────────────────────────────────
 
+COOLDOWN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stat_arb_cooldown.json')
+
 last_entry_time = {}
+
+
+def _load_cooldown():
+    try:
+        with open(COOLDOWN_FILE, 'r') as f:
+            data = json.load(f)
+        last_entry_time.update({k: float(v) for k, v in data.items()})
+        log(f'[COOLDOWN] Loaded from {COOLDOWN_FILE}: {list(last_entry_time.keys())}')
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        log(f'[COOLDOWN] Load error: {e}')
+
+
+def _save_cooldown():
+    try:
+        with open(COOLDOWN_FILE, 'w') as f:
+            json.dump(last_entry_time, f)
+    except Exception as e:
+        log(f'[COOLDOWN] Save error: {e}')
+
 
 def can_enter(pair_key):
     if pair_key not in last_entry_time:
@@ -260,6 +307,7 @@ def can_enter(pair_key):
 
 def mark_entry(pair_key):
     last_entry_time[pair_key] = time.time()
+    _save_cooldown()
 
 # ─── MAIN LOOP PER PAIR ───────────────────────────────────────────────────────
 
@@ -287,6 +335,17 @@ def process_pair(symbol_a, symbol_b):
     pos_a, pos_b = get_pair_positions(symbol_a, symbol_b)
     has_pos = len(pos_a) > 0 or len(pos_b) > 0
 
+    # ── 片脚状態の検出と強制クローズ ──
+    only_a = len(pos_a) > 0 and len(pos_b) == 0
+    only_b = len(pos_b) > 0 and len(pos_a) == 0
+    if only_a or only_b:
+        log(f'[{pair_key}] WARNING: one-leg detected (pos_a={len(pos_a)} pos_b={len(pos_b)}). Force closing.')
+        for p in pos_a:
+            close_position(p)
+        for p in pos_b:
+            close_position(p)
+        return
+
     # ── EXIT CHECK ──
     if has_pos:
         # Determine current direction from pos_a side
@@ -307,6 +366,9 @@ def process_pair(symbol_a, symbol_b):
         return
 
     # ── ENTRY CHECK ──
+    if not ensure_coint(symbol_a, symbol_b):
+        return
+
     if not can_enter(pair_key):
         return
 
@@ -326,7 +388,7 @@ def process_pair(symbol_a, symbol_b):
 
     # calculate lot_b from beta
     raw_lot_b = abs(b) * LOT_A
-    lot_b = round_lot(raw_lot_b, LOT_STEP, MAX_JPY_LOT if is_jpy_pair(symbol_b) else 100.0)
+    lot_b = round_lot(raw_lot_b, LOT_STEP, MAX_JPY_LOT if is_jpy_pair(symbol_b) else MAX_NON_JPY_LOT)
 
     success = try_entry(symbol_a, symbol_b, direction, LOT_A, lot_b)
     if success:
@@ -336,6 +398,7 @@ def process_pair(symbol_a, symbol_b):
 
 def main():
     log('=== stat_arb_monitor START ===')
+    _load_cooldown()
 
     if not mt5.initialize():
         log(f'MT5 initialize failed: {mt5.last_error()}')
