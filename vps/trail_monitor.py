@@ -33,15 +33,20 @@
 #   v11 stage2_distance updated.
 #   v12 MOM_ENZ/MOM_ECA/MOM_GBU追加（3ペアBT結果適用）
 #       MOM_JPY/MOM_GBJ パラメータ再検証・更新（stage2=True化）
+#   v12+ マルチブローカー対応: broker_utils / argparse --broker 追加
 
 import MetaTrader5 as mt5
-import json, os, time, urllib.request, sys
+import argparse, json, os, time, urllib.request, sys
 from datetime import datetime
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from broker_utils import connect_mt5, disconnect_mt5
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, '.env')
 LOG_PATH = os.path.join(BASE_DIR, 'trail_log.txt')
 
+BROKER_KEY       = 'oanda'
 TRAIL_INTERVAL   = 30     # ループ間隔（秒）
 HEARTBEAT_EVERY  = 10     # この回数ループするたびにハートビート出力（30秒×10=5分）
 MIN_UPDATE_MULT  = 0.05   # 最小更新幅 ATR×0.05
@@ -185,6 +190,10 @@ def calc_new_sl(p, atr, pip):
 
     優先度: Stage3 > Stage2
     （より有利なステージが常に上書き）
+
+    p.symbol はMT5から返るブローカー固有名のため、
+    TRAIL_CONFIG キーはベース名（例: 'BB_GBPJPY'）で管理し、
+    get_trail_config は p.comment から戦略名を抽出する。
     """
     cfg = get_trail_config(p.comment.replace('FXBot_', ''), p.symbol)
     direction  = 1 if p.type == 0 else -1
@@ -377,11 +386,21 @@ def update_trailing_stops():
 # メイン
 # ══════════════════════════════════════════
 def main():
+    global BROKER_KEY
+
+    parser = argparse.ArgumentParser(description='トレーリングストップ監視 v12')
+    parser.add_argument('--broker', default=BROKER_KEY,
+                        choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
+                        help='使用するブローカーキー')
+    args = parser.parse_args()
+    BROKER_KEY = args.broker
+
     env     = load_env()
     webhook = env.get('DISCORD_WEBHOOK', '')
 
     print('=' * 55)
     print('トレーリングストップ常駐モニター v12 起動')
+    print('ブローカー      : ' + BROKER_KEY)
     print('更新間隔      : ' + str(TRAIL_INTERVAL) + '秒')
     print('最小更新幅    : ATR*' + str(MIN_UPDATE_MULT))
     print('Stage2        : 利益>=ATR*' + str(STAGE2_ACTIVATE) + ' → SL=entry+ATR*stage2_distance (戦略別)')
@@ -391,25 +410,21 @@ def main():
     print('ハートビート  : ' + str(TRAIL_INTERVAL * HEARTBEAT_EVERY // 60) + '分ごと')
     print('=' * 55)
 
-    if not mt5.initialize(
-        login=int(env.get('OANDA_LOGIN', 0)),
-        password=env.get('OANDA_PASSWORD', ''),
-        server=env.get('OANDA_SERVER', '')
-    ):
-        log('MT5初期化失敗: ' + str(mt5.last_error()))
+    if not connect_mt5(BROKER_KEY):
+        log('MT5初期化失敗 broker=' + BROKER_KEY)
         return
 
     account = mt5.account_info()
     if account is None:
         log('MT5口座情報取得失敗')
-        mt5.shutdown()
+        disconnect_mt5()
         return
 
     log('MT5接続成功: ' + account.company + ' / 残高:' + str(round(account.balance)) + '円')
 
     if DEMO_MODE and 'demo' not in account.server.lower():
         log('警告: DEMO_MODE=TrueですがライブサーバーへのMT5接続が検出されました。終了します。')
-        mt5.shutdown()
+        disconnect_mt5()
         return
 
     loop_count    = 0
@@ -430,9 +445,9 @@ def main():
         except Exception as e:
             log('ループエラー: ' + str(e))
             try:
-                mt5.shutdown()
+                disconnect_mt5()
                 time.sleep(5)
-                mt5.initialize()
+                connect_mt5(BROKER_KEY)
                 log('MT5再接続完了')
             except Exception:
                 pass

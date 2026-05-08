@@ -1,9 +1,11 @@
 # stat_arb_monitor.py
 # Statistical Arbitrage Monitor - Pairs Trading Strategy
 # magic = 20260001
+# v2: マルチブローカー対応: broker_utils / argparse --broker 追加
 
 import sys
 import os
+import argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import MetaTrader5 as mt5
@@ -13,6 +15,18 @@ from datetime import datetime, timezone
 import time
 import json
 import heartbeat_check as hb
+from broker_utils import connect_mt5, disconnect_mt5, build_symbol_map, is_live_broker
+
+# ─── BROKER SETTINGS ──────────────────────────────────────────────────────────
+
+BROKER_KEY = 'oanda'
+
+# ベースシンボル → MT5シンボル名（main()内で populate）
+_SYMBOL_MAP: dict[str, str] = {}
+
+def _rsym(base: str) -> str:
+    """ベースシンボルをブローカー固有のMT5シンボル名に変換する"""
+    return _SYMBOL_MAP.get(base, base)
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 
@@ -20,7 +34,7 @@ MAGIC = 20260001
 TIMEFRAME = mt5.TIMEFRAME_H1
 COMMENT = 'stat_arb'
 
-# Pairs config: (symbol_a, symbol_b, enabled)
+# Pairs config: (symbol_a, symbol_b, enabled)  ← ベース名で定義
 PAIRS = [
     ('GBPJPY', 'USDJPY', True),
     ('EURUSD', 'GBPUSD', True),
@@ -65,7 +79,7 @@ def round_lot(lot, step=LOT_STEP, max_lot=MAX_JPY_LOT):
 
 
 def is_jpy_pair(symbol):
-    return symbol.endswith('JPY')
+    return 'JPY' in symbol
 
 
 def get_total_positions():
@@ -76,6 +90,7 @@ def get_total_positions():
 
 
 def get_pair_positions(symbol_a, symbol_b):
+    """symbol_a/symbol_b はブローカー固有名（_rsym 適用済み）で渡す"""
     pos_a = mt5.positions_get(symbol=symbol_a)
     pos_b = mt5.positions_get(symbol=symbol_b)
     magic_a = [p for p in pos_a if p.magic == MAGIC] if pos_a else []
@@ -85,6 +100,7 @@ def get_pair_positions(symbol_a, symbol_b):
 # ─── DATA FETCH ───────────────────────────────────────────────────────────────
 
 def fetch_closes(symbol, n):
+    """symbol はブローカー固有名（_rsym 適用済み）で渡す"""
     rates = mt5.copy_rates_from_pos(symbol, TIMEFRAME, 0, n)
     if rates is None or len(rates) < n:
         return None
@@ -123,7 +139,7 @@ def check_cointegration(symbol_a, symbol_b, n_bars=1000):
     '''
     Monthly cointegration check using Engle-Granger ADF test.
     Returns (is_cointegrated: bool, p_value: float)
-    Usage: call manually before running the strategy each month.
+    symbol_a/symbol_b はブローカー固有名（_rsym 適用済み）で渡す。
     '''
     try:
         from statsmodels.tsa.stattools import coint
@@ -145,10 +161,15 @@ def check_cointegration(symbol_a, symbol_b, n_bars=1000):
 # ─── ORDER EXECUTION ──────────────────────────────────────────────────────────
 
 def send_order(symbol, order_type, lot, comment=''):
+    """symbol はブローカー固有名（_rsym 適用済み）で渡す"""
     info = mt5.symbol_info(symbol)
     if info is None:
         log(f'[ORDER] symbol_info failed: {symbol}')
         return None
+
+    if is_live_broker(BROKER_KEY):
+        direction_str = 'BUY' if order_type == mt5.ORDER_TYPE_BUY else 'SELL'
+        log(f'[ORDER] *** ライブ口座発注 *** {symbol} {direction_str} lot={lot} broker={BROKER_KEY}')
 
     price = mt5.symbol_info_tick(symbol).ask if order_type == mt5.ORDER_TYPE_BUY else mt5.symbol_info_tick(symbol).bid
     filling = mt5.ORDER_FILLING_IOC
@@ -174,7 +195,7 @@ def send_order(symbol, order_type, lot, comment=''):
 
 
 def close_position(pos):
-    symbol = pos.symbol
+    symbol = pos.symbol   # MT5から返るブローカー固有名
     lot = pos.volume
     order_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
     price = mt5.symbol_info_tick(symbol).bid if order_type == mt5.ORDER_TYPE_SELL else mt5.symbol_info_tick(symbol).ask
@@ -203,6 +224,7 @@ def close_position(pos):
 
 def try_entry(symbol_a, symbol_b, direction, lot_a, lot_b):
     '''
+    symbol_a/symbol_b はブローカー固有名（_rsym 適用済み）で渡す。
     direction: +1 -> short A, long B (z > ENTRY_Z)
                -1 -> long A, short B (z < -ENTRY_Z)
     Leg-A first, then retry Leg-B up to RETRY_COUNT times.
@@ -224,7 +246,6 @@ def try_entry(symbol_a, symbol_b, direction, lot_a, lot_b):
         log(f'[ENTRY] Leg-A failed, abort')
         return False
 
-    # Retry Leg-B
     for attempt in range(1, RETRY_COUNT + 1):
         res_b = send_order(symbol_b, type_b, lot_b, COMMENT)
         if res_b is not None:
@@ -233,9 +254,6 @@ def try_entry(symbol_a, symbol_b, direction, lot_a, lot_b):
         log(f'[ENTRY] Leg-B attempt {attempt}/{RETRY_COUNT} failed, wait {RETRY_WAIT}s')
         time.sleep(RETRY_WAIT)
 
-    # Leg-B failed -> force close Leg-A
-    # res_a.order はorder ticketでありposition ticketと異なるブローカーがある。
-    # 発注時刻の30秒以内かつMAGIC一致で絞り込む。
     log(f'[ENTRY] Leg-B all retries failed. Force closing Leg-A')
     entry_ts = time.time()
     pos_a_all = mt5.positions_get(symbol=symbol_a)
@@ -256,11 +274,12 @@ def try_exit_pair(symbol_a, symbol_b, pos_a_list, pos_b_list, reason=''):
 
 # ─── COINTEGRATION STATE ──────────────────────────────────────────────────────
 
-coint_ok = {}       # pair_key -> bool
-coint_checked_month = {}   # pair_key -> int (month number)
+coint_ok: dict[str, bool] = {}
+coint_checked_month: dict[str, int] = {}
 
 
 def ensure_coint(symbol_a, symbol_b):
+    """symbol_a/symbol_b はブローカー固有名（_rsym 適用済み）で渡す"""
     pair_key = f'{symbol_a}_{symbol_b}'
     now_month = datetime.now(timezone.utc).month
     if coint_ok.get(pair_key) is None or coint_checked_month.get(pair_key) != now_month:
@@ -275,7 +294,7 @@ def ensure_coint(symbol_a, symbol_b):
 
 COOLDOWN_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'stat_arb_cooldown.json')
 
-last_entry_time = {}
+last_entry_time: dict[str, float] = {}
 
 
 def _load_cooldown():
@@ -311,10 +330,12 @@ def mark_entry(pair_key):
 
 # ─── MAIN LOOP PER PAIR ───────────────────────────────────────────────────────
 
-def process_pair(symbol_a, symbol_b):
+def process_pair(base_a, base_b):
+    """base_a/base_b はベース名。内部で _rsym() を適用してブローカー固有名に変換する"""
+    symbol_a = _rsym(base_a)
+    symbol_b = _rsym(base_b)
     pair_key = f'{symbol_a}_{symbol_b}'
 
-    # fetch data
     n_needed = OLS_WINDOW + ZSCORE_WINDOW + 10
     ca = fetch_closes(symbol_a, n_needed)
     cb = fetch_closes(symbol_b, n_needed)
@@ -348,7 +369,6 @@ def process_pair(symbol_a, symbol_b):
 
     # ── EXIT CHECK ──
     if has_pos:
-        # Determine current direction from pos_a side
         direction = 1 if (pos_a and pos_a[0].type == mt5.POSITION_TYPE_SELL) else -1
         exit_reason = None
 
@@ -379,14 +399,13 @@ def process_pair(symbol_a, symbol_b):
 
     direction = None
     if z >= ENTRY_Z:
-        direction = 1   # spread too high -> short A, long B
+        direction = 1
     elif z <= -ENTRY_Z:
-        direction = -1  # spread too low -> long A, short B
+        direction = -1
 
     if direction is None:
         return
 
-    # calculate lot_b from beta
     raw_lot_b = abs(b) * LOT_A
     lot_b = round_lot(raw_lot_b, LOT_STEP, MAX_JPY_LOT if is_jpy_pair(symbol_b) else MAX_NON_JPY_LOT)
 
@@ -397,22 +416,36 @@ def process_pair(symbol_a, symbol_b):
 # ─── MAIN ─────────────────────────────────────────────────────────────────────
 
 def main():
-    log('=== stat_arb_monitor START ===')
+    global BROKER_KEY
+
+    parser = argparse.ArgumentParser(description='Statistical Arbitrage Monitor')
+    parser.add_argument('--broker', default=BROKER_KEY,
+                        choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
+                        help='使用するブローカーキー')
+    args = parser.parse_args()
+    BROKER_KEY = args.broker
+
+    log(f'=== stat_arb_monitor START broker={BROKER_KEY} ===')
     _load_cooldown()
 
-    if not mt5.initialize():
-        log(f'MT5 initialize failed: {mt5.last_error()}')
+    if not connect_mt5(BROKER_KEY):
+        log(f'MT5 initialize failed broker={BROKER_KEY}')
         return
 
     log(f'MT5 version: {mt5.version()}')
-    log(f'Pairs: {[(a, b) for a, b, en in PAIRS if en]}')
+
+    # シンボルマップを構築
+    all_bases = list({sym for pair in PAIRS for sym in (pair[0], pair[1])})
+    _SYMBOL_MAP.update(build_symbol_map(all_bases, BROKER_KEY))
 
     active_pairs = [(a, b) for a, b, en in PAIRS if en]
+    log(f'Pairs: {[(a, b) for a, b in active_pairs]}')
+    log(f'Resolved: {[(a, _rsym(a), b, _rsym(b)) for a, b in active_pairs]}')
 
     while True:
         try:
-            for symbol_a, symbol_b in active_pairs:
-                process_pair(symbol_a, symbol_b)
+            for base_a, base_b in active_pairs:
+                process_pair(base_a, base_b)
             hb.record_heartbeat('stat_arb_monitor')
         except Exception as e:
             log(f'[ERROR] {e}')

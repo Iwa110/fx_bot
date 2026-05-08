@@ -4,9 +4,11 @@
   [CFG] MOM_CONFIG キー名変更: use_ema200→use_ema200_filter, monday_mult→monday_th_mult
   [BT]  MOM_GBJ monday_th_mult: 1.0→1.5 (BT最優PF=1.4458, n=45)
   [FEAT] 夕方再評価モード追加(19時): ポジションなしペアのみ再チェック
+v3.5+ マルチブローカー対応: broker_utils / argparse --broker 追加
 """
 import sys
 import os
+import argparse
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import MetaTrader5 as mt5
@@ -15,12 +17,28 @@ from datetime import datetime, date
 import risk_manager as rm
 import heartbeat_check as hb
 import safe_monitor as sm
+from broker_utils import connect_mt5, disconnect_mt5, build_symbol_map, is_live_broker
 
+# ══════════════════════════════════════════
+# ブローカー設定
+# ══════════════════════════════════════════
+BROKER_KEY = 'oanda'
+
+# ベースシンボル → MT5シンボル名（main()内で populate）
+_SYMBOL_MAP: dict[str, str] = {}
+
+def _rsym(base: str) -> str:
+    """ベースシンボルをブローカー固有のMT5シンボル名に変換する"""
+    return _SYMBOL_MAP.get(base, base)
+
+# ══════════════════════════════════════════
+# 設定定数
+# ══════════════════════════════════════════
 BASE_DIR     = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH     = os.path.join(BASE_DIR, '.env')
 RESULT_PATH  = os.path.join(BASE_DIR, 'fx_v2_result.json')
-LOG_PATH     = os.path.join(BASE_DIR, 'trade_log.json')       # 取引記録JSON
-DAILY_LOG    = os.path.join(BASE_DIR, 'daily_log.txt')        # テキストログ（新規追加）
+LOG_PATH     = os.path.join(BASE_DIR, 'trade_log.json')
+DAILY_LOG    = os.path.join(BASE_DIR, 'daily_log.txt')
 
 DEMO_MODE     = True
 MAX_TOTAL     = 9
@@ -59,11 +77,11 @@ MAGIC_MAP = {
     'MOM_GBU': 20240107,
     'TRI':     20240108,
 }
+
 # ══════════════════════════════════════════
-# [FIX BUG1] ログ関数（daily_log.txtに出力）
+# ログ関数
 # ══════════════════════════════════════════
 def log_print(msg):
-    """テキストログ出力（print + ファイル書き込み）"""
     ts   = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     line = f'[{ts}] {msg}'
     print(line)
@@ -101,7 +119,6 @@ def send_discord(message, webhook):
         log_print(f'Discord送信エラー: {e}')
 
 def load_trade_log():
-    """[FIX BUG1] 旧load_log()。変数名衝突回避のためtrade_logを返す"""
     if os.path.exists(LOG_PATH):
         with open(LOG_PATH, encoding='utf-8') as f:
             return json.load(f)
@@ -109,12 +126,11 @@ def load_trade_log():
             'orders': [], 'closed': [], 'daily_loss_stopped': False}
 
 def save_trade_log(trade_log):
-    """[FIX BUG1] 旧save_log()"""
     with open(LOG_PATH, 'w', encoding='utf-8') as f:
         json.dump(trade_log, f, ensure_ascii=False, indent=2)
 
 def get_price(symbol):
-    tick = mt5.symbol_info_tick(symbol)
+    tick = mt5.symbol_info_tick(_rsym(symbol))
     if not tick:
         return None
     return {'bid': tick.bid, 'ask': tick.ask, 'mid': (tick.bid + tick.ask) / 2}
@@ -153,7 +169,7 @@ def check_daily_loss(trade_log, webhook):
     return True
 
 def get_atr(symbol, length=14):
-    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_D1, 0, length + 5)
+    rates = mt5.copy_rates_from_pos(_rsym(symbol), mt5.TIMEFRAME_D1, 0, length + 5)
     if rates is None or len(rates) < length + 1:
         return None
     trs = [
@@ -165,8 +181,7 @@ def get_atr(symbol, length=14):
     return sum(trs[-length:]) / length
 
 def get_ema(symbol, period=200):
-    """[STR_FIX P2] D1 EMA計算（EWM相当: alpha=2/(period+1)）"""
-    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_D1, 0, period + 5)
+    rates = mt5.copy_rates_from_pos(_rsym(symbol), mt5.TIMEFRAME_D1, 0, period + 5)
     if rates is None or len(rates) < period:
         return None
     closes = [r['close'] for r in rates]
@@ -181,7 +196,6 @@ def check_closed(trade_log, webhook):
         return
     current      = {p.ticket for p in get_positions()}
     newly_closed = [o for o in trade_log['orders'] if o['ticket'] not in current]
-    # [STR_FIX P1] newly_closed空でもhold_period判定のため処理継続
     from_date = datetime(date.today().year, date.today().month, date.today().day)
     deals     = mt5.history_deals_get(from_date, datetime.now())
     deal_map  = {}
@@ -209,7 +223,7 @@ def check_closed(trade_log, webhook):
     closed_tickets      = {o['ticket'] for o in newly_closed}
     trade_log['orders'] = [o for o in trade_log['orders'] if o['ticket'] not in closed_tickets]
 
-    # [STR_FIX P1] STRのhold_period経過ポジションを強制クローズ
+    # STRのhold_period経過ポジションを強制クローズ
     hold_days     = STR_P['hold_period']
     now_dt        = datetime.now()
     positions_map = {p.ticket: p for p in get_positions()}
@@ -317,18 +331,27 @@ def check_closed(trade_log, webhook):
 
     save_trade_log(trade_log)
 
-def place_order(symbol, direction, lot, tp_dist, sl_dist,
+def place_order(symbol_base, direction, lot, tp_dist, sl_dist,
                 strategy, reason, trade_log, webhook):
-    tick = mt5.symbol_info_tick(symbol)
+    """
+    symbol_base : ベース名（ログ・trade_log記録用）
+    MT5発注は _rsym(symbol_base) を使用する。
+    """
+    resolved = _rsym(symbol_base)
+    tick = mt5.symbol_info_tick(resolved)
     if not tick:
         return False
     order_type = mt5.ORDER_TYPE_BUY if direction == 'buy' else mt5.ORDER_TYPE_SELL
     entry = tick.ask if direction == 'buy' else tick.bid
     tp    = round(entry + tp_dist if direction == 'buy' else entry - tp_dist, 5)
     sl    = round(entry - sl_dist if direction == 'buy' else entry + sl_dist, 5)
+
+    if is_live_broker(BROKER_KEY):
+        log_print(f'*** ライブ口座発注 *** {resolved} {direction.upper()} lot={lot} broker={BROKER_KEY}')
+
     result = mt5.order_send({
         'action':       mt5.TRADE_ACTION_DEAL,
-        'symbol':       symbol,
+        'symbol':       resolved,
         'volume':       lot,
         'type':         order_type,
         'price':        entry,
@@ -338,10 +361,10 @@ def place_order(symbol, direction, lot, tp_dist, sl_dist,
         'magic':        MAGIC_MAP.get(strategy, 20240101),
         'comment':      'FXBot_' + strategy,
         'type_time':    mt5.ORDER_TIME_GTC,
-        'type_filling': mt5.ORDER_FILLING_IOC,   # OANDA対応: IOC維持
+        'type_filling': mt5.ORDER_FILLING_IOC,
     })
     if result is None:
-        log_print(f'発注失敗（resultがNone）: {strategy} {symbol}')
+        log_print(f'発注失敗（resultがNone）: {strategy} {symbol_base}')
         return False
     if result.retcode == mt5.TRADE_RETCODE_DONE:
         now    = datetime.now().strftime('%Y-%m-%d %H:%M')
@@ -355,7 +378,7 @@ def place_order(symbol, direction, lot, tp_dist, sl_dist,
         )
         send_discord(
             f"【FX Bot】{now}\n🟢 **自動発注完了**\n\n"
-            f"戦略: {strategy}\n通貨ペア: {symbol}\n方向: {dir_jp}\n"
+            f"戦略: {strategy}\n通貨ペア: {symbol_base}({resolved})\n方向: {dir_jp}\n"
             f"エントリー: {entry}\nTP: {tp} / SL: {sl}\n"
             f"ロット: {lot}（残高×1.5%リスク）\n"
             f"理由: {reason}{kelly_note}\n\n"
@@ -363,30 +386,30 @@ def place_order(symbol, direction, lot, tp_dist, sl_dist,
             webhook
         )
         trade_log['orders'].append({
-            'ticket': result.order, 'strategy': strategy, 'symbol': symbol,
+            'ticket': result.order, 'strategy': strategy, 'symbol': symbol_base,
             'direction': dir_jp, 'entry': entry, 'tp': tp, 'sl': sl,
             'lot': lot, 'time': now
         })
         save_trade_log(trade_log)
-        log_print(f'発注成功: {strategy} {symbol} {dir_jp} {lot}lot')
+        log_print(f'発注成功: {strategy} {symbol_base}({resolved}) {dir_jp} {lot}lot')
         return True
-    log_print(f'発注失敗: {strategy} {symbol} retcode={result.retcode} / {result.comment}')
+    log_print(f'発注失敗: {strategy} {symbol_base} retcode={result.retcode} / {result.comment}')
     return False
 
 # ══════════════════════════════════════════
 # シグナル関数
 # ══════════════════════════════════════════
 def check_mom_unified(cfg, strategy_name=''):
-    symbol        = cfg['symbol']
-    filter_symbol = cfg['filter_symbol']
+    symbol        = cfg['symbol']          # ベース名
+    filter_symbol = cfg['filter_symbol']   # ベース名
     period        = cfg['period']
     mom_th        = cfg['mom_th']
     filter_th     = cfg['filter_th']
     use_ema200_filter = cfg.get('use_ema200_filter', False)
     monday_th_mult    = cfg.get('monday_th_mult', 1.0)
 
-    rates  = mt5.copy_rates_from_pos(symbol,        mt5.TIMEFRAME_D1, 0, period + 2)
-    frates = mt5.copy_rates_from_pos(filter_symbol, mt5.TIMEFRAME_D1, 0, period + 2)
+    rates  = mt5.copy_rates_from_pos(_rsym(symbol),        mt5.TIMEFRAME_D1, 0, period + 2)
+    frates = mt5.copy_rates_from_pos(_rsym(filter_symbol), mt5.TIMEFRAME_D1, 0, period + 2)
     if rates is None or frates is None or len(rates) <= period:
         log_print(f'[DEBUG] {strategy_name} {symbol}: データ取得失敗')
         return None, None
@@ -412,7 +435,7 @@ def check_mom_unified(cfg, strategy_name=''):
         return None, None
 
     if use_ema200_filter:
-        ema200 = get_ema(symbol, 200)
+        ema200 = get_ema(symbol)
         if ema200 is not None:
             price = get_price(symbol)
             if price is not None:
@@ -432,11 +455,11 @@ def check_mom_unified(cfg, strategy_name=''):
 def _calc_corr_z():
     """AUDNZDのローリングZスコアを計算して返す（BT準拠: 直近corr_window本を使用）。"""
     win   = CORR_P['corr_window']
-    rates = mt5.copy_rates_from_pos('AUDNZD', mt5.TIMEFRAME_D1, 0, win + 5)
+    rates = mt5.copy_rates_from_pos(_rsym('AUDNZD'), mt5.TIMEFRAME_D1, 0, win + 5)
     if rates is None or len(rates) < win:
         log_print('[DEBUG] _calc_corr_z AUDNZDデータ取得失敗')
         return None
-    closes = [r['close'] for r in rates][-win:]  # 直近win本のみ（BT準拠）
+    closes = [r['close'] for r in rates][-win:]
     mean   = sum(closes) / len(closes)
     std    = (sum((c - mean) ** 2 for c in closes) / len(closes)) ** 0.5
     if std == 0:
@@ -461,7 +484,7 @@ def check_str():
     lb = STR_P['lookback']
     scores = {}
     for sym, (base, quote) in STR_TICKERS.items():
-        rates = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_D1, 0, lb + 5)
+        rates = mt5.copy_rates_from_pos(_rsym(sym), mt5.TIMEFRAME_D1, 0, lb + 5)
         if rates is None or len(rates) < lb + 1:
             continue
         closes = [r['close'] for r in rates]
@@ -473,7 +496,7 @@ def check_str():
         log_print('[DEBUG] check_str: scoresが空（データ取得失敗）')
         return None
 
-    sc       = sorted(scores.items(), key=lambda x: x[1], reverse=True)
+    sc        = sorted(scores.items(), key=lambda x: x[1], reverse=True)
     strongest = sc[0][0]
     weakest   = sc[-1][0]
     spread    = sc[0][1] - sc[-1][1]
@@ -502,7 +525,6 @@ def check_str():
             best_score = score
             best_pair  = sym
 
-    # [STR_FIX P4] スコア正規化: 最強・最弱の絶対値合計で除算
     norm_denom = abs(sc[0][1]) + abs(sc[-1][1])
     if norm_denom > 0 and best_score > 0:
         best_score = best_score / norm_denom
@@ -515,8 +537,7 @@ def check_str():
     base, quote = STR_TICKERS[best_pair]
     direction   = 'buy' if scores.get(base, 0) > scores.get(quote, 0) else 'sell'
 
-    # [STR_FIX P2] HTFトレンドフィルター（D1 EMA200）
-    ema200 = get_ema(best_pair, 200)
+    ema200 = get_ema(best_pair)
     if ema200 is None:
         log_print(f'[STR_FIX P2] {best_pair}: EMA200取得失敗 → フィルタースキップ')
     else:
@@ -550,8 +571,6 @@ def check_tri():
     EUR/GBP三角裁定シグナル
     理論値: EURUSD / GBPUSD
     乖離 = 実勢EURGBP - 理論EURGBP
-    乖離 > +entry_th → EURGBPが割高 → sell EURGBP
-    乖離 < -entry_th → EURGBPが割安 → buy  EURGBP
     """
     eu = get_price('EURUSD')
     gu = get_price('GBPUSD')
@@ -576,45 +595,57 @@ def check_tri():
     if diff <= -TRI_P['entry_th']:
         return 'buy',  diff, theory
     return None
+
 # ══════════════════════════════════════════
 # メイン
 # ══════════════════════════════════════════
 def main():
+    global BROKER_KEY
+
+    parser = argparse.ArgumentParser(description='日次戦略スクリプト v3.5')
+    parser.add_argument('--broker', default=BROKER_KEY,
+                        choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
+                        help='使用するブローカーキー')
+    args = parser.parse_args()
+    BROKER_KEY = args.broker
+
     hour = datetime.now().hour
     is_evening = (19 <= hour < 20)
     if is_evening:
         log_print('===== 夕方再評価モード =====')
-    log_print(f'===== 日次戦略v3.5 実行開始 =====')
+    log_print(f'===== 日次戦略v3.5 実行開始 broker={BROKER_KEY} =====')
 
     config  = load_env()
     webhook = config.get('DISCORD_WEBHOOK', '')
 
-    # MT5初期化
-    if not mt5.initialize(
-        login=int(config.get('OANDA_LOGIN', 0)),
-        password=config.get('OANDA_PASSWORD', ''),
-        server=config.get('OANDA_SERVER', '')
-    ):
-        # [FIX BUG1] log → log_print
-        log_print('MT5初期化失敗: ' + str(mt5.last_error()))
+    if not connect_mt5(BROKER_KEY):
+        log_print('MT5初期化失敗 broker=' + BROKER_KEY)
         return
 
     info = mt5.account_info()
     if info is None:
         log_print('MT5口座情報取得失敗')
-        mt5.shutdown()
+        disconnect_mt5()
         return
 
     log_print(f'MT5接続成功: {info.server} / 残高:{info.balance:,.0f}円')
+
+    # シンボルマップを構築
+    all_bases = (
+        list(STR_TICKERS.keys()) +
+        [cfg['symbol'] for cfg in MOM_CONFIG.values()] +
+        [cfg['filter_symbol'] for cfg in MOM_CONFIG.values()] +
+        ['AUDNZD', 'EURGBP']
+    )
+    _SYMBOL_MAP.update(build_symbol_map(list(dict.fromkeys(all_bases)), BROKER_KEY))
 
     hb.record_heartbeat('daily_trade')
 
     if DEMO_MODE and 'demo' not in info.server.lower():
         log_print('警告: DEMO_MODE=TrueですがライブサーバーへのMT5接続が検出されました。終了します。')
-        mt5.shutdown()
+        disconnect_mt5()
         return
 
-    # [FIX BUG1] log変数 → trade_log変数
     trade_log = load_trade_log()
     today     = str(date.today())
     if trade_log['date'] != today:
@@ -626,12 +657,12 @@ def main():
         save_trade_log(trade_log)
 
     if not sm.check_safe_mode(webhook, trade_log.get('initial_balance', 0)):
-        mt5.shutdown()
+        disconnect_mt5()
         return
 
     check_closed(trade_log, webhook)
     if not check_daily_loss(trade_log, webhook):
-        mt5.shutdown()
+        disconnect_mt5()
         return
 
     balance  = info.balance
@@ -641,7 +672,7 @@ def main():
 
     # ── MOM戦略（全5ペア統合ループ）──────────────────────────────────
     for strategy_name, cfg in MOM_CONFIG.items():
-        symbol = cfg['symbol']
+        symbol = cfg['symbol']  # ベース名
         log_print(f'--- {strategy_name} チェック開始 ---')
         if count_by(strategy_name) >= 1:
             log_print(f'[DEBUG] {strategy_name}: 既存ポジションあり → スキップ')
@@ -670,14 +701,13 @@ def main():
             executed += 1
 
     # ── CORR（AUDNZD）──────────────────────────────────────────────
-    # [FIX BUG2] 発注ペアをAUDUSD→AUDNZDに修正
     log_print('--- CORR チェック開始 ---')
     if count_by('CORR') < 1 and not is_dup('CORR', 'AUDNZD', trade_log) \
             and count_total() < MAX_TOTAL:
         corr = check_corr()
         if corr:
             d, z = corr
-            atr  = get_atr('AUDNZD')   # [FIX] AUDUSDからAUDNZDに変更
+            atr  = get_atr('AUDNZD')
             if atr:
                 tp_dist, sl_dist = rm.calc_tp_sl(atr, 'CORR')
                 lot = rm.calc_lot(balance, sl_dist, 'AUDNZD')
@@ -727,9 +757,11 @@ def main():
                 log_print(f'[DEBUG] TRI: tp_dist={tp_dist:.5f}<=0 → スキップ')
             else:
                 lot = rm.calc_lot(balance, sl_dist, 'EURGBP')
+                eg_price = get_price('EURGBP')
+                actual_str = f'{eg_price["mid"]:.5f}' if eg_price else '取得失敗'
                 reason = (
                     f'EURGBP三角裁定 乖離={diff:+.5f} '
-                    f'理論値={theory:.5f} 実勢={get_price("EURGBP")["mid"]:.5f}'
+                    f'理論値={theory:.5f} 実勢={actual_str}'
                 )
                 if place_order('EURGBP', d, lot, tp_dist, sl_dist, 'TRI',
                                reason, trade_log, webhook):
@@ -738,12 +770,13 @@ def main():
             log_print('[DEBUG] TRI: シグナルなし')
     else:
         log_print(f'[DEBUG] TRI: スキップ（既存ポジ={count_by("TRI")} 合計={count_total()}）')
+
     # ── ケリー基準サマリー（週1回月曜日のみ）──────────────────────
     if datetime.now().weekday() == 0:
         rm.print_stats_summary()
 
-    log_print(f'===== 日次戦略v3.5完了: 発注{executed}件 =====')
-    mt5.shutdown()
+    log_print(f'===== 日次戦略v3.5完了: 発注{executed}件 broker={BROKER_KEY} =====')
+    disconnect_mt5()
 
 if __name__ == '__main__':
     main()
