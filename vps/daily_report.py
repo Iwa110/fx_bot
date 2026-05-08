@@ -19,9 +19,28 @@ except ImportError:
 # ══════════════════════════════════════════
 # 定数・設定
 # ══════════════════════════════════════════
-BASE_DIR = r'C:\Users\Administrator\fx_bot'
-LOG_DIR  = os.path.join(BASE_DIR, 'logs')
-ENV_FILE = os.path.join(BASE_DIR, 'vps', '.env')
+BASE_DIR      = r'C:\Users\Administrator\fx_bot'
+LOG_DIR       = os.path.join(BASE_DIR, 'logs')
+ENV_FILE      = os.path.join(BASE_DIR, 'vps', '.env')
+OPTIMIZER_DIR = os.path.join(BASE_DIR, 'optimizer')
+
+# 拡張モジュール（phase1_judgment / dynamic_lot）のインポート
+for _p in [OPTIMIZER_DIR, BASE_DIR]:
+    if _p not in sys.path:
+        sys.path.insert(0, _p)
+
+try:
+    from phase1_judgment import (
+        group_trades    as _pj_group_trades,
+        calc_metrics    as _pj_calc_metrics,
+        get_compact_report as _pj_compact_report,
+    )
+    from dynamic_lot import lot_preview_from_metrics as _dl_preview
+    from evaluate    import fetch_from_mt5 as _eval_fetch
+    _EXT_OK = True
+except ImportError as _e:
+    _EXT_OK = False
+    print('[WARN] 拡張モジュールインポート失敗（phase1/dynamic_lot）: {}'.format(_e))
 
 JST = timezone(timedelta(hours=9))
 
@@ -180,9 +199,54 @@ def calc_pair_metrics(trades: list[dict]) -> dict:
 
 
 # ══════════════════════════════════════════
+# 拡張セクション（phase1 / 動的ロット）
+# ══════════════════════════════════════════
+def fetch_full_history(days=90):
+    """過去N日のトレード履歴を取得（MT5 API使用、phase1判定・lot preview用）"""
+    if not _EXT_OK:
+        return []
+    try:
+        return _eval_fetch(magic=None, days=days)
+    except Exception as e:
+        print('[WARN] fetch_full_history: {}'.format(e))
+        return []
+
+
+def build_lot_preview_section(all_trades, balance):
+    """推奨ロット概算セクション文字列を返す（毎日呼び出し）"""
+    if not _EXT_OK or not all_trades or not balance:
+        return ''
+    try:
+        groups = _pj_group_trades(all_trades)
+        pair_metrics = {}
+        for strategy, pairs in groups.items():
+            for pair, trades_list in pairs.items():
+                m = _pj_calc_metrics(trades_list)
+                if m and m['n'] > 0:
+                    pair_metrics['{}:{}'.format(strategy, pair)] = m
+        if not pair_metrics:
+            return ''
+        return _dl_preview(pair_metrics, balance, ref_sl_pips=20.0)
+    except Exception as e:
+        return '[動的ロット] エラー: {}'.format(e)
+
+
+def build_phase1_section(all_trades):
+    """Phase1判定コンパクトセクション文字列を返す（日曜のみ呼び出し推奨）"""
+    if not _EXT_OK or not all_trades:
+        return ''
+    try:
+        groups = _pj_group_trades(all_trades)
+        return _pj_compact_report(groups)
+    except Exception as e:
+        return '[Phase1] エラー: {}'.format(e)
+
+
+# ══════════════════════════════════════════
 # レポート生成
 # ══════════════════════════════════════════
-def build_report(target_date: datetime.date, trades: list[dict], open_positions: list[dict]) -> str:
+def build_report(target_date: datetime.date, trades: list[dict], open_positions: list[dict],
+                 all_trades=None, balance=None) -> str:
     lines = []
 
     lines.append('=' * 55)
@@ -271,13 +335,28 @@ def build_report(target_date: datetime.date, trades: list[dict], open_positions:
             )
 
     lines.append('')
-    lines.append(f'  生成時刻: {datetime.now(tz=JST).strftime("%Y-%m-%d %H:%M:%S")} JST')
+
+    # 推奨ロット概算（毎日）
+    lot_section = build_lot_preview_section(all_trades, balance)
+    if lot_section:
+        lines.append(lot_section)
+        lines.append('')
+
+    # Phase1判定サマリー（日曜のみ）
+    if datetime.now(tz=JST).weekday() == 6:
+        p1_section = build_phase1_section(all_trades)
+        if p1_section:
+            lines.append(p1_section)
+            lines.append('')
+
+    lines.append('  生成時刻: {}'.format(datetime.now(tz=JST).strftime('%Y-%m-%d %H:%M:%S')) + ' JST')
     lines.append('=' * 55)
 
     return '\n'.join(lines)
 
 
-def build_discord_summary(target_date: datetime.date, trades: list[dict], open_positions: list[dict]) -> str:
+def build_discord_summary(target_date: datetime.date, trades: list[dict], open_positions: list[dict],
+                          all_trades=None, balance=None) -> str:
     """Discord向けの簡潔なサマリーテキストを生成する"""
     lines = []
     lines.append(f'**FX日次レポート {target_date.strftime("%Y-%m-%d")}**')
@@ -302,7 +381,48 @@ def build_discord_summary(target_date: datetime.date, trades: list[dict], open_p
             cur = profit_currency(sym)
             lines.append(f'  {sym}: {m["wins"]}勝{m["losses"]}敗 {m["total"]:+.2f}{cur}')
 
-    lines.append(f'OP: {len(open_positions)}件')
+    lines.append('OP: {}件'.format(len(open_positions)))
+
+    # 推奨ロット概算（コンパクト1行 毎日）
+    if _EXT_OK and all_trades and balance:
+        try:
+            groups = _pj_group_trades(all_trades)
+            pm = {}
+            for strat, pairs in groups.items():
+                for pair, tlist in pairs.items():
+                    m = _pj_calc_metrics(tlist)
+                    if m and m['n'] > 0:
+                        pm['{}:{}'.format(strat, pair)] = m
+            if pm:
+                # Kellyが正のペアのみ1行にまとめる
+                n_eff = max(1.0, float(len(set(k.split(':')[0] for k in pm if ':' in k))))
+                lot_parts = []
+                for k in sorted(pm.keys()):
+                    wr = pm[k].get('win_rate', 0.0)
+                    rr = pm[k].get('rr', 0.0)
+                    if rr > 0 and wr > 0:
+                        fk = wr - (1.0 - wr) / rr
+                        if fk > 0:
+                            pair_part = k.split(':')[-1] if ':' in k else k
+                            pv = 100.0 if pair_part.upper().endswith('JPY') else 10.0
+                            l = max(0.01, min(0.5, round(balance * fk * 0.4 / n_eff / (20.0 * pv), 2)))
+                            lot_parts.append('{}={:.2f}L'.format(pair_part, l))
+                if lot_parts:
+                    lines.append('lot(20pip): {}'.format(' '.join(lot_parts)))
+        except Exception:
+            pass
+
+    # Phase1総合判定（日曜のみ1行）
+    if _EXT_OK and all_trades and datetime.now(tz=JST).weekday() == 6:
+        try:
+            groups = _pj_group_trades(all_trades)
+            report = _pj_compact_report(groups)
+            last_line = [l for l in report.splitlines() if '総合' in l]
+            if last_line:
+                lines.append(last_line[0].strip())
+        except Exception:
+            pass
+
     return '\n'.join(lines)
 
 
@@ -329,21 +449,30 @@ def main():
         trades         = fetch_closed_deals(from_utc, to_utc)
         open_positions = fetch_open_positions()
 
-        print(f'[INFO] クローズ取引: {len(trades)}件  オープン: {len(open_positions)}件')
+        print('[INFO] クローズ取引: {}件  オープン: {}件'.format(len(trades), len(open_positions)))
 
-        report_text = build_report(target_date, trades, open_positions)
+        # 拡張セクション用データ取得
+        acct      = mt5.account_info()
+        balance   = float(acct.balance) if acct else None
+        all_trades = fetch_full_history(days=90)
+        print('[INFO] 全履歴: {}件  残高: {}円'.format(
+            len(all_trades), '{:,.0f}'.format(balance) if balance else 'N/A'))
+
+        report_text = build_report(target_date, trades, open_positions,
+                                   all_trades=all_trades, balance=balance)
 
         # ── ファイル保存 ─────────────────────
         os.makedirs(LOG_DIR, exist_ok=True)
-        report_path = os.path.join(LOG_DIR, f'daily_report_{target_date.strftime("%Y%m%d")}.txt')
+        report_path = os.path.join(LOG_DIR, 'daily_report_{}.txt'.format(target_date.strftime('%Y%m%d')))
         with open(report_path, 'w', encoding='utf-8') as f:
             f.write(report_text)
-        print(f'[INFO] レポート保存: {report_path}')
+        print('[INFO] レポート保存: {}'.format(report_path))
         print()
         print(report_text)
 
         # ── Discord通知 ──────────────────────
-        discord_msg = build_discord_summary(target_date, trades, open_positions)
+        discord_msg = build_discord_summary(target_date, trades, open_positions,
+                                            all_trades=all_trades, balance=balance)
         send_discord(discord_msg, webhook)
         if webhook:
             print('[INFO] Discord通知送信完了')

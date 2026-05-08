@@ -73,6 +73,8 @@ C:\Users\Administrator\fx_bot\
 ## 直近タスク
 - [x] Phase1完了判定実行（2026-05-03: 全ペア不合格・データ蓄積継続）
 - [x] CORR戦略 BT最適化＋Zスコア決済/hold_period実装（2026-05-08完了）
+- [x] 動的ロットサイジング実装: dynamic_lot.py新規 / phase1_judgment.py新判定基準 / daily_report.py統合（2026-05-08完了）
+- [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
 - [ ] USDCAD再評価(BT結果待ち)
 - [ ] RR問題の深掘り（GBPUSD/EURUSD優先）
 
