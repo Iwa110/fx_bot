@@ -2,11 +2,16 @@
 # Statistical Arbitrage Monitor - Pairs Trading Strategy
 # magic = 20260001
 
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import MetaTrader5 as mt5
 import numpy as np
 import pandas as pd
 from datetime import datetime, timezone
 import time
+import heartbeat_check as hb
 
 # ─── CONFIGURATION ────────────────────────────────────────────────────────────
 
@@ -345,11 +350,7 @@ def main():
         try:
             for symbol_a, symbol_b in active_pairs:
                 process_pair(symbol_a, symbol_b)
-            try:
-                import heartbeat_check as hb_mod
-                hb_mod.record_heartbeat('stat_arb_monitor')
-            except Exception:
-                pass
+            hb.record_heartbeat('stat_arb_monitor')
         except Exception as e:
             log(f'[ERROR] {e}')
 

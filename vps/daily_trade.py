@@ -544,6 +544,8 @@ def main():
 
     log_print(f'MT5接続成功: {info.server} / 残高:{info.balance:,.0f}円')
 
+    hb.record_heartbeat('daily_trade')
+
     if DEMO_MODE and 'demo' not in info.server.lower():
         log_print('警告: DEMO_MODE=TrueですがライブサーバーへのMT5接続が検出されました。終了します。')
         mt5.shutdown()
@@ -559,8 +561,6 @@ def main():
     if trade_log['initial_balance'] == 0:
         trade_log['initial_balance'] = info.balance
         save_trade_log(trade_log)
-
-    hb.record_heartbeat('daily_trade')
 
     if not sm.check_safe_mode(webhook, trade_log.get('initial_balance', 0)):
         mt5.shutdown()
