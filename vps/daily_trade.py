@@ -5,8 +5,12 @@
   [BT]  MOM_GBJ monday_th_mult: 1.0→1.5 (BT最優PF=1.4458, n=45)
   [FEAT] 夕方再評価モード追加(19時): ポジションなしペアのみ再チェック
 """
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
 import MetaTrader5 as mt5
-import json, os, ssl, urllib.request
+import json, ssl, urllib.request
 from datetime import datetime, date
 import risk_manager as rm
 import heartbeat_check as hb
