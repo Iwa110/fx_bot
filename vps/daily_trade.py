@@ -641,8 +641,8 @@ def main():
 
     hb.record_heartbeat('daily_trade')
 
-    if DEMO_MODE and 'demo' not in info.server.lower():
-        log_print('警告: DEMO_MODE=TrueですがライブサーバーへのMT5接続が検出されました。終了します。')
+    if DEMO_MODE and is_live_broker(BROKER_KEY):
+        log_print('警告: DEMO_MODE=Trueですがライブブローカーへの接続が検出されました。終了します。')
         disconnect_mt5()
         return
 

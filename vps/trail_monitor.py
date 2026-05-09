@@ -40,7 +40,7 @@ import argparse, json, os, time, urllib.request, sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from broker_utils import connect_mt5, disconnect_mt5
+from broker_utils import connect_mt5, disconnect_mt5, is_live_broker
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, '.env')
@@ -422,8 +422,8 @@ def main():
 
     log('MT5接続成功: ' + account.company + ' / 残高:' + str(round(account.balance)) + '円')
 
-    if DEMO_MODE and 'demo' not in account.server.lower():
-        log('警告: DEMO_MODE=TrueですがライブサーバーへのMT5接続が検出されました。終了します。')
+    if DEMO_MODE and is_live_broker(BROKER_KEY):
+        log('警告: DEMO_MODE=Trueですがライブブローカーへの接続が検出されました。終了します。')
         disconnect_mt5()
         return
 
