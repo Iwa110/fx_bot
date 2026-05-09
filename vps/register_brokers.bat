@@ -1,33 +1,31 @@
 @echo off
 REM register_brokers.bat
-REM Task Scheduler に マルチブローカー並列起動バッチを登録する
-REM 管理者権限で実行すること
+REM Register multi-broker batch tasks to Task Scheduler.
+REM Run as Administrator.
 REM
-REM 【/ru Administrator /it について】
-REM   MT5 の Python IPC は MT5 ターミナルと同じユーザーセッション内でしか動作しない。
-REM   /ru SYSTEM だとセッション0に隔離されて MT5 に接続できずタスクが固まる。
-REM   /it (interactive) を付けると Administrator がログオン中のセッションで実行される。
-REM   VPS は常時 Administrator ログイン状態のため /it で問題ない。
+REM WHY /ru Administrator /it:
+REM   MT5 Python IPC only works within the same Windows user session as the terminal.
+REM   /ru SYSTEM runs in session 0 (isolated), causing MT5 connection to hang.
+REM   /it runs in the logged-on Administrator session, which is always active on VPS.
 
 set BAT_DIR=C:\Users\Administrator\fx_bot\vps
 set LOG_DIR=C:\Users\Administrator\fx_bot\logs
 
-REM ログディレクトリを作成（なければ）
 if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 echo ==============================================
-echo  マルチブローカー Task Scheduler 登録
+echo  Multi-Broker Task Scheduler Registration
 echo ==============================================
 echo.
 
 REM ----------------------------------------------
-REM (1) FX_BB_Monitor_All - bb_monitor_all.bat 毎分実行
+REM (1) FX_BB_Monitor_All - every minute
 REM ----------------------------------------------
 set TASK_NAME_BB=FX_BB_Monitor_All
 set BAT_BB=%BAT_DIR%\bb_monitor_all.bat
 set LOG_BB=%LOG_DIR%\scheduler_bb_monitor_all.log
 
-echo [INFO] タスク登録: %TASK_NAME_BB%
+echo [INFO] Registering: %TASK_NAME_BB%
 schtasks /delete /tn "%TASK_NAME_BB%" /f 2>nul
 
 schtasks /create ^
@@ -40,21 +38,21 @@ schtasks /create ^
   /f
 
 if %ERRORLEVEL% == 0 (
-    echo [OK] %TASK_NAME_BB% 登録完了: 毎分実行
+    echo [OK] %TASK_NAME_BB% registered: every minute
 ) else (
-    echo [ERROR] %TASK_NAME_BB% 登録失敗
+    echo [ERROR] %TASK_NAME_BB% registration failed
     exit /b 1
 )
 echo.
 
 REM ----------------------------------------------
-REM (2) FX_Trail_Monitor_All - trail_monitor_all.bat 毎分実行
+REM (2) FX_Trail_Monitor_All - every minute
 REM ----------------------------------------------
 set TASK_NAME_TRAIL=FX_Trail_Monitor_All
 set BAT_TRAIL=%BAT_DIR%\trail_monitor_all.bat
 set LOG_TRAIL=%LOG_DIR%\scheduler_trail_monitor_all.log
 
-echo [INFO] タスク登録: %TASK_NAME_TRAIL%
+echo [INFO] Registering: %TASK_NAME_TRAIL%
 schtasks /delete /tn "%TASK_NAME_TRAIL%" /f 2>nul
 
 schtasks /create ^
@@ -67,23 +65,22 @@ schtasks /create ^
   /f
 
 if %ERRORLEVEL% == 0 (
-    echo [OK] %TASK_NAME_TRAIL% 登録完了: 毎分実行
+    echo [OK] %TASK_NAME_TRAIL% registered: every minute
 ) else (
-    echo [ERROR] %TASK_NAME_TRAIL% 登録失敗
+    echo [ERROR] %TASK_NAME_TRAIL% registration failed
     exit /b 1
 )
 echo.
 
 REM ----------------------------------------------
-REM (3) FX_Daily_Trade_All - daily_trade_all.bat 毎日07:00 JST
-REM     JST = UTC+9  →  07:00 JST = 22:00 UTC (前日)
-REM     schtasks の /st はローカル時刻(JST)で指定するため 07:00 を使用する
+REM (3) FX_Daily_Trade_All - daily 07:00 JST (= UTC 22:00 prev day)
+REM     /st uses local time (JST), so specify 07:00 directly.
 REM ----------------------------------------------
 set TASK_NAME_DAILY=FX_Daily_Trade_All
 set BAT_DAILY=%BAT_DIR%\daily_trade_all.bat
 set LOG_DAILY=%LOG_DIR%\scheduler_daily_trade_all.log
 
-echo [INFO] タスク登録: %TASK_NAME_DAILY%
+echo [INFO] Registering: %TASK_NAME_DAILY%
 schtasks /delete /tn "%TASK_NAME_DAILY%" /f 2>nul
 
 schtasks /create ^
@@ -96,18 +93,18 @@ schtasks /create ^
   /f
 
 if %ERRORLEVEL% == 0 (
-    echo [OK] %TASK_NAME_DAILY% 登録完了: 毎日 07:00 JST (UTC 22:00 前日)
+    echo [OK] %TASK_NAME_DAILY% registered: daily 07:00 JST
 ) else (
-    echo [ERROR] %TASK_NAME_DAILY% 登録失敗
+    echo [ERROR] %TASK_NAME_DAILY% registration failed
     exit /b 1
 )
 echo.
 
 echo ==============================================
-echo  全タスク登録完了
+echo  All tasks registered successfully.
 echo ==============================================
-schtasks /query /tn "%TASK_NAME_BB%"    /fo LIST 2>nul | findstr "タスク名\|Status\|状態\|Next Run\|次回"
-schtasks /query /tn "%TASK_NAME_TRAIL%" /fo LIST 2>nul | findstr "タスク名\|Status\|状態\|Next Run\|次回"
-schtasks /query /tn "%TASK_NAME_DAILY%" /fo LIST 2>nul | findstr "タスク名\|Status\|状態\|Next Run\|次回"
+schtasks /query /tn "%TASK_NAME_BB%"    /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_TRAIL%" /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_DAILY%" /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
 echo.
 pause
