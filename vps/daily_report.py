@@ -1,14 +1,18 @@
 """
-daily_report.py - FX日次レポート生成スクリプト v1
+daily_report.py - FX日次レポート生成スクリプト v2
 Task Schedulerで毎朝7時JST実行を想定。
+v2: マルチブローカー対応 (--broker argparse + broker_utils)
 
 出力:
-  - logs/daily_report_YYYYMMDD.txt
+  - logs/daily_report_{broker}_YYYYMMDD.txt
   - Discord通知（.envのDISCORD_WEBHOOK）
 """
 
-import sys, os, ssl, json, urllib.request
+import sys, os, ssl, json, urllib.request, argparse
 from datetime import datetime, timedelta, timezone
+
+# broker_utils は vps ディレクトリにある
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
     import MetaTrader5 as mt5
@@ -16,9 +20,13 @@ except ImportError:
     print('[ERROR] MetaTrader5パッケージが見つかりません: pip install MetaTrader5')
     sys.exit(1)
 
+from broker_utils import connect_mt5, disconnect_mt5
+
 # ══════════════════════════════════════════
 # 定数・設定
 # ══════════════════════════════════════════
+BROKER_KEY    = 'axiory'
+
 BASE_DIR      = r'C:\Users\Administrator\fx_bot'
 LOG_DIR       = os.path.join(BASE_DIR, 'logs')
 ENV_FILE      = os.path.join(BASE_DIR, 'vps', '.env')
@@ -250,7 +258,7 @@ def build_report(target_date: datetime.date, trades: list[dict], open_positions:
     lines = []
 
     lines.append('=' * 55)
-    lines.append(f'  FX日次レポート  {target_date.strftime("%Y-%m-%d")} (JST)')
+    lines.append(f'  FX日次レポート  {target_date.strftime("%Y-%m-%d")} (JST)  [{BROKER_KEY}]')
     lines.append('=' * 55)
     lines.append('')
 
@@ -359,7 +367,7 @@ def build_discord_summary(target_date: datetime.date, trades: list[dict], open_p
                           all_trades=None, balance=None) -> str:
     """Discord向けの簡潔なサマリーテキストを生成する"""
     lines = []
-    lines.append(f'**FX日次レポート {target_date.strftime("%Y-%m-%d")}**')
+    lines.append(f'**FX日次レポート {target_date.strftime("%Y-%m-%d")} [{BROKER_KEY}]**')
 
     if not trades:
         lines.append('前日取引: なし')
@@ -430,14 +438,23 @@ def build_discord_summary(target_date: datetime.date, trades: list[dict], open_p
 # エントリーポイント
 # ══════════════════════════════════════════
 def main():
+    global BROKER_KEY
+
+    parser = argparse.ArgumentParser(description='FX日次レポート v2')
+    parser.add_argument('--broker', default=BROKER_KEY,
+                        choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
+                        help='使用するブローカーキー')
+    args = parser.parse_args()
+    BROKER_KEY = args.broker
+
     env     = load_env()
     webhook = env.get('DISCORD_WEBHOOK', '')
 
-    print('[INFO] MT5初期化...')
-    if not mt5.initialize():
-        msg = f'[ERROR] MT5初期化失敗: {mt5.last_error()}'
+    print('[INFO] MT5初期化... broker={}'.format(BROKER_KEY))
+    if not connect_mt5(BROKER_KEY):
+        msg = '[ERROR] MT5初期化失敗: broker={}'.format(BROKER_KEY)
         print(msg)
-        send_discord(f':warning: daily_report: MT5初期化失敗 `{mt5.last_error()}`', webhook)
+        send_discord(':warning: daily_report: MT5初期化失敗 broker=`{}`'.format(BROKER_KEY), webhook)
         sys.exit(1)
 
     try:
@@ -463,7 +480,7 @@ def main():
 
         # ── ファイル保存 ─────────────────────
         os.makedirs(LOG_DIR, exist_ok=True)
-        report_path = os.path.join(LOG_DIR, 'daily_report_{}.txt'.format(target_date.strftime('%Y%m%d')))
+        report_path = os.path.join(LOG_DIR, 'daily_report_{}_{}.txt'.format(BROKER_KEY, target_date.strftime('%Y%m%d')))
         with open(report_path, 'w', encoding='utf-8') as f:
             f.write(report_text)
         print('[INFO] レポート保存: {}'.format(report_path))
@@ -484,7 +501,7 @@ def main():
         traceback.print_exc()
         send_discord(f':rotating_light: daily_report エラー\n```{e}```', webhook)
     finally:
-        mt5.shutdown()
+        disconnect_mt5()
 
 
 if __name__ == '__main__':

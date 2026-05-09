@@ -104,11 +104,43 @@ if %ERRORLEVEL% == 0 (
 )
 echo.
 
+REM ----------------------------------------------
+REM (4) FX_DailyReport_All - daily 07:05 JST (5 min after FX_Daily_Trade_All)
+REM
+REM NOTE: FX_DailyReport (registered via register_daily_report.bat, Python311) is
+REM   kept as-is. FX_DailyReport_All replaces it for multi-broker operation.
+REM   If both tasks conflict, disable FX_DailyReport via Task Scheduler GUI.
+REM ----------------------------------------------
+set TASK_NAME_REPORT=FX_DailyReport_All
+set BAT_REPORT=%BAT_DIR%\daily_report_all.bat
+
+echo [INFO] Registering: %TASK_NAME_REPORT%
+schtasks /delete /tn "%TASK_NAME_REPORT%" /f 2>nul
+
+schtasks /create ^
+  /tn "%TASK_NAME_REPORT%" ^
+  /tr "\"%BAT_REPORT%\"" ^
+  /sc DAILY ^
+  /st 07:05 ^
+  /ru Administrator ^
+  /it ^
+  /rl HIGHEST ^
+  /f
+
+if %ERRORLEVEL% == 0 (
+    echo [OK] %TASK_NAME_REPORT% registered: daily 07:05 JST
+) else (
+    echo [ERROR] %TASK_NAME_REPORT% registration failed
+    exit /b 1
+)
+echo.
+
 echo ==============================================
 echo  All tasks registered successfully.
 echo ==============================================
-schtasks /query /tn "%TASK_NAME_BB%"    /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
-schtasks /query /tn "%TASK_NAME_TRAIL%" /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
-schtasks /query /tn "%TASK_NAME_DAILY%" /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_BB%"     /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_TRAIL%"  /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_DAILY%"  /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_REPORT%" /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
 echo.
 pause
