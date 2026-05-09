@@ -78,7 +78,7 @@ BROKERS: dict[str, dict[str, Any]] = {
         'enabled':        True,
     },
     'exness': {
-        'path':           r'C:\Program Files\Exness MetaTrader 5\terminal64.exe',
+        'path':           r'C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe',
         'server':         _ENV.get('EXNESS_SERVER', 'Exness-MT5Trial7'),
         'login':          _int('EXNESS_LOGIN'),
         'password':       _ENV.get('EXNESS_PASSWORD', ''),
