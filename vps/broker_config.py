@@ -54,7 +54,7 @@ BROKERS: dict[str, dict[str, Any]] = {
         'enabled':        True,
     },
     'oanda_demo': {
-        'path':           '',   # 既存MT5セッションにアタッチ（path指定するとIPC timeout）
+        'path':           '',   # 起動済みMT5にアタッチするため空
         'server':         _ENV.get('OANDA_DEMO_SERVER', 'OANDA Division1-MT5 2'),
         'login':          _int('OANDA_DEMO_LOGIN'),
         'password':       _ENV.get('OANDA_DEMO_PASSWORD', ''),
@@ -63,6 +63,7 @@ BROKERS: dict[str, dict[str, Any]] = {
         'min_lot':        0.01,
         'is_live':        False,
         'enabled':        True,
+        'attach':         True,  # mt5.initialize()を引数なしで呼ぶ（IPC timeout回避）
         'note':           '期限付きデモ。失効後は enabled=False に変更する',
     },
     'axiory': {

@@ -34,19 +34,25 @@ def connect_mt5(broker_key: str) -> bool:
 
     kwargs: dict = {}
 
+    # attach=True: MT5が既に起動・ログイン済みの場合は引数なしでアタッチ
+    # 認証情報を渡すとIPC timeoutが発生するため
+    if cfg.get('attach'):
+        print('[broker_utils] initialize kwargs: {} (attach mode)')
+        ok = mt5.initialize()
+        if not ok:
+            print('[broker_utils] MT5初期化失敗 (' + broker_key + '): ' + str(mt5.last_error()))
+        return ok
+
     # path が設定されていればターミナルを指定して起動
     if cfg.get('path'):
         kwargs['path'] = cfg['path']
 
     # login=0 は「未設定」として扱い、login/password を渡さない。
-    # → MT5ターミナルが既に起動・ログイン済みのセッションにそのまま接続する。
-    # login が設定されている場合のみ認証情報を渡す。
     if cfg.get('login'):
         kwargs['login']    = cfg['login']
         kwargs['password'] = cfg['password']
         kwargs['server']   = cfg['server']
     elif cfg.get('server'):
-        # login なしで server だけ指定する場合（ターミナル起動時のサーバー選択）
         kwargs['server'] = cfg['server']
 
     print('[broker_utils] initialize kwargs: ' +
