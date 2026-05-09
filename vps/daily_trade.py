@@ -609,6 +609,11 @@ def main():
     args = parser.parse_args()
     BROKER_KEY = args.broker
 
+    global DAILY_LOG, LOG_PATH, RESULT_PATH
+    DAILY_LOG   = os.path.join(BASE_DIR, 'daily_log_'     + BROKER_KEY + '.txt')
+    LOG_PATH    = os.path.join(BASE_DIR, 'trade_log_'     + BROKER_KEY + '.json')
+    RESULT_PATH = os.path.join(BASE_DIR, 'fx_v2_result_'  + BROKER_KEY + '.json')
+
     hour = datetime.now().hour
     is_evening = (19 <= hour < 20)
     if is_evening:

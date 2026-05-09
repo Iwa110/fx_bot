@@ -116,7 +116,7 @@ RSI_PARAMS = {
     'buy_max':  40,
 }
 
-LOG_FILE         = r'C:\Users\Administrator\fx_bot\vps\bb_log.txt'
+LOG_FILE         = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bb_log.txt')
 ENV_FILE         = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
 DAILY_LOSS_LIMIT = -50000
 
@@ -136,7 +136,9 @@ def load_env():
         pass
     return env
 
-def log(msg, filepath=LOG_FILE):
+def log(msg, filepath=None):
+    if filepath is None:
+        filepath = LOG_FILE
     ts   = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     line = '[' + ts + '] ' + msg
     print(line)
@@ -681,6 +683,9 @@ def main():
                         help='使用するブローカーキー')
     args = parser.parse_args()
     BROKER_KEY = args.broker
+
+    global LOG_FILE
+    LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'bb_log_' + BROKER_KEY + '.txt')
 
     env     = load_env()
     webhook = env.get('DISCORD_WEBHOOK', '')

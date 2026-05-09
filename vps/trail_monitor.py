@@ -395,6 +395,9 @@ def main():
     args = parser.parse_args()
     BROKER_KEY = args.broker
 
+    global LOG_PATH
+    LOG_PATH = os.path.join(BASE_DIR, 'trail_log_' + BROKER_KEY + '.txt')
+
     env     = load_env()
     webhook = env.get('DISCORD_WEBHOOK', '')
 
