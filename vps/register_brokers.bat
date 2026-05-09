@@ -2,6 +2,12 @@
 REM register_brokers.bat
 REM Task Scheduler に マルチブローカー並列起動バッチを登録する
 REM 管理者権限で実行すること
+REM
+REM 【/ru Administrator /it について】
+REM   MT5 の Python IPC は MT5 ターミナルと同じユーザーセッション内でしか動作しない。
+REM   /ru SYSTEM だとセッション0に隔離されて MT5 に接続できずタスクが固まる。
+REM   /it (interactive) を付けると Administrator がログオン中のセッションで実行される。
+REM   VPS は常時 Administrator ログイン状態のため /it で問題ない。
 
 set BAT_DIR=C:\Users\Administrator\fx_bot\vps
 set LOG_DIR=C:\Users\Administrator\fx_bot\logs
@@ -29,8 +35,8 @@ schtasks /create ^
   /tr "cmd /c \"%BAT_BB%\" >> \"%LOG_BB%\" 2>&1" ^
   /sc MINUTE ^
   /mo 1 ^
-  /ru SYSTEM ^
-  /rl HIGHEST ^
+  /ru Administrator ^
+  /it ^
   /f
 
 if %ERRORLEVEL% == 0 (
@@ -56,8 +62,8 @@ schtasks /create ^
   /tr "cmd /c \"%BAT_TRAIL%\" >> \"%LOG_TRAIL%\" 2>&1" ^
   /sc MINUTE ^
   /mo 1 ^
-  /ru SYSTEM ^
-  /rl HIGHEST ^
+  /ru Administrator ^
+  /it ^
   /f
 
 if %ERRORLEVEL% == 0 (
@@ -85,8 +91,8 @@ schtasks /create ^
   /tr "cmd /c \"%BAT_DAILY%\" >> \"%LOG_DAILY%\" 2>&1" ^
   /sc DAILY ^
   /st 07:00 ^
-  /ru SYSTEM ^
-  /rl HIGHEST ^
+  /ru Administrator ^
+  /it ^
   /f
 
 if %ERRORLEVEL% == 0 (
