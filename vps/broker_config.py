@@ -54,7 +54,7 @@ BROKERS: dict[str, dict[str, Any]] = {
         'enabled':        True,
     },
     'oanda_demo': {
-        'path':           r'C:\Program Files\OANDA MetaTrader 5\terminal64.exe',
+        'path':           '',   # 既存MT5セッションにアタッチ（path指定するとIPC timeout）
         'server':         _ENV.get('OANDA_DEMO_SERVER', 'OANDA Division1-MT5 2'),
         'login':          _int('OANDA_DEMO_LOGIN'),
         'password':       _ENV.get('OANDA_DEMO_PASSWORD', ''),
