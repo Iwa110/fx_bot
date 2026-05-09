@@ -4,7 +4,8 @@ check_broker_connection.py - ブローカー接続確認スクリプト
 使用例:
   python check_broker_connection.py              # enabled=True の全ブローカーを確認
   python check_broker_connection.py --broker oanda
-  python check_broker_connection.py --broker axiory
+  python check_broker_connection.py --broker oanda_demo
+  python check_broker_connection.py --discover   # 現在接続中のMT5情報を表示（.env設定用）
 """
 import argparse
 import sys
@@ -14,6 +15,50 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import MetaTrader5 as mt5
 from broker_config import BROKERS
 from broker_utils import connect_mt5, disconnect_mt5, resolve_symbol
+
+
+def discover_current() -> None:
+    """既に起動・ログイン済みのMT5ターミナルに接続して情報を表示する。
+    .env に設定すべき値を確認するために使う。"""
+    print('=' * 60)
+    print('現在のMT5ターミナル情報（--discover モード）')
+    print('ターミナルは既に起動・ログイン済みである必要があります。')
+    print()
+
+    ok = mt5.initialize()
+    if not ok:
+        print(f'接続失敗: {mt5.last_error()}')
+        print('MT5ターミナルが起動していないか、接続できません。')
+        return
+
+    account = mt5.account_info()
+    terminal = mt5.terminal_info()
+
+    if account:
+        print('--- account_info ---')
+        print(f'  login   : {account.login}   ← .env の XXXX_LOGIN に設定')
+        print(f'  server  : {account.server}  ← .env の XXXX_SERVER に設定')
+        print(f'  company : {account.company}')
+        print(f'  balance : {account.balance:,.0f}')
+        print(f'  currency: {account.currency}')
+        print(f'  is_demo : {account.trade_mode}  (0=DEMO 1=CONTEST 2=REAL)')
+    else:
+        print('account_info 取得失敗')
+
+    if terminal:
+        print()
+        print('--- terminal_info ---')
+        print(f'  path    : {terminal.path}  ← broker_config.py の path に設定')
+        print(f'  data_path: {terminal.data_path}')
+
+    mt5.shutdown()
+    print()
+    print('.env に追記する例:')
+    if account and terminal:
+        prefix = 'OANDA_DEMO' if account.trade_mode != 2 else 'OANDA'
+        print(f'  {prefix}_LOGIN={account.login}')
+        print(f'  {prefix}_PASSWORD=（パスワードを手動で記入）')
+        print(f'  {prefix}_SERVER={account.server}')
 
 CHECK_SYMBOLS = [
     'GBPJPY', 'USDJPY', 'EURUSD', 'GBPUSD',
@@ -78,7 +123,16 @@ def main() -> None:
         default=None,
         help='確認するブローカーキー（省略時は enabled=True 全ブローカー）',
     )
+    parser.add_argument(
+        '--discover',
+        action='store_true',
+        help='現在起動中のMT5ターミナルに接続して .env 設定値を表示する',
+    )
     args = parser.parse_args()
+
+    if args.discover:
+        discover_current()
+        return
 
     if args.broker:
         targets = [args.broker]

@@ -32,13 +32,25 @@ def connect_mt5(broker_key: str) -> bool:
     if cfg.get('is_live'):
         print('[broker_utils] *** 警告: ライブ口座 (' + broker_key + ') へ接続します ***')
 
-    kwargs: dict = {
-        'login':    cfg['login'],
-        'password': cfg['password'],
-        'server':   cfg['server'],
-    }
+    kwargs: dict = {}
+
+    # path が設定されていればターミナルを指定して起動
     if cfg.get('path'):
         kwargs['path'] = cfg['path']
+
+    # login=0 は「未設定」として扱い、login/password を渡さない。
+    # → MT5ターミナルが既に起動・ログイン済みのセッションにそのまま接続する。
+    # login が設定されている場合のみ認証情報を渡す。
+    if cfg.get('login'):
+        kwargs['login']    = cfg['login']
+        kwargs['password'] = cfg['password']
+        kwargs['server']   = cfg['server']
+    elif cfg.get('server'):
+        # login なしで server だけ指定する場合（ターミナル起動時のサーバー選択）
+        kwargs['server'] = cfg['server']
+
+    print('[broker_utils] initialize kwargs: ' +
+          str({k: v if k != 'password' else '***' for k, v in kwargs.items()}))
 
     ok = mt5.initialize(**kwargs)
     if not ok:
