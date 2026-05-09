@@ -3,15 +3,19 @@ REM register_brokers.bat
 REM Register multi-broker batch tasks to Task Scheduler.
 REM Run as Administrator.
 REM
-REM WHY /ru Administrator /it:
-REM   MT5 Python IPC only works within the same Windows user session as the terminal.
-REM   /ru SYSTEM runs in session 0 (isolated), causing MT5 connection to hang.
-REM   /it runs in the logged-on Administrator session, which is always active on VPS.
+REM WHY /ru Administrator /it /rl HIGHEST:
+REM   MT5 Python IPC requires the same user session AND elevated privileges as the terminal.
+REM   /ru SYSTEM: isolated in session 0, MT5 unreachable.
+REM   /it: runs in the logged-on Administrator interactive session.
+REM   /rl HIGHEST: elevates the process to match MT5 terminal privilege level.
+REM
+REM WHY no >> log redirect:
+REM   The redirect requires the log directory to exist. If missing, cmd exits with
+REM   error code 1 immediately without running the bat file. Each Python script
+REM   writes its own log (bb_log_axiory.txt, trail_log_axiory.txt, etc.), so the
+REM   external redirect is unnecessary.
 
 set BAT_DIR=C:\Users\Administrator\fx_bot\vps
-set LOG_DIR=C:\Users\Administrator\fx_bot\logs
-
-if not exist "%LOG_DIR%" mkdir "%LOG_DIR%"
 
 echo ==============================================
 echo  Multi-Broker Task Scheduler Registration
@@ -23,14 +27,13 @@ REM (1) FX_BB_Monitor_All - every minute
 REM ----------------------------------------------
 set TASK_NAME_BB=FX_BB_Monitor_All
 set BAT_BB=%BAT_DIR%\bb_monitor_all.bat
-set LOG_BB=%LOG_DIR%\scheduler_bb_monitor_all.log
 
 echo [INFO] Registering: %TASK_NAME_BB%
 schtasks /delete /tn "%TASK_NAME_BB%" /f 2>nul
 
 schtasks /create ^
   /tn "%TASK_NAME_BB%" ^
-  /tr "cmd /c \"%BAT_BB%\" >> \"%LOG_BB%\" 2>&1" ^
+  /tr "\"%BAT_BB%\"" ^
   /sc MINUTE ^
   /mo 1 ^
   /ru Administrator ^
@@ -51,14 +54,13 @@ REM (2) FX_Trail_Monitor_All - every minute
 REM ----------------------------------------------
 set TASK_NAME_TRAIL=FX_Trail_Monitor_All
 set BAT_TRAIL=%BAT_DIR%\trail_monitor_all.bat
-set LOG_TRAIL=%LOG_DIR%\scheduler_trail_monitor_all.log
 
 echo [INFO] Registering: %TASK_NAME_TRAIL%
 schtasks /delete /tn "%TASK_NAME_TRAIL%" /f 2>nul
 
 schtasks /create ^
   /tn "%TASK_NAME_TRAIL%" ^
-  /tr "cmd /c \"%BAT_TRAIL%\" >> \"%LOG_TRAIL%\" 2>&1" ^
+  /tr "\"%BAT_TRAIL%\"" ^
   /sc MINUTE ^
   /mo 1 ^
   /ru Administrator ^
@@ -80,14 +82,13 @@ REM     /st uses local time (JST), so specify 07:00 directly.
 REM ----------------------------------------------
 set TASK_NAME_DAILY=FX_Daily_Trade_All
 set BAT_DAILY=%BAT_DIR%\daily_trade_all.bat
-set LOG_DAILY=%LOG_DIR%\scheduler_daily_trade_all.log
 
 echo [INFO] Registering: %TASK_NAME_DAILY%
 schtasks /delete /tn "%TASK_NAME_DAILY%" /f 2>nul
 
 schtasks /create ^
   /tn "%TASK_NAME_DAILY%" ^
-  /tr "cmd /c \"%BAT_DAILY%\" >> \"%LOG_DAILY%\" 2>&1" ^
+  /tr "\"%BAT_DAILY%\"" ^
   /sc DAILY ^
   /st 07:00 ^
   /ru Administrator ^
