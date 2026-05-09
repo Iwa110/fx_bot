@@ -35,6 +35,7 @@ schtasks /create ^
   /mo 1 ^
   /ru Administrator ^
   /it ^
+  /rl HIGHEST ^
   /f
 
 if %ERRORLEVEL% == 0 (
@@ -62,6 +63,7 @@ schtasks /create ^
   /mo 1 ^
   /ru Administrator ^
   /it ^
+  /rl HIGHEST ^
   /f
 
 if %ERRORLEVEL% == 0 (
@@ -90,6 +92,7 @@ schtasks /create ^
   /st 07:00 ^
   /ru Administrator ^
   /it ^
+  /rl HIGHEST ^
   /f
 
 if %ERRORLEVEL% == 0 (
