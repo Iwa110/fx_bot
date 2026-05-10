@@ -56,26 +56,33 @@ if %ERRORLEVEL% == 0 (
 echo.
 
 REM ----------------------------------------------
-REM (2) FX_Trail_Monitor_All - every minute
+REM (2) FX_Trail_Monitor_All - at logon (watcher pattern)
+REM
+REM WHY ONLOGON instead of every minute:
+REM   trail_monitor.py is a daemon (while True loop). Running the bat every
+REM   minute caused Task Scheduler's Job Object to kill the python processes
+REM   each time the bat exited. trail_watcher.py starts once at logon and
+REM   manages all broker processes itself, restarting any that crash.
+REM   pythonw.exe has no console window - no popup ever appears.
 REM ----------------------------------------------
 set TASK_NAME_TRAIL=FX_Trail_Monitor_All
-set BAT_TRAIL=%BAT_DIR%\trail_monitor_all.bat
+set PYTHONW=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe
+set WATCHER=%BAT_DIR%\trail_watcher.py
 
 echo [INFO] Registering: %TASK_NAME_TRAIL%
 schtasks /delete /tn "%TASK_NAME_TRAIL%" /f 2>nul
 
 schtasks /create ^
   /tn "%TASK_NAME_TRAIL%" ^
-  /tr "wscript.exe //nologo \"%VBS%\" \"%BAT_TRAIL%\"" ^
-  /sc MINUTE ^
-  /mo 1 ^
+  /tr "\"%PYTHONW%\" \"%WATCHER%\"" ^
+  /sc ONLOGON ^
   /ru Administrator ^
   /it ^
   /rl HIGHEST ^
   /f
 
 if %ERRORLEVEL% == 0 (
-    echo [OK] %TASK_NAME_TRAIL% registered: every minute
+    echo [OK] %TASK_NAME_TRAIL% registered: at logon
 ) else (
     echo [ERROR] %TASK_NAME_TRAIL% registration failed
     exit /b 1
