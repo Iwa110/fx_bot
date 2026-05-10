@@ -195,8 +195,8 @@
     "avg_win": 1421.0,
     "avg_loss": -543.0,
     "win_rate": 25.8,
-    "avg_rr": 7450.06,
-    "kelly": 0.258,
+    "avg_rr": 0,
+    "kelly": 0,
     "last_updated": "2026-04-21 07:00"
   },
   "BB_EURUSD": {
@@ -365,8 +365,8 @@
     "avg_win": 1298.0,
     "avg_loss": -469.0,
     "win_rate": 19.2,
-    "avg_rr": 1284.99,
-    "kelly": 0.191,
+    "avg_rr": 0,
+    "kelly": 0,
     "last_updated": "2026-04-21 07:00"
   },
   "BB_USDJPY": {

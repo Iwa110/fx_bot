@@ -218,7 +218,10 @@ def check_closed(trade_log, webhook):
         )
         sl_dist = abs(order['entry'] - order['sl'])   if 'sl'    in order and 'entry' in order else 0
         tp_dist = abs(order['entry'] - order['tp'])   if 'tp'    in order and 'entry' in order else 0
-        rm.record_trade(order['strategy'], profit, sl_dist, tp_dist, order.get('entry', 0))
+        rm.record_trade(order['strategy'], profit, sl_dist, tp_dist,
+                        order.get('entry', 0),
+                        symbol=order.get('symbol', ''),
+                        lot=order.get('lot', 0.0))
         trade_log['closed'].append({**order, 'profit': profit, 'reason': reason})
     closed_tickets      = {o['ticket'] for o in newly_closed}
     trade_log['orders'] = [o for o in trade_log['orders'] if o['ticket'] not in closed_tickets]
