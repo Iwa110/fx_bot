@@ -70,7 +70,8 @@ def save_stats(stats: dict):
         json.dump(stats, f, ensure_ascii=False, indent=2)
 
 def record_trade(strategy: str, profit: float, sl_dist: float,
-                 tp_dist: float, entry: float):
+                 tp_dist: float, entry: float,
+                 symbol: str = '', lot: float = 0.0):
     stats = load_stats()
     if strategy not in stats:
         stats[strategy] = {
@@ -81,7 +82,12 @@ def record_trade(strategy: str, profit: float, sl_dist: float,
 
     s      = stats[strategy]
     is_win = profit > 0
-    rr_actual = abs(profit) / (sl_dist * 10_000) if sl_dist > 0 else 0
+    if sl_dist > 0 and lot > 0:
+        is_jpy = 'JPY' in symbol
+        loss = sl_dist * 100_000 * lot * (1.0 if is_jpy else USDJPY)
+        rr_actual = abs(profit) / loss if loss > 0 else 0
+    else:
+        rr_actual = 0
 
     s['trades'].append({
         'time':   datetime.now().strftime('%Y-%m-%d %H:%M'),
