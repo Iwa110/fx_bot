@@ -393,7 +393,9 @@ ERROR_ALREADY_EXISTS = 183
 def acquire_lock(broker_key):
     global _MUTEX_HANDLE
     _k32 = ctypes.windll.kernel32
-    name = 'Global\\trail_monitor_' + broker_key
+    # Local\ はセッション内で一意。Global\ は SeCreateGlobalPrivilege が必要で
+    # Windows Server の構成によっては失敗するため使わない。
+    name = 'Local\\trail_monitor_' + broker_key
     handle = _k32.CreateMutexW(None, True, name)
     err    = _k32.GetLastError()
     if err == ERROR_ALREADY_EXISTS:
@@ -401,6 +403,10 @@ def acquire_lock(broker_key):
         if handle:
             _k32.CloseHandle(handle)
         return False
+    if not handle:
+        # CreateMutex 自体が失敗（権限不足など）→ ログに残して続行
+        print('WARNING: CreateMutexW failed (err=' + str(err) + '), skipping lock.')
+        return True
     _MUTEX_HANDLE = handle
     return True
 

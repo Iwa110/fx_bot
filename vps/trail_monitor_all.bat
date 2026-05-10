@@ -11,17 +11,22 @@ REM
 REM oanda (live) NOTE:
 REM   Remove the REM prefix from the oanda line when ready.
 
-set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe
+REM WHY pythonw.exe (not python.exe):
+REM   python.exe is a console app: when the bat's console closes, CTRL_CLOSE_EVENT
+REM   kills all start /B python.exe children immediately. pythonw.exe is a
+REM   Windows-subsystem app (no console), so it survives the console closing and
+REM   runs as a true background daemon. Logs go to trail_log_<broker>.txt.
+set PYTHONW=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\trail_monitor.py
 
 REM axiory (enabled=True, demo)
-start /B "" "%PYTHON%" "%SCRIPT%" --broker axiory
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker axiory
 
 REM exness (enabled=True, demo)
-start /B "" "%PYTHON%" "%SCRIPT%" --broker exness
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker exness
 
 REM oanda_demo (enabled=True, attach=True - OANDA terminal must be running)
-start /B "" "%PYTHON%" "%SCRIPT%" --broker oanda_demo
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda_demo
 
 REM oanda (enabled=True, live account - uncomment when ready)
-REM start /B "" "%PYTHON%" "%SCRIPT%" --broker oanda
+REM start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda
