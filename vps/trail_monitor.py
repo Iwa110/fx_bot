@@ -45,7 +45,7 @@ from broker_utils import connect_mt5, disconnect_mt5, is_live_broker
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, '.env')
 LOG_PATH = os.path.join(BASE_DIR, 'trail_log.txt')
-LOCK_PATH = None  # set in main() per broker
+_MUTEX_HANDLE = None  # Windows named mutex handle
 
 BROKER_KEY       = 'oanda'
 TRAIL_INTERVAL   = 30     # ループ間隔（秒）
@@ -384,35 +384,32 @@ def update_trailing_stops():
     return updated
 
 # ══════════════════════════════════════════
-# シングルインスタンスガード (PID ファイル)
+# シングルインスタンスガード (Windows 名前付きミューテックス)
+# PID ファイルと異なりアトミックで stale ロックが発生しない。
+# プロセスが異常終了しても OS がミューテックスを自動解放する。
 # ══════════════════════════════════════════
-def _is_pid_alive(pid):
-    # Windows: OpenProcess で存在確認
-    handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)
-    if handle == 0:
-        return False
-    ctypes.windll.kernel32.CloseHandle(handle)
-    return True
+ERROR_ALREADY_EXISTS = 183
 
-def acquire_lock():
-    if os.path.exists(LOCK_PATH):
-        try:
-            with open(LOCK_PATH) as f:
-                pid = int(f.read().strip())
-            if _is_pid_alive(pid):
-                print('Already running (PID=' + str(pid) + '), exiting.')
-                return False
-        except Exception:
-            pass  # 壊れたロックファイルは上書き
-    with open(LOCK_PATH, 'w') as f:
-        f.write(str(os.getpid()))
+def acquire_lock(broker_key):
+    global _MUTEX_HANDLE
+    _k32 = ctypes.windll.kernel32
+    name = 'Global\\trail_monitor_' + broker_key
+    handle = _k32.CreateMutexW(None, True, name)
+    err    = _k32.GetLastError()
+    if err == ERROR_ALREADY_EXISTS:
+        print('Already running (mutex=' + name + '), exiting.')
+        if handle:
+            _k32.CloseHandle(handle)
+        return False
+    _MUTEX_HANDLE = handle
     return True
 
 def release_lock():
-    try:
-        os.remove(LOCK_PATH)
-    except Exception:
-        pass
+    global _MUTEX_HANDLE
+    if _MUTEX_HANDLE:
+        ctypes.windll.kernel32.ReleaseMutex(_MUTEX_HANDLE)
+        ctypes.windll.kernel32.CloseHandle(_MUTEX_HANDLE)
+        _MUTEX_HANDLE = None
 
 # ══════════════════════════════════════════
 # メイン
@@ -427,11 +424,10 @@ def main():
     args = parser.parse_args()
     BROKER_KEY = args.broker
 
-    global LOG_PATH, LOCK_PATH
-    LOG_PATH  = os.path.join(BASE_DIR, 'trail_log_'  + BROKER_KEY + '.txt')
-    LOCK_PATH = os.path.join(BASE_DIR, 'trail_lock_' + BROKER_KEY + '.pid')
+    global LOG_PATH
+    LOG_PATH = os.path.join(BASE_DIR, 'trail_log_' + BROKER_KEY + '.txt')
 
-    if not acquire_lock():
+    if not acquire_lock(BROKER_KEY):
         return
 
     env     = load_env()
