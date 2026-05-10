@@ -36,7 +36,7 @@
 #   v12+ マルチブローカー対応: broker_utils / argparse --broker 追加
 
 import MetaTrader5 as mt5
-import argparse, json, os, time, urllib.request, sys
+import argparse, ctypes, json, os, time, urllib.request, sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -45,6 +45,7 @@ from broker_utils import connect_mt5, disconnect_mt5, is_live_broker
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, '.env')
 LOG_PATH = os.path.join(BASE_DIR, 'trail_log.txt')
+LOCK_PATH = None  # set in main() per broker
 
 BROKER_KEY       = 'oanda'
 TRAIL_INTERVAL   = 30     # ループ間隔（秒）
@@ -383,6 +384,37 @@ def update_trailing_stops():
     return updated
 
 # ══════════════════════════════════════════
+# シングルインスタンスガード (PID ファイル)
+# ══════════════════════════════════════════
+def _is_pid_alive(pid):
+    # Windows: OpenProcess で存在確認
+    handle = ctypes.windll.kernel32.OpenProcess(0x00100000, False, pid)
+    if handle == 0:
+        return False
+    ctypes.windll.kernel32.CloseHandle(handle)
+    return True
+
+def acquire_lock():
+    if os.path.exists(LOCK_PATH):
+        try:
+            with open(LOCK_PATH) as f:
+                pid = int(f.read().strip())
+            if _is_pid_alive(pid):
+                print('Already running (PID=' + str(pid) + '), exiting.')
+                return False
+        except Exception:
+            pass  # 壊れたロックファイルは上書き
+    with open(LOCK_PATH, 'w') as f:
+        f.write(str(os.getpid()))
+    return True
+
+def release_lock():
+    try:
+        os.remove(LOCK_PATH)
+    except Exception:
+        pass
+
+# ══════════════════════════════════════════
 # メイン
 # ══════════════════════════════════════════
 def main():
@@ -395,8 +427,12 @@ def main():
     args = parser.parse_args()
     BROKER_KEY = args.broker
 
-    global LOG_PATH
-    LOG_PATH = os.path.join(BASE_DIR, 'trail_log_' + BROKER_KEY + '.txt')
+    global LOG_PATH, LOCK_PATH
+    LOG_PATH  = os.path.join(BASE_DIR, 'trail_log_'  + BROKER_KEY + '.txt')
+    LOCK_PATH = os.path.join(BASE_DIR, 'trail_lock_' + BROKER_KEY + '.pid')
+
+    if not acquire_lock():
+        return
 
     env     = load_env()
     webhook = env.get('DISCORD_WEBHOOK', '')
@@ -413,49 +449,53 @@ def main():
     print('ハートビート  : ' + str(TRAIL_INTERVAL * HEARTBEAT_EVERY // 60) + '分ごと')
     print('=' * 55)
 
-    if not connect_mt5(BROKER_KEY):
-        log('MT5初期化失敗 broker=' + BROKER_KEY)
-        return
+    try:
+        if not connect_mt5(BROKER_KEY):
+            log('MT5初期化失敗 broker=' + BROKER_KEY)
+            return
 
-    account = mt5.account_info()
-    if account is None:
-        log('MT5口座情報取得失敗')
-        disconnect_mt5()
-        return
+        account = mt5.account_info()
+        if account is None:
+            log('MT5口座情報取得失敗')
+            disconnect_mt5()
+            return
 
-    log('MT5接続成功: ' + account.company + ' / 残高:' + str(round(account.balance)) + '円')
+        log('MT5接続成功: ' + account.company + ' / 残高:' + str(round(account.balance)) + '円')
 
-    if DEMO_MODE and is_live_broker(BROKER_KEY):
-        log('警告: DEMO_MODE=Trueですがライブブローカーへの接続が検出されました。終了します。')
-        disconnect_mt5()
-        return
+        if DEMO_MODE and is_live_broker(BROKER_KEY):
+            log('警告: DEMO_MODE=Trueですがライブブローカーへの接続が検出されました。終了します。')
+            disconnect_mt5()
+            return
 
-    loop_count    = 0
-    total_updated = 0
+        loop_count    = 0
+        total_updated = 0
 
-    while True:
-        try:
-            loop_count += 1
-
-            # SL更新（30秒ごと）
-            updated = update_trailing_stops()
-            total_updated += updated
-
-            # 5分ごとにハートビート出力
-            if loop_count % HEARTBEAT_EVERY == 0:
-                print_heartbeat(loop_count, total_updated)
-
-        except Exception as e:
-            log('ループエラー: ' + str(e))
+        while True:
             try:
-                disconnect_mt5()
-                time.sleep(5)
-                connect_mt5(BROKER_KEY)
-                log('MT5再接続完了')
-            except Exception:
-                pass
+                loop_count += 1
 
-        time.sleep(TRAIL_INTERVAL)
+                # SL更新（30秒ごと）
+                updated = update_trailing_stops()
+                total_updated += updated
+
+                # 5分ごとにハートビート出力
+                if loop_count % HEARTBEAT_EVERY == 0:
+                    print_heartbeat(loop_count, total_updated)
+
+            except Exception as e:
+                log('ループエラー: ' + str(e))
+                try:
+                    disconnect_mt5()
+                    time.sleep(5)
+                    connect_mt5(BROKER_KEY)
+                    log('MT5再接続完了')
+                except Exception:
+                    pass
+
+            time.sleep(TRAIL_INTERVAL)
+
+    finally:
+        release_lock()
 
 if __name__ == '__main__':
     main()
