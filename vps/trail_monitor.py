@@ -36,7 +36,7 @@
 #   v12+ マルチブローカー対応: broker_utils / argparse --broker 追加
 
 import MetaTrader5 as mt5
-import argparse, ctypes, json, os, time, urllib.request, sys
+import argparse, ctypes, ctypes.wintypes, json, os, time, urllib.request, sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -385,26 +385,37 @@ def update_trailing_stops():
 
 # ══════════════════════════════════════════
 # シングルインスタンスガード (Windows 名前付きミューテックス)
-# PID ファイルと異なりアトミックで stale ロックが発生しない。
-# プロセスが異常終了しても OS がミューテックスを自動解放する。
+# use_last_error=True + ctypes.get_last_error() で GetLastError を正確に取得。
+# ctypes.windll.GetLastError() は ctypes 内部処理が割り込んで値が変わるため NG。
 # ══════════════════════════════════════════
 ERROR_ALREADY_EXISTS = 183
 
+# use_last_error=True: ctypes 呼び出し前後で LastError を保存/復元し正確な値を返す
+_k32 = ctypes.WinDLL('kernel32', use_last_error=True)
+_k32.CreateMutexW.restype  = ctypes.wintypes.HANDLE
+_k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.wintypes.BOOL, ctypes.c_wchar_p]
+_k32.ReleaseMutex.restype  = ctypes.wintypes.BOOL
+_k32.ReleaseMutex.argtypes = [ctypes.wintypes.HANDLE]
+_k32.CloseHandle.restype   = ctypes.wintypes.BOOL
+_k32.CloseHandle.argtypes  = [ctypes.wintypes.HANDLE]
+
 def acquire_lock(broker_key):
     global _MUTEX_HANDLE
-    _k32 = ctypes.windll.kernel32
-    # Local\ はセッション内で一意。Global\ は SeCreateGlobalPrivilege が必要で
-    # Windows Server の構成によっては失敗するため使わない。
-    name = 'Local\\trail_monitor_' + broker_key
+    name   = 'Local\\trail_monitor_' + broker_key
     handle = _k32.CreateMutexW(None, True, name)
-    err    = _k32.GetLastError()
+    err    = ctypes.get_last_error()   # use_last_error=True で保護された値
     if err == ERROR_ALREADY_EXISTS:
-        print('Already running (mutex=' + name + '), exiting.')
+        msg = 'Already running (mutex=' + name + '), exiting.'
+        print(msg)
+        try:
+            with open(LOG_PATH, 'a', encoding='utf-8') as f:
+                f.write('[' + datetime.now().strftime('%H:%M:%S') + '] ' + msg + '\n')
+        except Exception:
+            pass
         if handle:
             _k32.CloseHandle(handle)
         return False
     if not handle:
-        # CreateMutex 自体が失敗（権限不足など）→ ログに残して続行
         print('WARNING: CreateMutexW failed (err=' + str(err) + '), skipping lock.')
         return True
     _MUTEX_HANDLE = handle
@@ -413,8 +424,8 @@ def acquire_lock(broker_key):
 def release_lock():
     global _MUTEX_HANDLE
     if _MUTEX_HANDLE:
-        ctypes.windll.kernel32.ReleaseMutex(_MUTEX_HANDLE)
-        ctypes.windll.kernel32.CloseHandle(_MUTEX_HANDLE)
+        _k32.ReleaseMutex(_MUTEX_HANDLE)
+        _k32.CloseHandle(_MUTEX_HANDLE)
         _MUTEX_HANDLE = None
 
 # ══════════════════════════════════════════
