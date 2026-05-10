@@ -47,7 +47,22 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-08更新）
+## Top of mind（2026-05-10更新）
+### VPS Task Scheduler ウィンドウ非表示化・trail_monitor多重起動修正（2026-05-10完了）
+- **問題1**: Task Schedulerからbat実行時にコマンドウィンドウが大量表示
+  - **解決**: run_hidden.vbs（WshShell.Run WindowStyle=0）経由で起動。BB/Daily系タスクに適用済み
+- **問題2**: trail_monitorが毎分多重起動し続ける
+  - **根本原因**: Task SchedulerのJob Objectがbat終了時にPythonプロセスをkill→毎分再起動→多重に見えた
+  - **解決**: ウォッチャーパターン採用。trail_watcher.pyをONLOGONで1回起動し、3ブローカーをsubprocess管理・自動再起動
+- **シングルインスタンスガード**: trail_monitor.pyにソケットバインド方式（127.0.0.1:17001-17004）を実装
+- **変更ファイル（mainにマージ済み）**:
+  - vps/run_hidden.vbs（新規）
+  - vps/trail_watcher.py（新規）
+  - vps/trail_monitor.py（ソケットロック追加）
+  - vps/trail_monitor_all.bat（python.exe→pythonw.exe）
+  - vps/register_brokers.bat（FX_Trail_Monitor_All: ONLOGON + trail_watcher.py直接実行）
+- **正常動作確認**: trail_watcher.log→3ブローカーのStarted→trail_log_*.txtにHBループが記録される状態
+
 ### Phase1完了判定結果（history.csv: 2026-04-24〜2026-05-03, magic=20250001）
 | ペア   |    PF | 勝率  | DD(絶対) | n  | PF判定 | WR判定 | 総合  |
 |--------|------:|------:|---------:|---:|--------|--------|-------|
@@ -62,9 +77,9 @@ C:\Users\Administrator\fx_bot\
 - **最終パラメータ**: corr_window=60, z_entry=2.0, z_exit=0.0, hold_period=5
 - **MULTIPLIERS**: tp=1.5, sl=2.0 → PF=1.924 / WR=52.9% / n=34
 - z_exit=0.0（Z回帰決済は無効、hold_period=5日で管理）
-- 旧パラメータのデッドコード(sl_pct, rr)を削除済み
 
 ### 翌日Chat確認事項
+- VPS再起動時はFX_Trail_Monitor_AllがONLOGONで自動起動するため手動操作不要（再ログオン前提）
 - GBPUSDのPF=0.397は特に低い。Stage2 distanceやTP設定を再確認すべきか？
 - EURUSDは41件でPF=0.748。RR改善（Stage2 distance=0.1）が効いていない可能性
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
@@ -74,6 +89,7 @@ C:\Users\Administrator\fx_bot\
 - [x] Phase1完了判定実行（2026-05-03: 全ペア不合格・データ蓄積継続）
 - [x] CORR戦略 BT最適化＋Zスコア決済/hold_period実装（2026-05-08完了）
 - [x] 動的ロットサイジング実装: dynamic_lot.py新規 / phase1_judgment.py新判定基準 / daily_report.py統合（2026-05-08完了）
+- [x] VPS Task Schedulerウィンドウ非表示化・trail_monitor多重起動修正（2026-05-10完了）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
 - [ ] USDCAD再評価(BT結果待ち)
 - [ ] RR問題の深掘り（GBPUSD/EURUSD優先）
