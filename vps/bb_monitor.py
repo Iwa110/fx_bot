@@ -634,7 +634,11 @@ def place_order(symbol, base_sym, sig, logf, webhook):
 
     balance  = rm.get_balance()
     sl_dist  = abs(sig['sl'] - sig['entry'])
-    lot      = rm.calc_lot(balance, sl_dist, symbol)
+    if BROKER_KEY == 'exness':
+        from dynamic_lot import calc_aggressive_lot
+        lot = calc_aggressive_lot(balance, sl_dist, symbol, 'BB')
+    else:
+        lot = rm.calc_lot(balance, sl_dist, symbol)
     strategy = 'BB_' + base_sym
 
     if is_live_broker(BROKER_KEY):
