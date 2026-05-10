@@ -36,7 +36,7 @@
 #   v12+ マルチブローカー対応: broker_utils / argparse --broker 追加
 
 import MetaTrader5 as mt5
-import argparse, ctypes, ctypes.wintypes, json, os, time, urllib.request, sys
+import argparse, json, os, socket, time, urllib.request, sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -45,7 +45,10 @@ from broker_utils import connect_mt5, disconnect_mt5, is_live_broker
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, '.env')
 LOG_PATH = os.path.join(BASE_DIR, 'trail_log.txt')
-_MUTEX_HANDLE = None  # Windows named mutex handle
+_LOCK_SOCK = None  # single-instance lock socket
+
+# ブローカーごとのロックポート（127.0.0.1 にバインド、OS が排他保証）
+LOCK_PORTS = {'axiory': 17001, 'exness': 17002, 'oanda_demo': 17003, 'oanda': 17004}
 
 BROKER_KEY       = 'oanda'
 TRAIL_INTERVAL   = 30     # ループ間隔（秒）
@@ -384,49 +387,39 @@ def update_trailing_stops():
     return updated
 
 # ══════════════════════════════════════════
-# シングルインスタンスガード (Windows 名前付きミューテックス)
-# use_last_error=True + ctypes.get_last_error() で GetLastError を正確に取得。
-# ctypes.windll.GetLastError() は ctypes 内部処理が割り込んで値が変わるため NG。
+# シングルインスタンスガード (ローカルソケットバインド)
+# ctypes/mutex より確実: OS がポート排他を保証し、プロセス死亡時も自動解放。
 # ══════════════════════════════════════════
-ERROR_ALREADY_EXISTS = 183
-
-# use_last_error=True: ctypes 呼び出し前後で LastError を保存/復元し正確な値を返す
-_k32 = ctypes.WinDLL('kernel32', use_last_error=True)
-_k32.CreateMutexW.restype  = ctypes.wintypes.HANDLE
-_k32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.wintypes.BOOL, ctypes.c_wchar_p]
-_k32.ReleaseMutex.restype  = ctypes.wintypes.BOOL
-_k32.ReleaseMutex.argtypes = [ctypes.wintypes.HANDLE]
-_k32.CloseHandle.restype   = ctypes.wintypes.BOOL
-_k32.CloseHandle.argtypes  = [ctypes.wintypes.HANDLE]
-
 def acquire_lock(broker_key):
-    global _MUTEX_HANDLE
-    name   = 'Local\\trail_monitor_' + broker_key
-    handle = _k32.CreateMutexW(None, True, name)
-    err    = ctypes.get_last_error()   # use_last_error=True で保護された値
-    if err == ERROR_ALREADY_EXISTS:
-        msg = 'Already running (mutex=' + name + '), exiting.'
+    global _LOCK_SOCK
+    port = LOCK_PORTS.get(broker_key)
+    if port is None:
+        return True  # 未知ブローカーはロックなしで続行
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 0)
+        sock.bind(('127.0.0.1', port))
+        sock.listen(1)
+        _LOCK_SOCK = sock
+        return True
+    except OSError:
+        msg = 'Already running (port=' + str(port) + '), exiting.'
         print(msg)
         try:
             with open(LOG_PATH, 'a', encoding='utf-8') as f:
                 f.write('[' + datetime.now().strftime('%H:%M:%S') + '] ' + msg + '\n')
         except Exception:
             pass
-        if handle:
-            _k32.CloseHandle(handle)
         return False
-    if not handle:
-        print('WARNING: CreateMutexW failed (err=' + str(err) + '), skipping lock.')
-        return True
-    _MUTEX_HANDLE = handle
-    return True
 
 def release_lock():
-    global _MUTEX_HANDLE
-    if _MUTEX_HANDLE:
-        _k32.ReleaseMutex(_MUTEX_HANDLE)
-        _k32.CloseHandle(_MUTEX_HANDLE)
-        _MUTEX_HANDLE = None
+    global _LOCK_SOCK
+    if _LOCK_SOCK:
+        try:
+            _LOCK_SOCK.close()
+        except Exception:
+            pass
+        _LOCK_SOCK = None
 
 # ══════════════════════════════════════════
 # メイン
