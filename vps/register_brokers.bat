@@ -14,8 +14,14 @@ REM   The redirect requires the log directory to exist. If missing, cmd exits wi
 REM   error code 1 immediately without running the bat file. Each Python script
 REM   writes its own log (bb_log_axiory.txt, trail_log_axiory.txt, etc.), so the
 REM   external redirect is unnecessary.
+REM
+REM WHY wscript.exe //nologo run_hidden.vbs:
+REM   Task Scheduler with /it shows a cmd.exe window every time a .bat is launched.
+REM   run_hidden.vbs calls WshShell.Run with WindowStyle=0, hiding the window
+REM   while keeping the process in the same interactive session for MT5 IPC.
 
 set BAT_DIR=C:\Users\Administrator\fx_bot\vps
+set VBS=%BAT_DIR%\run_hidden.vbs
 
 echo ==============================================
 echo  Multi-Broker Task Scheduler Registration
@@ -33,7 +39,7 @@ schtasks /delete /tn "%TASK_NAME_BB%" /f 2>nul
 
 schtasks /create ^
   /tn "%TASK_NAME_BB%" ^
-  /tr "\"%BAT_BB%\"" ^
+  /tr "wscript.exe //nologo \"%VBS%\" \"%BAT_BB%\"" ^
   /sc MINUTE ^
   /mo 1 ^
   /ru Administrator ^
@@ -60,7 +66,7 @@ schtasks /delete /tn "%TASK_NAME_TRAIL%" /f 2>nul
 
 schtasks /create ^
   /tn "%TASK_NAME_TRAIL%" ^
-  /tr "\"%BAT_TRAIL%\"" ^
+  /tr "wscript.exe //nologo \"%VBS%\" \"%BAT_TRAIL%\"" ^
   /sc MINUTE ^
   /mo 1 ^
   /ru Administrator ^
@@ -88,7 +94,7 @@ schtasks /delete /tn "%TASK_NAME_DAILY%" /f 2>nul
 
 schtasks /create ^
   /tn "%TASK_NAME_DAILY%" ^
-  /tr "\"%BAT_DAILY%\"" ^
+  /tr "wscript.exe //nologo \"%VBS%\" \"%BAT_DAILY%\"" ^
   /sc DAILY ^
   /st 07:00 ^
   /ru Administrator ^
@@ -119,7 +125,7 @@ schtasks /delete /tn "%TASK_NAME_REPORT%" /f 2>nul
 
 schtasks /create ^
   /tn "%TASK_NAME_REPORT%" ^
-  /tr "\"%BAT_REPORT%\"" ^
+  /tr "wscript.exe //nologo \"%VBS%\" \"%BAT_REPORT%\"" ^
   /sc DAILY ^
   /st 07:05 ^
   /ru Administrator ^
