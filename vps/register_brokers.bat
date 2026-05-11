@@ -149,18 +149,24 @@ if %ERRORLEVEL% == 0 (
 echo.
 
 REM ----------------------------------------------
-REM (5) FX_MT5_Axiory_Startup - ログオン時に Axiory MT5 を自動起動
-REM     bb_monitor が接続する前にターミナルが起動済みである必要がある
+REM (5) FX_MT5_OANDA_Startup - ログオン時に OANDA MT5 を最初に自動起動
+REM
+REM WHY OANDA FIRST:
+REM   OANDA MT5の操作ログで "IPC failed to initialize IPC" / "IPC dispatcher not
+REM   started" を確認。原因はAxiory/ExnessがIPC名前付きパイプとヒストリーファイル
+REM   (ERROR_SHARING_VIOLATION=[32]) を先に確保するため。
+REM   OANDAを先に起動してIPCディスパッチャーを確保し、その後Axiory/Exnessを
+REM   遅延起動させることで terminal.trade_allowed=False を解消する。
 REM ----------------------------------------------
-set TASK_NAME_AX=FX_MT5_Axiory_Startup
-set AXIORY_EXE=C:\Program Files\Axiory MetaTrader 5\terminal64.exe
+set TASK_NAME_OANDA=FX_MT5_OANDA_Startup
+set OANDA_EXE=C:\Program Files\OANDA MetaTrader 5\terminal64.exe
 
-echo [INFO] Registering: %TASK_NAME_AX%
-schtasks /delete /tn "%TASK_NAME_AX%" /f 2>nul
+echo [INFO] Registering: %TASK_NAME_OANDA%
+schtasks /delete /tn "%TASK_NAME_OANDA%" /f 2>nul
 
 schtasks /create ^
-  /tn "%TASK_NAME_AX%" ^
-  /tr "\"%AXIORY_EXE%\"" ^
+  /tn "%TASK_NAME_OANDA%" ^
+  /tr "\"%OANDA_EXE%\"" ^
   /sc ONLOGON ^
   /ru Administrator ^
   /it ^
@@ -168,25 +174,32 @@ schtasks /create ^
   /f
 
 if %ERRORLEVEL% == 0 (
-    echo [OK] %TASK_NAME_AX% registered: at logon
+    echo [OK] %TASK_NAME_OANDA% registered: at logon (FIRST - claims IPC before Axiory/Exness)
 ) else (
-    echo [ERROR] %TASK_NAME_AX% registration failed
+    echo [ERROR] %TASK_NAME_OANDA% registration failed
     exit /b 1
 )
 echo.
 
 REM ----------------------------------------------
-REM (6) FX_MT5_Exness_Startup - ログオン時に Exness MT5 を自動起動
+REM (6) FX_MT5_Delayed_Startup - ログオン60秒後に Axiory/Exness MT5 を起動
+REM
+REM WHY DELAYED:
+REM   OANDAがIPCディスパッチャーを確立するまでの待機時間として60秒を確保。
+REM   mt5_delayed_startup.bat が ping ループで60秒待機後に Axiory → Exness を起動。
+REM   FX_MT5_Axiory_Startup / FX_MT5_Exness_Startup は本タスクに統合し削除。
 REM ----------------------------------------------
-set TASK_NAME_EX=FX_MT5_Exness_Startup
-set EXNESS_EXE=C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe
+set TASK_NAME_DELAYED=FX_MT5_Delayed_Startup
+set BAT_DELAYED=%BAT_DIR%\mt5_delayed_startup.bat
 
-echo [INFO] Registering: %TASK_NAME_EX%
-schtasks /delete /tn "%TASK_NAME_EX%" /f 2>nul
+echo [INFO] Registering: %TASK_NAME_DELAYED%
+schtasks /delete /tn "%TASK_NAME_DELAYED%" /f 2>nul
+schtasks /delete /tn "FX_MT5_Axiory_Startup" /f 2>nul
+schtasks /delete /tn "FX_MT5_Exness_Startup" /f 2>nul
 
 schtasks /create ^
-  /tn "%TASK_NAME_EX%" ^
-  /tr "\"%EXNESS_EXE%\"" ^
+  /tn "%TASK_NAME_DELAYED%" ^
+  /tr "wscript.exe //nologo \"%VBS%\" \"%BAT_DELAYED%\"" ^
   /sc ONLOGON ^
   /ru Administrator ^
   /it ^
@@ -194,9 +207,9 @@ schtasks /create ^
   /f
 
 if %ERRORLEVEL% == 0 (
-    echo [OK] %TASK_NAME_EX% registered: at logon
+    echo [OK] %TASK_NAME_DELAYED% registered: at logon +60s (Axiory then Exness)
 ) else (
-    echo [ERROR] %TASK_NAME_EX% registration failed
+    echo [ERROR] %TASK_NAME_DELAYED% registration failed
     exit /b 1
 )
 echo.
@@ -204,9 +217,11 @@ echo.
 echo ==============================================
 echo  All tasks registered successfully.
 echo ==============================================
-schtasks /query /tn "%TASK_NAME_BB%"     /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
-schtasks /query /tn "%TASK_NAME_TRAIL%"  /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
-schtasks /query /tn "%TASK_NAME_DAILY%"  /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
-schtasks /query /tn "%TASK_NAME_REPORT%" /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_BB%"      /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_TRAIL%"   /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_DAILY%"   /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_REPORT%"  /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_OANDA%"   /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_DELAYED%" /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
 echo.
 pause

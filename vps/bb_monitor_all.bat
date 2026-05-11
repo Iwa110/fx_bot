@@ -19,8 +19,9 @@ REM axiory (enabled=True, demo)
 REM exness (enabled=True, demo)
 "%PYTHON%" "%SCRIPT%" --broker exness
 
-REM oanda (enabled=False - terminal.trade_allowed=False 問題未解決のため停止中)
-REM 解決策: OANDA Japan サポートに Python API での自動売買許可を確認する
+REM oanda - FX_MT5_OANDA_Startup(ONLOGON即時) → FX_MT5_Delayed_Startup(+60s)で
+REM 起動順制御後、IPC dispatcher起動確認済みなら有効化する
+REM (terminal.trade_allowed=False が解消されたことをtest_trade_execution.pyで確認してから有効化)
 REM "%PYTHON%" "%SCRIPT%" --broker oanda
 
 REM oanda_demo (enabled=False - 実口座開設後に有効化)
