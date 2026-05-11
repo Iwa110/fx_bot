@@ -41,7 +41,18 @@ def connect_mt5(broker_key: str) -> bool:
         ok = mt5.initialize()
         if not ok:
             print('[broker_utils] MT5初期化失敗 (' + broker_key + '): ' + str(mt5.last_error()))
-        return ok
+            return False
+        # アタッチ先が期待するサーバーか確認（異なるターミナルへの誤接続を防ぐ）
+        expected = cfg.get('server', '')
+        if expected:
+            acct = mt5.account_info()
+            actual = acct.server if acct else ''
+            if actual and expected.lower() not in actual.lower() and actual.lower() not in expected.lower():
+                print('[broker_utils] アタッチ先サーバー不一致: expected=' + expected +
+                      ', actual=' + actual + ' -> 切断します')
+                mt5.shutdown()
+                return False
+        return True
 
     # path が設定されていればターミナルを指定して起動
     if cfg.get('path'):

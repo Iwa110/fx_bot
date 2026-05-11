@@ -149,6 +149,30 @@ def send_discord(msg, webhook):
 # ══════════════════════════════════════════
 # MT5ヘルパー
 # ══════════════════════════════════════════
+def balance_to_jpy(amount, currency):
+    """残高/有効証拠金を円換算した整数を返す。換算不能時はNoneを返す"""
+    if not currency or currency == 'JPY':
+        return round(amount)
+    tick = mt5.symbol_info_tick(currency + 'JPY')
+    if tick and tick.bid > 0:
+        return round(amount * tick.bid)
+    return None
+
+def fmt_balance(account):
+    """(残高文字列, 有効証拠金文字列) を円表示で返す。外貨口座は換算して原通貨も付記"""
+    if account is None:
+        return '0円', '0円'
+    cur = getattr(account, 'currency', 'JPY') or 'JPY'
+    bal_jpy = balance_to_jpy(account.balance, cur)
+    eq_jpy  = balance_to_jpy(account.equity,  cur)
+    if cur == 'JPY':
+        return str(bal_jpy) + '円', str(eq_jpy) + '円'
+    if bal_jpy is not None:
+        return (str(bal_jpy) + '円(' + cur + ':' + str(round(account.balance, 2)) + ')',
+                str(eq_jpy)  + '円(' + cur + ':' + str(round(account.equity,  2)) + ')')
+    # 換算レート取得不可の場合は原通貨で表示
+    return str(round(account.balance, 2)) + cur, str(round(account.equity, 2)) + cur
+
 def get_atr_5m(symbol, period=14):
     """5分足ATRをEMAで計算"""
     bars = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_M5, 0, period + 5)
@@ -323,10 +347,9 @@ def print_heartbeat(loop_count, total_updated):
                 ' [' + stage_now + '] ' + p.comment
             )
 
-    account   = mt5.account_info()
-    balance   = round(account.balance) if account else 0
-    equity    = round(account.equity)  if account else 0
-    pos_count = len(pos_lines)
+    account        = mt5.account_info()
+    bal_str, eq_str = fmt_balance(account)
+    pos_count      = len(pos_lines)
 
     sep  = '=' * 55
     lines = [
@@ -334,7 +357,7 @@ def print_heartbeat(loop_count, total_updated):
         '[HB] ' + datetime.now().strftime('%H:%M') +
         ' | ループ:' + str(loop_count) + '回' +
         ' | 累計SL更新:' + str(total_updated) + '件',
-        '[HB] 残高:' + str(balance) + '円 / 有効証拠金:' + str(equity) + '円',
+        '[HB] 残高:' + bal_str + ' / 有効証拠金:' + eq_str,
         '[HB] トレーリング対象: ' + str(pos_count) + '件',
     ] + pos_lines + [sep]
 
@@ -503,7 +526,8 @@ def main():
             disconnect_mt5()
             return
 
-        log('MT5接続成功: ' + account.company + ' / 残高:' + str(round(account.balance)) + '円')
+        bal_str, _ = fmt_balance(account)
+        log('MT5接続成功: ' + account.company + ' / 残高:' + bal_str)
 
         if DEMO_MODE and is_live_broker(BROKER_KEY):
             log('警告: DEMO_MODE=Trueですがライブブローカーへの接続が検出されました。終了します。')
