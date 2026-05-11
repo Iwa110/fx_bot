@@ -25,7 +25,7 @@ if not os.path.exists(PYTHONW):
     PYTHONW = r'C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe'
 
 SCRIPT  = os.path.join(BASE_DIR, 'trail_monitor.py')
-BROKERS = ['axiory', 'exness', 'oanda_demo']
+BROKERS = ['axiory', 'exness', 'oanda']
 
 CHECK_INTERVAL = 30  # seconds between liveness checks
 
