@@ -12,7 +12,7 @@ REM
 REM oanda (live) NOTE:
 REM   Remove the REM prefix from the oanda line when ready.
 
-set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe
+set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\daily_report.py
 
 REM axiory (enabled=True, demo)
@@ -21,8 +21,8 @@ REM axiory (enabled=True, demo)
 REM exness (enabled=True, demo)
 "%PYTHON%" "%SCRIPT%" --broker exness
 
-REM oanda_demo (enabled=True, attach=True - OANDA terminal must be running)
-"%PYTHON%" "%SCRIPT%" --broker oanda_demo
+REM oanda (enabled=True, demo)
+"%PYTHON%" "%SCRIPT%" --broker oanda
 
-REM oanda (enabled=True, live account - uncomment when ready)
-REM "%PYTHON%" "%SCRIPT%" --broker oanda
+REM oanda_demo (enabled=False)
+REM "%PYTHON%" "%SCRIPT%" --broker oanda_demo
