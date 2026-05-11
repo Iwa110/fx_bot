@@ -17,8 +17,8 @@ REM axiory (enabled=True, demo)
 REM exness (enabled=True, demo)
 "%PYTHON%" "%SCRIPT%" --broker exness
 
-REM oanda - test_trade_execution.py で [OK] 確認後に有効化する
-REM "%PYTHON%" "%SCRIPT%" --broker oanda
+REM oanda (enabled=True, demo)
+"%PYTHON%" "%SCRIPT%" --broker oanda
 
 REM oanda_demo (enabled=False - 実口座開設後に有効化)
 REM "%PYTHON%" "%SCRIPT%" --broker oanda_demo
