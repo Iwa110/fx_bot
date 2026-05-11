@@ -14,7 +14,7 @@
 #   Program: pythonw.exe trail_watcher.py
 #   (pythonw.exe has no console window - no popup ever appears)
 
-import os, subprocess, sys, time
+import os, socket, subprocess, sys, time
 from datetime import datetime
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -27,9 +27,22 @@ if not os.path.exists(PYTHONW):
 SCRIPT  = os.path.join(BASE_DIR, 'trail_monitor.py')
 BROKERS = ['axiory', 'exness', 'oanda']
 
+LOCK_PORTS = {'axiory': 17001, 'exness': 17002, 'oanda_demo': 17003, 'oanda': 17004}
+
 CHECK_INTERVAL = 30  # seconds between liveness checks
 
 _procs = {}
+
+
+def is_port_bound(port):
+    """Return True if a trail_monitor instance already holds the lock port."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        s.bind(('127.0.0.1', port))
+        s.close()
+        return False
+    except OSError:
+        return True
 
 
 def log(msg):
@@ -59,8 +72,18 @@ while True:
     for broker in BROKERS:
         proc = _procs.get(broker)
         if proc is None or proc.poll() is not None:
-            if proc is not None:
-                log('trail_monitor --broker ' + broker +
-                    ' exited (code=' + str(proc.returncode) + '), restarting...')
-            _procs[broker] = start_broker(broker)
+            port = LOCK_PORTS.get(broker)
+            if port and is_port_bound(port):
+                # An instance not spawned by this watcher holds the lock.
+                # Adopt it: reset tracking so we detect if it dies next check.
+                if proc is not None and _procs.get(broker) is not None:
+                    log('trail_monitor --broker ' + broker +
+                        ' managed proc exited but port=' + str(port) +
+                        ' still bound by external process. Adopting.')
+                _procs[broker] = None
+            else:
+                if proc is not None:
+                    log('trail_monitor --broker ' + broker +
+                        ' exited (code=' + str(proc.returncode) + '), restarting...')
+                _procs[broker] = start_broker(broker)
     time.sleep(CHECK_INTERVAL)
