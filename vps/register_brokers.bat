@@ -148,6 +148,59 @@ if %ERRORLEVEL% == 0 (
 )
 echo.
 
+REM ----------------------------------------------
+REM (5) FX_MT5_Axiory_Startup - ログオン時に Axiory MT5 を自動起動
+REM     bb_monitor が接続する前にターミナルが起動済みである必要がある
+REM ----------------------------------------------
+set TASK_NAME_AX=FX_MT5_Axiory_Startup
+set AXIORY_EXE=C:\Program Files\Axiory MetaTrader 5\terminal64.exe
+
+echo [INFO] Registering: %TASK_NAME_AX%
+schtasks /delete /tn "%TASK_NAME_AX%" /f 2>nul
+
+schtasks /create ^
+  /tn "%TASK_NAME_AX%" ^
+  /tr "\"%AXIORY_EXE%\"" ^
+  /sc ONLOGON ^
+  /ru Administrator ^
+  /it ^
+  /rl HIGHEST ^
+  /f
+
+if %ERRORLEVEL% == 0 (
+    echo [OK] %TASK_NAME_AX% registered: at logon
+) else (
+    echo [ERROR] %TASK_NAME_AX% registration failed
+    exit /b 1
+)
+echo.
+
+REM ----------------------------------------------
+REM (6) FX_MT5_Exness_Startup - ログオン時に Exness MT5 を自動起動
+REM ----------------------------------------------
+set TASK_NAME_EX=FX_MT5_Exness_Startup
+set EXNESS_EXE=C:\Program Files\MetaTrader 5 EXNESS\terminal64.exe
+
+echo [INFO] Registering: %TASK_NAME_EX%
+schtasks /delete /tn "%TASK_NAME_EX%" /f 2>nul
+
+schtasks /create ^
+  /tn "%TASK_NAME_EX%" ^
+  /tr "\"%EXNESS_EXE%\"" ^
+  /sc ONLOGON ^
+  /ru Administrator ^
+  /it ^
+  /rl HIGHEST ^
+  /f
+
+if %ERRORLEVEL% == 0 (
+    echo [OK] %TASK_NAME_EX% registered: at logon
+) else (
+    echo [ERROR] %TASK_NAME_EX% registration failed
+    exit /b 1
+)
+echo.
+
 echo ==============================================
 echo  All tasks registered successfully.
 echo ==============================================
