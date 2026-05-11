@@ -21,7 +21,14 @@ def load_1h(pair):
     for path in candidates:
         if not os.path.exists(path):
             continue
-        df = pd.read_csv(path, index_col=0)
+        df = pd.read_csv(path)
+        # normalize columns
+        df.columns = [c.lower().strip() for c in df.columns]
+        # set datetime as index (column or positional)
+        if 'datetime' in df.columns:
+            df = df.set_index('datetime')
+        else:
+            df = df.set_index(df.columns[0])
         df.index = pd.to_datetime(df.index)
         try:
             df.index = df.index.tz_convert(None)
@@ -30,10 +37,13 @@ def load_1h(pair):
                 df.index = df.index.tz_localize(None)
             except Exception:
                 pass
-        df.columns = [c.lower() for c in df.columns]
+        # deduplicate columns before filtering
+        df = df.loc[:, ~df.columns.duplicated()]
         keep = [c for c in ['open', 'high', 'low', 'close', 'volume'] if c in df.columns]
-        df = df[keep].loc[:, ~df.columns.duplicated()]
-        df = df.dropna(subset=['close'])
+        if 'close' not in keep:
+            print(f'[WARN] no close column in {path}  found: {list(df.columns)}')
+            continue
+        df = df[keep].dropna(subset=['close'])
         return df.sort_index()
     return None
 
