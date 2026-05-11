@@ -40,7 +40,7 @@ import argparse, json, os, socket, time, urllib.request, sys
 from datetime import datetime
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from broker_utils import connect_mt5, disconnect_mt5, is_live_broker
+from broker_utils import connect_mt5, disconnect_mt5, is_live_broker, get_cost_pips
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 ENV_PATH = os.path.join(BASE_DIR, '.env')
@@ -216,14 +216,18 @@ def calc_new_sl(p, atr, pip):
     stage  = ''
 
     # ── Stage2: ATR×0.7以上で小利益確定 ────────────────
-    if cfg['stage2'] and profit_dist >= atr * STAGE2_ACTIVATE:
+    cost_pips = get_cost_pips(BROKER_KEY, p.symbol)
+    # profit_dist は価格差単位。コスト(pips)を価格差に変換して閾値に加算
+    cost_price = cost_pips * pip
+    effective_activate_price = atr * STAGE2_ACTIVATE + cost_price
+    if cfg['stage2'] and profit_dist >= effective_activate_price:
         s2_dist   = cfg.get('stage2_distance', STAGE2_LOCK_DEFAULT)
         candidate = round(entry + atr * s2_dist * direction, 5)
         improvement = (candidate - current_sl) * direction
         if improvement > min_update:
             if new_sl is None or (candidate - new_sl) * direction > 0:
                 new_sl = candidate
-                stage  = 'Stage2(小利益:profit>=ATR*' + str(STAGE2_ACTIVATE) + ',dist=ATR*' + str(s2_dist) + ')'
+                stage  = 'Stage2(小利益:profit>=ATR*' + str(STAGE2_ACTIVATE) + '+cost' + str(cost_pips) + 'pips,dist=ATR*' + str(s2_dist) + ')'
 
     # ── Stage3: トレーリング ─────────────────────────────
     # SMC_GBAUDはSell専用（directionが-1以外はスキップ）
@@ -448,7 +452,7 @@ def main():
     print('ブローカー      : ' + BROKER_KEY)
     print('更新間隔      : ' + str(TRAIL_INTERVAL) + '秒')
     print('最小更新幅    : ATR*' + str(MIN_UPDATE_MULT))
-    print('Stage2        : 利益>=ATR*' + str(STAGE2_ACTIVATE) + ' → SL=entry+ATR*stage2_distance (戦略別)')
+    print('Stage2        : 利益>=ATR*' + str(STAGE2_ACTIVATE) + '+cost(pips) → SL=entry+ATR*stage2_distance (戦略別)')
     print('Stage3        : 利益>=ATR*activate → SL=現在価格-ATR*distance (トレーリング)')
     print('stage2_distance: TRAIL_CONFIGで戦略別設定、省略時=' + str(STAGE2_LOCK_DEFAULT))
     print('除外戦略      : CORR / TRI')
@@ -467,6 +471,13 @@ def main():
             return
 
         log('MT5接続成功: ' + account.company + ' / 残高:' + str(round(account.balance)) + '円')
+
+        from broker_config import BROKER_COSTS
+        _bcost = BROKER_COSTS.get(BROKER_KEY, {})
+        log('[COST] broker=' + BROKER_KEY +
+            ' commission=' + str(_bcost.get('commission_usd_per_lot', 0)) + 'USD/lot' +
+            ' spread=' + str(_bcost.get('spread_pips', 0)) + 'pips' +
+            ' dynamic=' + str(_bcost.get('use_dynamic_commission', False)))
 
         if DEMO_MODE and is_live_broker(BROKER_KEY):
             log('警告: DEMO_MODE=Trueですがライブブローカーへの接続が検出されました。終了します。')

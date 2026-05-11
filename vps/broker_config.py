@@ -41,6 +41,32 @@ def _int(key: str, default: int = 0) -> int:
         return default
 
 
+# 取引コスト設定（単位: pips、往復ラウンドトリップ）
+# commission_pips: 手数料のpips換算（動的取得優先、失敗時フォールバック用）
+# spread_pips: 平均スプレッド（変動制のため保守的な推定値）
+BROKER_COSTS: dict[str, dict] = {
+    'axiory': {
+        'commission_usd_per_lot': 6.0,  # テラ口座固定
+        'spread_pips': 0.3,             # 主要ペア平均（保守推定）
+        'use_dynamic_commission': True,  # MT5から動的取得を優先
+    },
+    'exness': {
+        'commission_usd_per_lot': 0.2,  # ゼロ口座最低値（ペアにより変動）
+        'spread_pips': 0.0,             # ゼロ口座はほぼ0
+        'use_dynamic_commission': True,
+    },
+    'oanda': {
+        'commission_usd_per_lot': 0.0,
+        'spread_pips': 1.5,
+        'use_dynamic_commission': False,
+    },
+    'oanda_demo': {
+        'commission_usd_per_lot': 0.0,
+        'spread_pips': 1.5,
+        'use_dynamic_commission': False,
+    },
+}
+
 BROKERS: dict[str, dict[str, Any]] = {
     'oanda': {
         'path':           r'C:\Program Files\OANDA MetaTrader 5\terminal64.exe',
