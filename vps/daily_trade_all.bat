@@ -12,7 +12,7 @@ REM
 REM oanda (live) NOTE:
 REM   Remove the REM prefix from the oanda line when ready.
 
-set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe
+set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\daily_trade.py
 
 REM axiory (enabled=True, demo)

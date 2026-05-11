@@ -47,8 +47,9 @@ ALLOWED_HOURS_UTC = {
     'GBPJPY': [9, 17],
     'EURJPY': [9, 17],
     # 'USDJPY': [21, 22, 5],  # htf4h_onlyに統一のため無効化
-    'EURUSD': [],
-    'GBPUSD': [],
+    # [FIX: Phase1データ蓄積再開のため制限解除。PF改善確認後に再停止を検討]
+    'EURUSD': None,
+    'GBPUSD': None,
 }
 ENTRY_FILTER = {
     'GBPJPY': {'use_htf4h': True},
