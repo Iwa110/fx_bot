@@ -161,3 +161,56 @@ def build_symbol_map(base_symbols: list, broker_key: str) -> dict[str, str]:
 def is_live_broker(broker_key: str) -> bool:
     """is_live=True のブローカーか判定する"""
     return bool(BROKERS.get(broker_key, {}).get('is_live', False))
+
+
+def get_cost_pips(broker: str, symbol: str) -> float:
+    """
+    ブローカー・シンボルのラウンドトリップコストをpipsで返す。
+    MT5のsymbol_info()から手数料を動的取得できる場合はそちらを優先。
+    取得できない場合はBROKER_COSTSのデフォルト値を使用。
+    口座通貨JPY想定: tick_valueはJPY建てで返るため USDJPY レートで USD 換算する。
+    """
+    from broker_config import BROKER_COSTS
+
+    cfg = BROKER_COSTS.get(broker, BROKER_COSTS.get('oanda', {}))
+    commission_pips = 0.0
+
+    if cfg.get('use_dynamic_commission'):
+        info = mt5.symbol_info(symbol)
+        if info is not None:
+            tick_val  = info.trade_tick_value  # 1tick分の損益（口座通貨建て、JPY口座ならJPY）
+            tick_size = info.trade_tick_size
+            commission_per_lot_usd = cfg['commission_usd_per_lot']
+
+            if tick_val > 0 and tick_size > 0:
+                pip_size = tick_size * 10  # 5桁表示の場合 pip = tick * 10
+                # pip_value_per_lot [口座通貨/lot]
+                pip_value_per_lot = tick_val / tick_size * pip_size
+
+                # 口座通貨がJPYの場合、pip_value_per_lot はJPY建て → USD換算
+                usdjpy_tick = mt5.symbol_info_tick('USDJPY')
+                if usdjpy_tick is None:
+                    # OANDA では USDJPY.cl 等のsuffixが付く場合がある
+                    for sym in mt5.symbols_get() or []:
+                        if sym.name.startswith('USDJPY'):
+                            usdjpy_tick = mt5.symbol_info_tick(sym.name)
+                            break
+                if usdjpy_tick and usdjpy_tick.bid > 0:
+                    pip_value_usd = pip_value_per_lot / usdjpy_tick.bid
+                else:
+                    # USD/JPY レート取得失敗時は145と仮定
+                    pip_value_usd = pip_value_per_lot / 145.0
+
+                if pip_value_usd > 0:
+                    commission_pips = (commission_per_lot_usd * 2.0) / pip_value_usd
+        else:
+            # symbol_info取得失敗: フォールバック固定計算（USDJPY=145想定）
+            commission_per_lot_usd = cfg['commission_usd_per_lot']
+            if 'JPY' in symbol:
+                commission_pips = (commission_per_lot_usd * 2.0) / (10.0 * 145.0 / 100.0)
+            else:
+                commission_pips = (commission_per_lot_usd * 2.0) / 10.0
+
+    spread_pips = cfg.get('spread_pips', 0.0)
+    total = commission_pips + spread_pips
+    return round(total, 2)
