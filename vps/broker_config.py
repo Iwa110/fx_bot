@@ -43,7 +43,7 @@ def _int(key: str, default: int = 0) -> int:
 
 BROKERS: dict[str, dict[str, Any]] = {
     'oanda': {
-        'path':           r'C:\Program Files\OANDA MetaTrader 5\terminal64.exe',
+        'path':           '',      # attach=True のため不要
         'server':         _ENV.get('OANDA_SERVER', 'OANDA-Japan MT5 Demo'),
         'login':          _int('OANDA_LOGIN'),
         'password':       _ENV.get('OANDA_PASSWORD', ''),
@@ -52,8 +52,9 @@ BROKERS: dict[str, dict[str, Any]] = {
         'min_lot':        0.01,
         'is_live':        False,   # 現在はデモ口座。実口座開設後に True に変更する
         'enabled':        True,
-        'path_only':      True,    # pathのみでinitialize。credentials渡しで
-                                   # terminal.trade_allowed=Falseになる問題を回避
+        'attach':         True,    # mt5.initialize()引数なしで接続。
+                                   # path指定はterminal.trade_allowed=Falseを引き起こすため使用しない。
+                                   # batファイル側でAxiory/Exnessターミナルを先に終了させてから実行する。
     },
     'oanda_demo': {
         # [実口座未開設のため無効化。実口座開設後に oanda を is_live=True にして
