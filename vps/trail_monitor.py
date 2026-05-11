@@ -1,4 +1,4 @@
-# trail_monitor.py v12
+# trail_monitor.py v13
 # トレーリングストップ監視スクリプト
 #
 # 【対象戦略】
@@ -34,6 +34,8 @@
 #   v12 MOM_ENZ/MOM_ECA/MOM_GBU追加（3ペアBT結果適用）
 #       MOM_JPY/MOM_GBJ パラメータ再検証・更新（stage2=True化）
 #   v12+ マルチブローカー対応: broker_utils / argparse --broker 追加
+#   v13 既存ポジション対応: コメント不一致時のシンボルフォールバック追加
+#       --live オプション追加（DEMO_MODE=False でライブ口座接続可）
 
 import MetaTrader5 as mt5
 import argparse, json, os, socket, time, urllib.request, sys
@@ -184,6 +186,24 @@ def get_trail_config(strategy, symbol=None):
             return cfg
     return None
 
+# コメントが認識できないポジション（旧コメント・コメント空）に適用する除外キーワード
+_SKIP_KEYWORDS = ('CORR', 'TRI', 'STAT_ARB', 'stat_arb')
+
+def _get_base_symbol(symbol):
+    """ブローカー固有サフィックスを除いた基本シンボル名を返す（例: GBPJPYm→GBPJPY, GBPJPY.cl→GBPJPY）"""
+    for suffix in ('.cl', '.oj1m', 'm'):
+        if symbol.endswith(suffix):
+            return symbol[:-len(suffix)]
+    return symbol
+
+def get_trail_config_fallback(symbol):
+    """コメントから戦略を識別できない場合、シンボルからBB_設定を推定して返す"""
+    base = _get_base_symbol(symbol)
+    key = 'BB_' + base
+    if key in TRAIL_CONFIG:
+        return TRAIL_CONFIG[key]
+    return TRAIL_CONFIG.get('BB_')
+
 # ══════════════════════════════════════════
 # SL計算コア
 # ══════════════════════════════════════════
@@ -200,6 +220,10 @@ def calc_new_sl(p, atr, pip):
     get_trail_config は p.comment から戦略名を抽出する。
     """
     cfg = get_trail_config(p.comment.replace('FXBot_', ''), p.symbol)
+    if cfg is None:
+        cfg = get_trail_config_fallback(p.symbol)
+    if cfg is None:
+        return None, ''
     direction  = 1 if p.type == 0 else -1
     entry      = p.price_open
     current_sl = p.sl
@@ -260,7 +284,11 @@ def print_heartbeat(loop_count, total_updated):
         for p in positions:
             cfg = get_trail_config(p.comment.replace('FXBot_', ''), p.symbol)
             if cfg is None:
-                continue
+                if any(kw in p.comment for kw in _SKIP_KEYWORDS):
+                    continue
+                cfg = get_trail_config_fallback(p.symbol)
+                if cfg is None:
+                    continue
 
             direction  = 1 if p.type == 0 else -1
             pip        = 0.01 if 'JPY' in p.symbol else 0.0001
@@ -338,7 +366,11 @@ def update_trailing_stops():
     for p in positions:
         cfg = get_trail_config(p.comment.replace('FXBot_', ''), p.symbol)
         if cfg is None:
-            continue
+            if any(kw in p.comment for kw in _SKIP_KEYWORDS):
+                continue
+            cfg = get_trail_config_fallback(p.symbol)
+            if cfg is None:
+                continue
 
         symbol = p.symbol
         pip    = 0.01 if 'JPY' in symbol else 0.0001
@@ -427,12 +459,17 @@ def release_lock():
 def main():
     global BROKER_KEY
 
-    parser = argparse.ArgumentParser(description='トレーリングストップ監視 v12')
+    parser = argparse.ArgumentParser(description='トレーリングストップ監視 v13')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='使用するブローカーキー')
+    parser.add_argument('--live', action='store_true',
+                        help='DEMO_MODEを無効化してライブ口座に接続（--broker oanda 使用時に必要）')
     args = parser.parse_args()
     BROKER_KEY = args.broker
+    if args.live:
+        global DEMO_MODE
+        DEMO_MODE = False
 
     global LOG_PATH
     LOG_PATH = os.path.join(BASE_DIR, 'trail_log_' + BROKER_KEY + '.txt')
@@ -444,7 +481,7 @@ def main():
     webhook = env.get('DISCORD_WEBHOOK', '')
 
     print('=' * 55)
-    print('トレーリングストップ常駐モニター v12 起動')
+    print('トレーリングストップ常駐モニター v13 起動')
     print('ブローカー      : ' + BROKER_KEY)
     print('更新間隔      : ' + str(TRAIL_INTERVAL) + '秒')
     print('最小更新幅    : ATR*' + str(MIN_UPDATE_MULT))

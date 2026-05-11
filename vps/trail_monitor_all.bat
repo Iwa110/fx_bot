@@ -28,5 +28,5 @@ start /B "" "%PYTHONW%" "%SCRIPT%" --broker exness
 REM oanda_demo (enabled=True, attach=True - OANDA terminal must be running)
 start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda_demo
 
-REM oanda (enabled=True, live account - uncomment when ready)
-REM start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda
+REM oanda (enabled=True, live account - requires --live flag to bypass DEMO_MODE guard)
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda --live
