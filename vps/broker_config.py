@@ -44,30 +44,27 @@ def _int(key: str, default: int = 0) -> int:
 BROKERS: dict[str, dict[str, Any]] = {
     'oanda': {
         'path':           r'C:\Program Files\OANDA MetaTrader 5\terminal64.exe',
-        'server':         _ENV.get('OANDA_SERVER', 'OANDA Division1-MT5 1'),
+        'server':         _ENV.get('OANDA_SERVER', 'OANDA-Japan MT5 Demo'),
         'login':          _int('OANDA_LOGIN'),
         'password':       _ENV.get('OANDA_PASSWORD', ''),
         'symbol_suffix':  '.cl',   # 裁量プランの場合。スタンダードは '.oj1m'
         'timezone':       'GMT+2/+3',
         'min_lot':        0.01,
-        'is_live':        True,
+        'is_live':        False,   # 現在はデモ口座。実口座開設後に True に変更する
         'enabled':        True,
     },
     'oanda_demo': {
-        'path':           '',   # path未指定＋login指定でOANDA端末を名指し接続
-        'server':         _ENV.get('OANDA_DEMO_SERVER', 'OANDA Division1-MT5 2'),
+        # [実口座未開設のため無効化。実口座開設後に oanda を is_live=True にして
+        #  oanda_demo を別デモ口座として設定する]
+        'path':           r'C:\Program Files\OANDA MetaTrader 5\terminal64.exe',
+        'server':         _ENV.get('OANDA_DEMO_SERVER', 'OANDA-Japan MT5 Demo'),
         'login':          _int('OANDA_DEMO_LOGIN'),
         'password':       _ENV.get('OANDA_DEMO_PASSWORD', ''),
         'symbol_suffix':  '.cl',
         'timezone':       'GMT+2/+3',
         'min_lot':        0.01,
         'is_live':        False,
-        'enabled':        True,
-        # [FIX: attach=Trueを削除。login+server指定でOANDA端末に確実に接続する]
-        # 以前はIPC timeout回避のためattach=Trueを使用していたが、
-        # 複数MT5端末起動時に意図しない端末へ接続する問題が発生するため変更。
-        # IPC timeoutが再発する場合はattach=Trueに戻してbat実行順序で対処する。
-        'note':           '期限付きデモ。失効後は enabled=False に変更する',
+        'enabled':        False,
     },
     'axiory': {
         'path':           r'C:\Program Files\Axiory MetaTrader 5\terminal64.exe',

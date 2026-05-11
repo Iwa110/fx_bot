@@ -15,14 +15,14 @@ REM   Remove the REM prefix from the oanda line when ready.
 set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\daily_trade.py
 
+REM oanda (enabled=True, demo - 実口座開設後は is_live=True に変更)
+"%PYTHON%" "%SCRIPT%" --broker oanda
+
 REM axiory (enabled=True, demo)
 "%PYTHON%" "%SCRIPT%" --broker axiory
 
 REM exness (enabled=True, demo)
 "%PYTHON%" "%SCRIPT%" --broker exness
 
-REM oanda_demo (enabled=True, login+server指定でOANDA端末に接続)
-"%PYTHON%" "%SCRIPT%" --broker oanda_demo
-
-REM oanda (enabled=True, live account - uncomment when ready)
-REM "%PYTHON%" "%SCRIPT%" --broker oanda
+REM oanda_demo (enabled=False - 実口座開設後に有効化)
+REM "%PYTHON%" "%SCRIPT%" --broker oanda_demo
