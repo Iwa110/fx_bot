@@ -17,14 +17,15 @@ REM   Remove the REM prefix from the oanda line when ready.
 set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\bb_monitor.py
 
+REM oanda_demo (enabled=True, attach=True - OANDA terminal must be running)
+REM [FIX: 先に実行することでattach=Trueが正しくOANDA端末に接続する]
+"%PYTHON%" "%SCRIPT%" --broker oanda_demo
+
 REM axiory (enabled=True, demo)
 "%PYTHON%" "%SCRIPT%" --broker axiory
 
 REM exness (enabled=True, demo)
 "%PYTHON%" "%SCRIPT%" --broker exness
-
-REM oanda_demo (enabled=True, attach=True - OANDA terminal must be running)
-"%PYTHON%" "%SCRIPT%" --broker oanda_demo
 
 REM oanda (enabled=True, live account - uncomment when ready)
 REM "%PYTHON%" "%SCRIPT%" --broker oanda

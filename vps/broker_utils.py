@@ -41,7 +41,23 @@ def connect_mt5(broker_key: str) -> bool:
         ok = mt5.initialize()
         if not ok:
             print('[broker_utils] MT5初期化失敗 (' + broker_key + '): ' + str(mt5.last_error()))
-        return ok
+            return False
+        # [FIX: 複数MT5端末が起動中の場合、意図しない端末にアタッチする問題を防ぐ]
+        # attach後に正しいブローカーのloginか検証する
+        expected_login = cfg.get('login')
+        if expected_login:
+            account = mt5.account_info()
+            if account is None:
+                print('[broker_utils] ' + broker_key + ': account_info取得失敗（attach後）')
+                mt5.shutdown()
+                return False
+            if account.login != expected_login:
+                print('[broker_utils] ' + broker_key + ': 接続先不一致 '
+                      '(connected=' + str(account.login) + ', expected=' + str(expected_login) + ')'
+                      ' -> MT5をシャットダウンして再試行してください')
+                mt5.shutdown()
+                return False
+        return True
 
     # path が設定されていればターミナルを指定して起動
     if cfg.get('path'):
