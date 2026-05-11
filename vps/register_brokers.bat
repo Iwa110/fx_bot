@@ -148,6 +148,38 @@ if %ERRORLEVEL% == 0 (
 )
 echo.
 
+REM ----------------------------------------------
+REM (5) FX_Stat_Arb_Monitor - at logon (daemon)
+REM
+REM WHY ONLOGON (same reason as trail_watcher):
+REM   stat_arb_monitor.py is a long-running daemon (while True loop).
+REM   Running it every minute would trigger Job Object kill on bat exit.
+REM   It runs once at logon via pythonw.exe and loops indefinitely.
+REM   Uses --broker axiory (main demo account).
+REM ----------------------------------------------
+set TASK_NAME_SARB=FX_Stat_Arb_Monitor
+set SARB=%BAT_DIR%\stat_arb_monitor.py
+
+echo [INFO] Registering: %TASK_NAME_SARB%
+schtasks /delete /tn "%TASK_NAME_SARB%" /f 2>nul
+
+schtasks /create ^
+  /tn "%TASK_NAME_SARB%" ^
+  /tr "\"%PYTHONW%\" \"%SARB%\" --broker axiory" ^
+  /sc ONLOGON ^
+  /ru Administrator ^
+  /it ^
+  /rl HIGHEST ^
+  /f
+
+if %ERRORLEVEL% == 0 (
+    echo [OK] %TASK_NAME_SARB% registered: at logon --broker axiory
+) else (
+    echo [ERROR] %TASK_NAME_SARB% registration failed
+    exit /b 1
+)
+echo.
+
 echo ==============================================
 echo  All tasks registered successfully.
 echo ==============================================
@@ -155,5 +187,6 @@ schtasks /query /tn "%TASK_NAME_BB%"     /fo LIST 2>nul | findstr "Task Name\|St
 schtasks /query /tn "%TASK_NAME_TRAIL%"  /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
 schtasks /query /tn "%TASK_NAME_DAILY%"  /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
 schtasks /query /tn "%TASK_NAME_REPORT%" /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
+schtasks /query /tn "%TASK_NAME_SARB%"   /fo LIST 2>nul | findstr "Task Name\|Status\|Next Run\|Run As"
 echo.
 pause

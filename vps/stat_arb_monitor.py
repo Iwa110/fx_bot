@@ -2,6 +2,7 @@
 # Statistical Arbitrage Monitor - Pairs Trading Strategy
 # magic = 20260001
 # v2: マルチブローカー対応: broker_utils / argparse --broker 追加
+# v3: tick None guard / MT5 reconnect / heartbeat separated from pair-loop try
 
 import sys
 import os
@@ -171,7 +172,11 @@ def send_order(symbol, order_type, lot, comment=''):
         direction_str = 'BUY' if order_type == mt5.ORDER_TYPE_BUY else 'SELL'
         log(f'[ORDER] *** ライブ口座発注 *** {symbol} {direction_str} lot={lot} broker={BROKER_KEY}')
 
-    price = mt5.symbol_info_tick(symbol).ask if order_type == mt5.ORDER_TYPE_BUY else mt5.symbol_info_tick(symbol).bid
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        log(f'[ORDER] symbol_info_tick failed: {symbol}')
+        return None
+    price = tick.ask if order_type == mt5.ORDER_TYPE_BUY else tick.bid
     filling = mt5.ORDER_FILLING_IOC
     req = {
         'action': mt5.TRADE_ACTION_DEAL,
@@ -198,7 +203,11 @@ def close_position(pos):
     symbol = pos.symbol   # MT5から返るブローカー固有名
     lot = pos.volume
     order_type = mt5.ORDER_TYPE_SELL if pos.type == mt5.POSITION_TYPE_BUY else mt5.ORDER_TYPE_BUY
-    price = mt5.symbol_info_tick(symbol).bid if order_type == mt5.ORDER_TYPE_SELL else mt5.symbol_info_tick(symbol).ask
+    tick = mt5.symbol_info_tick(symbol)
+    if tick is None:
+        log(f'[CLOSE] symbol_info_tick failed: {symbol}')
+        return False
+    price = tick.bid if order_type == mt5.ORDER_TYPE_SELL else tick.ask
     req = {
         'action': mt5.TRADE_ACTION_DEAL,
         'symbol': symbol,
@@ -444,11 +453,22 @@ def main():
 
     while True:
         try:
+            if mt5.terminal_info() is None:
+                log('[RECONNECT] MT5 disconnected, reconnecting...')
+                disconnect_mt5()
+                if not connect_mt5(BROKER_KEY):
+                    log('[RECONNECT] Failed, retry in 60s')
+                    time.sleep(60)
+                    continue
+                log('[RECONNECT] OK')
             for base_a, base_b in active_pairs:
                 process_pair(base_a, base_b)
-            hb.record_heartbeat('stat_arb_monitor')
         except Exception as e:
             log(f'[ERROR] {e}')
+        try:
+            hb.record_heartbeat('stat_arb_monitor')
+        except Exception as e:
+            log(f'[HB ERROR] {e}')
 
         time.sleep(LOOP_INTERVAL)
 
