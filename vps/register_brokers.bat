@@ -149,14 +149,13 @@ if %ERRORLEVEL% == 0 (
 echo.
 
 REM ----------------------------------------------
-REM (5) FX_MT5_OANDA_Startup - ログオン時に OANDA MT5 を最初に自動起動
+REM (5) FX_MT5_OANDA_Startup - Start OANDA MT5 first at logon
 REM
 REM WHY OANDA FIRST:
-REM   OANDA MT5の操作ログで "IPC failed to initialize IPC" / "IPC dispatcher not
-REM   started" を確認。原因はAxiory/ExnessがIPC名前付きパイプとヒストリーファイル
-REM   (ERROR_SHARING_VIOLATION=[32]) を先に確保するため。
-REM   OANDAを先に起動してIPCディスパッチャーを確保し、その後Axiory/Exnessを
-REM   遅延起動させることで terminal.trade_allowed=False を解消する。
+REM   OANDA MT5 log showed "IPC failed to initialize IPC" / "IPC dispatcher not
+REM   started". Root cause: Axiory/Exness claim the IPC named pipe and history
+REM   files (ERROR_SHARING_VIOLATION=[32]) before OANDA when all start together.
+REM   Starting OANDA first lets it claim IPC, fixing terminal.trade_allowed=False.
 REM ----------------------------------------------
 set TASK_NAME_OANDA=FX_MT5_OANDA_Startup
 set OANDA_EXE=C:\Program Files\OANDA MetaTrader 5\terminal64.exe
@@ -174,7 +173,7 @@ schtasks /create ^
   /f
 
 if %ERRORLEVEL% == 0 (
-    echo [OK] %TASK_NAME_OANDA% registered: at logon (FIRST - claims IPC before Axiory/Exness)
+    echo [OK] %TASK_NAME_OANDA% registered: at logon - FIRST startup
 ) else (
     echo [ERROR] %TASK_NAME_OANDA% registration failed
     exit /b 1
@@ -182,12 +181,12 @@ if %ERRORLEVEL% == 0 (
 echo.
 
 REM ----------------------------------------------
-REM (6) FX_MT5_Delayed_Startup - ログオン60秒後に Axiory/Exness MT5 を起動
+REM (6) FX_MT5_Delayed_Startup - Start Axiory/Exness MT5 60s after logon
 REM
 REM WHY DELAYED:
-REM   OANDAがIPCディスパッチャーを確立するまでの待機時間として60秒を確保。
-REM   mt5_delayed_startup.bat が ping ループで60秒待機後に Axiory → Exness を起動。
-REM   FX_MT5_Axiory_Startup / FX_MT5_Exness_Startup は本タスクに統合し削除。
+REM   60s delay lets OANDA establish IPC dispatcher before Axiory/Exness start.
+REM   mt5_delayed_startup.bat uses ping loop to wait, then starts Axiory/Exness.
+REM   Replaces FX_MT5_Axiory_Startup / FX_MT5_Exness_Startup (both deleted here).
 REM ----------------------------------------------
 set TASK_NAME_DELAYED=FX_MT5_Delayed_Startup
 set BAT_DELAYED=%BAT_DIR%\mt5_delayed_startup.bat
