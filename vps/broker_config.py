@@ -54,7 +54,7 @@ BROKERS: dict[str, dict[str, Any]] = {
         'enabled':        True,
     },
     'oanda_demo': {
-        'path':           '',   # 起動済みMT5にアタッチするため空
+        'path':           '',   # path未指定＋login指定でOANDA端末を名指し接続
         'server':         _ENV.get('OANDA_DEMO_SERVER', 'OANDA Division1-MT5 2'),
         'login':          _int('OANDA_DEMO_LOGIN'),
         'password':       _ENV.get('OANDA_DEMO_PASSWORD', ''),
@@ -63,7 +63,10 @@ BROKERS: dict[str, dict[str, Any]] = {
         'min_lot':        0.01,
         'is_live':        False,
         'enabled':        True,
-        'attach':         True,  # mt5.initialize()を引数なしで呼ぶ（IPC timeout回避）
+        # [FIX: attach=Trueを削除。login+server指定でOANDA端末に確実に接続する]
+        # 以前はIPC timeout回避のためattach=Trueを使用していたが、
+        # 複数MT5端末起動時に意図しない端末へ接続する問題が発生するため変更。
+        # IPC timeoutが再発する場合はattach=Trueに戻してbat実行順序で対処する。
         'note':           '期限付きデモ。失効後は enabled=False に変更する',
     },
     'axiory': {
