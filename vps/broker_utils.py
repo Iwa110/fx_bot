@@ -34,6 +34,30 @@ def connect_mt5(broker_key: str) -> bool:
 
     kwargs: dict = {}
 
+    # path_only=True: pathのみでinitialize（credentials渡しで口座変更イベントが発火し
+    # terminal.trade_allowed=Falseになる問題の回避）
+    # attach=Trueと異なりpathでターミナルを特定するため複数端末でも安全
+    if cfg.get('path_only'):
+        path = cfg.get('path', '')
+        print('[broker_utils] initialize kwargs: {path: ...} (path_only mode)')
+        ok = mt5.initialize(path=path) if path else mt5.initialize()
+        if not ok:
+            print('[broker_utils] MT5初期化失敗 (' + broker_key + '): ' + str(mt5.last_error()))
+            return False
+        expected_login = cfg.get('login')
+        if expected_login:
+            account = mt5.account_info()
+            if account is None:
+                print('[broker_utils] ' + broker_key + ': account_info取得失敗（path_only後）')
+                mt5.shutdown()
+                return False
+            if account.login != expected_login:
+                print('[broker_utils] ' + broker_key + ': 接続先不一致 '
+                      '(connected=' + str(account.login) + ', expected=' + str(expected_login) + ')')
+                mt5.shutdown()
+                return False
+        return True
+
     # attach=True: MT5が既に起動・ログイン済みの場合は引数なしでアタッチ
     # 認証情報を渡すとIPC timeoutが発生するため
     if cfg.get('attach'):
