@@ -1,7 +1,9 @@
 """
-sma_squeeze.py - SMA Squeeze Play strategy monitor v1
+sma_squeeze.py - SMA Squeeze Play strategy monitor v2
 Trend-following: SMA200 slope filter + SMA20 squeeze/expansion entry.
 magic: 20260010
+v2 2026-05-12: A-1 SMA_long slope reversal exit + B-1 breakeven SL move
+  be_r=0.5 / slope_exit=3 (BT-optimized: sma_squeeze_exit_bt.py, 80 runs)
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -32,23 +34,25 @@ def _rsym(base: str) -> str:
 # Config
 # BT best params (PF>1.2, n>=30) from sma_squeeze_bt.py
 # BT period: 2024-04-24 ~ 2026-04-24, 9720 runs
+# v2 exit params from sma_squeeze_exit_bt.py (80 runs):
+#   be_r=0.5 (universal), slope_exit=3 (GBPJPY +PF, others neutral)
 # ══════════════════════════════════════════
 PAIRS_CFG = {
     'USDJPY': {'sma_short': 25, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 5,  'rr': 2.5, 'sl_atr_mult': 1.5,
-               'timeframe': '4h', 'enabled': True},
+               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
     'GBPJPY': {'sma_short': 25, 'sma_long': 250, 'squeeze_th': 0.5,
                'slope_period': 10, 'rr': 2.0, 'sl_atr_mult': 1.5,
-               'timeframe': '1h', 'enabled': True},
+               'timeframe': '1h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
     'EURUSD': {'sma_short': 25, 'sma_long': 200, 'squeeze_th': 2.0,
                'slope_period': 10, 'rr': 2.5, 'sl_atr_mult': 1.0,
-               'timeframe': '4h', 'enabled': True},
+               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
     'GBPUSD': {'sma_short': 15, 'sma_long': 250, 'squeeze_th': 1.5,
                'slope_period': 20, 'rr': 2.0, 'sl_atr_mult': 1.0,
-               'timeframe': '1h', 'enabled': True},
+               'timeframe': '1h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
     'EURJPY': {'sma_short': 15, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 20, 'rr': 2.5, 'sl_atr_mult': 1.5,
-               'timeframe': '4h', 'enabled': True},
+               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
 }
 
 MAX_JPY_LOT   = 0.4
@@ -289,8 +293,92 @@ def is_in_cooldown(base_sym):
 # ══════════════════════════════════════════
 # Position management
 # ══════════════════════════════════════════
+
+# v2 2026-05-12: factored out close helper (used by force-close and A-1 slope-exit)
+def _close_position(p, is_long, comment):
+    """Send market close order. Returns True on success."""
+    close_type = mt5.ORDER_TYPE_SELL if is_long else mt5.ORDER_TYPE_BUY
+    tick       = mt5.symbol_info_tick(p.symbol)
+    if tick is None:
+        return False
+    price = tick.bid if is_long else tick.ask
+    req = {
+        'action':       mt5.TRADE_ACTION_DEAL,
+        'symbol':       p.symbol,
+        'volume':       p.volume,
+        'type':         close_type,
+        'price':        price,
+        'deviation':    10,
+        'magic':        MAGIC,
+        'comment':      comment,
+        'position':     p.ticket,
+        'type_time':    mt5.ORDER_TIME_GTC,
+        'type_filling': mt5.ORDER_FILLING_IOC,
+    }
+    result = mt5.order_send(req)
+    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+        return True
+    code = result.retcode if result else 'None'
+    log_print('close failed: ' + p.symbol + ' code=' + str(code))
+    return False
+
+
+# v2 2026-05-12: B-1 breakeven move (profit >= be_r * original_sl_dist -> SL to entry)
+def _check_breakeven(p, is_long, be_r, webhook):
+    """Move SL to entry when unrealized profit >= be_r * (price_open - original_sl)."""
+    info = mt5.symbol_info(p.symbol)
+    tick = mt5.symbol_info_tick(p.symbol)
+    if info is None or tick is None:
+        return
+
+    if is_long:
+        if p.sl >= p.price_open - info.point:   # BE already applied
+            return
+        orig_sl_dist = p.price_open - p.sl
+        if orig_sl_dist <= 0:
+            return
+        profit = tick.bid - p.price_open
+    else:
+        if p.sl <= p.price_open + info.point:   # BE already applied
+            return
+        orig_sl_dist = p.sl - p.price_open
+        if orig_sl_dist <= 0:
+            return
+        profit = p.price_open - tick.ask
+
+    log_print('BE check: ' + p.symbol +
+              '  profit=' + str(round(profit, info.digits)) +
+              '  need='   + str(round(be_r * orig_sl_dist, info.digits)), debug=True)
+
+    if profit < be_r * orig_sl_dist:
+        return
+
+    new_sl = round(p.price_open, info.digits)
+    req = {
+        'action':   mt5.TRADE_ACTION_SLTP,
+        'position': p.ticket,
+        'sl':       new_sl,
+        'tp':       p.tp,
+    }
+    result = mt5.order_send(req)
+    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+        side = 'LONG' if is_long else 'SHORT'
+        msg  = (STRATEGY_TAG + ' BE: ' + p.symbol + ' ' + side +
+                '  SL->entry=' + str(new_sl) + '  ticket=' + str(p.ticket))
+        log_print(msg)
+        send_discord(msg, webhook)
+    else:
+        code = result.retcode if result else 'None'
+        log_print('BE modify failed: ' + p.symbol + ' code=' + str(code))
+
+
 def manage_positions(broker, webhook):
-    """Force close positions where close breaks SMA200 in opposite direction."""
+    """
+    Manage open positions per confirmed bar (iloc[-2]):
+    - Force close: SMA_long break in opposite direction (priority)
+    - A-1: SMA_long slope reversal exit (v2 2026-05-12)
+    - B-1: Breakeven SL move when profit >= be_r * orig_sl_dist (v2 2026-05-12)
+    """
     pos = mt5.positions_get()
     if not pos:
         return
@@ -310,7 +398,7 @@ def manage_positions(broker, webhook):
             continue
 
         tf = cfg.get('timeframe', '1h')
-        n  = cfg['sma_long'] + 10
+        n  = cfg['sma_long'] + max(cfg.get('slope_exit', 3), cfg.get('slope_period', 5)) + 10
         df = get_ohlcv(p.symbol, tf, n, broker)
         if df is None or len(df) < cfg['sma_long'] + 2:
             continue
@@ -323,40 +411,37 @@ def manage_positions(broker, webhook):
         if pd.isna(sl_v) or pd.isna(c):
             continue
 
-        is_long  = (p.type == mt5.ORDER_TYPE_BUY)
-        force    = (is_long and c < sl_v) or (not is_long and c > sl_v)
-        if not force:
-            continue
+        is_long = (p.type == mt5.ORDER_TYPE_BUY)
 
-        close_type = mt5.ORDER_TYPE_SELL if is_long else mt5.ORDER_TYPE_BUY
-        tick       = mt5.symbol_info_tick(p.symbol)
-        if tick is None:
-            continue
-        price = tick.bid if is_long else tick.ask
-
-        req = {
-            'action':       mt5.TRADE_ACTION_DEAL,
-            'symbol':       p.symbol,
-            'volume':       p.volume,
-            'type':         close_type,
-            'price':        price,
-            'deviation':    10,
-            'magic':        MAGIC,
-            'comment':      STRATEGY_TAG + '_CLOSE',
-            'position':     p.ticket,
-            'type_time':    mt5.ORDER_TIME_GTC,
-            'type_filling': mt5.ORDER_FILLING_IOC,
-        }
-        result = mt5.order_send(req)
-        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+        # ── Force close: SMA_long break (priority) ──
+        if (is_long and c < sl_v) or (not is_long and c > sl_v):
             side = 'LONG' if is_long else 'SHORT'
             msg  = (STRATEGY_TAG + ' force-close: ' + p.symbol + ' ' + side +
                     ' SMA' + str(cfg['sma_long']) + ' break  ticket=' + str(p.ticket))
             log_print(msg)
             send_discord(msg, webhook)
-        else:
-            code = result.retcode if result else 'None'
-            log_print('force-close failed: ' + p.symbol + ' code=' + str(code))
+            _close_position(p, is_long, STRATEGY_TAG + '_CLOSE')
+            continue
+
+        # ── A-1: SMA_long slope reversal exit ──
+        slope_exit = cfg.get('slope_exit', None)
+        if slope_exit is not None:
+            slope_now = calc_slope(df_ind['sma_long'], slope_exit)
+            reversed_ = (is_long and slope_now is False) or (not is_long and slope_now is True)
+            if reversed_:
+                side = 'LONG' if is_long else 'SHORT'
+                msg  = (STRATEGY_TAG + ' slope-exit: ' + p.symbol + ' ' + side +
+                        '  SMA' + str(cfg['sma_long']) + ' slope reversed' +
+                        '  ticket=' + str(p.ticket))
+                log_print(msg)
+                send_discord(msg, webhook)
+                _close_position(p, is_long, STRATEGY_TAG + '_SLOPE_EXIT')
+                continue
+
+        # ── B-1: Breakeven SL move ──
+        be_r = cfg.get('be_r', None)
+        if be_r is not None:
+            _check_breakeven(p, is_long, be_r, webhook)
 
 
 # ══════════════════════════════════════════
