@@ -12,15 +12,16 @@ C:\Users\Administrator\fx_bot\
 │   ├── trail_monitor.py      # v10
 │   ├── smc_gbpaud.py         # v4 magic=20260002
 │   ├── stat_arb.py           # magic=20260001
-│   ├── sma_squeeze.py        # v1 magic=20260010 ★新規
+│   ├── sma_squeeze.py        # v2 magic=20260010 (A-1 slope exit + B-1 BE)
 │   └── sma_squeeze_monitor.bat
 ├── optimizer\    # バックテスト・最適化
 │   ├── loop_runner.py
 │   ├── backtest.py
 │   ├── evaluate.py
 │   ├── phase2_ai_analysis.py
-│   ├── make_4h_from_1h.py    # 1h→4hリサンプル ★新規
-│   └── sma_squeeze_bt.py     # グリッドサーチBT ★新規
+│   ├── make_4h_from_1h.py        # 1h→4hリサンプル
+│   ├── sma_squeeze_bt.py         # グリッドサーチBT（エントリーパラメータ）
+│   └── sma_squeeze_exit_bt.py    # 決済パラメータ最適化BT ★新規
 └── data\         # 14ペア 1h/5m足（*_1h.csvはgit管理）
 ```
 
@@ -58,6 +59,8 @@ C:\Users\Administrator\fx_bot\
   | GBPUSD | 1h | 15/250  | 1.5 | 20  | 2.0 | 1.0 | 1.341 | 41.2% | 228 |
   | EURJPY | 4h | 15/150  | 2.0 | 20  | 2.5 | 1.5 | 3.673 | 56.7% |  30 |
 - 起動: sma_squeeze_monitor.bat（axiory/exness対象、oandaはREM）
+- **v2追加 (2026-05-12)**: A-1 SMA_long slope reversal exit (slope_exit=3) + B-1 BE move (be_r=0.5)
+  - BT (sma_squeeze_exit_bt.py, 80 runs): USDJPY PF+0.17 / GBPJPY +0.22 / EURUSD +0.31 / EURJPY +0.07
 - **注意**: VPS側でgit pull後、sma_squeeze_monitor.batを手動実行して稼働開始すること
 
 ## GitHub運用
@@ -69,7 +72,7 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-12更新）
+## Top of mind（2026-05-12 夜更新）
 ### OANDA MT5接続問題・全ブローカー稼働化（2026-05-11完了）
 - **問題**: Axiory/Exnessに取引がなく、OANDAはterminal.trade_allowed=False
 - **根本原因1（OANDA IPC失敗）**: OANDAのMT5ログで `IPC failed to initialize IPC` / `IPC dispatcher not started` + ヒストリーファイルのERROR_SHARING_VIOLATION[32]を確認。Axiory/ExnessがIPCを先に確保するため
@@ -106,14 +109,20 @@ C:\Users\Administrator\fx_bot\
 - **MULTIPLIERS**: tp=1.5, sl=2.0 → PF=1.924 / WR=52.9% / n=34
 - z_exit=0.0（Z回帰決済は無効、hold_period=5日で管理）
 
+### SMA Squeeze v2 決済改善（2026-05-12完了）
+- A-1 SMA_long slope reversal exit (slope_exit=3): 傾き反転で強制決済（force-closeより先に発動）
+- B-1 breakeven move (be_r=0.5): profit≥0.5×原SL距離でSLを建値移動（order_modify SLTP）
+- BT結果 (sma_squeeze_exit_bt.py, 80 runs): be_r=0.5が全ペア最優先。slope_exit=3はGBPJPYに効果
+- ヘルパー関数: _close_position() / _check_breakeven() 追加済み
+
 ### 翌日Chat確認事項
+- VPS: git pull → sma_squeeze_monitor.batを再起動してv2を稼働開始
+- sma_squeeze_log_axiory.txtで「BE:」「slope-exit:」ログが出ているか確認（稼働後）
 - VPS再起動後: OANDA→(60s)Axiory/Exness の起動順でIPC確保。trail_watcher.logで3ブローカーのHBを確認
-- OANDAのIPC問題が起動順制御で本当に解消されたか、次回VPS再起動後に trail_log_oanda.txtで確認
 - GBPUSDのPF=0.397は特に低い。Stage2 distanceやTP設定を再確認すべきか？
 - EURUSDは41件でPF=0.748。RR改善（Stage2 distance=0.1）が効いていない可能性
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
-- SMA Squeeze: VPSでgit pull → sma_squeeze_monitor.bat実行 → sma_squeeze_log_axiory.txtでエラーなし確認
 
 ## 直近タスク
 - [x] Phase1完了判定実行（2026-05-03: 全ペア不合格・データ蓄積継続）
@@ -122,7 +131,8 @@ C:\Users\Administrator\fx_bot\
 - [x] VPS Task Schedulerウィンドウ非表示化・trail_monitor多重起動修正（2026-05-10完了）
 - [x] OANDA MT5接続問題解消・全ブローカー稼働化（2026-05-11完了）
 - [x] SMA Squeeze Play v1 実装・BT完了・PAIRS_CFG最適化（2026-05-12完了）
-- [ ] VPS: sma_squeeze_monitor.batを手動実行して稼働開始
+- [x] SMA Squeeze v2 決済改善 A-1+B-1 実装・BT最適化（2026-05-12完了）
+- [ ] VPS: git pull → sma_squeeze_monitor.bat再起動（v2稼働開始）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
 - [ ] USDCAD再評価(BT結果待ち)
 - [ ] RR問題の深掘り（GBPUSD/EURUSD優先）
