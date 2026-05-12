@@ -23,5 +23,5 @@ start /B "" "%PYTHONW%" "%SCRIPT%" --broker axiory
 REM exness (enabled=True, demo)
 start /B "" "%PYTHONW%" "%SCRIPT%" --broker exness
 
-REM oanda_demo (enabled=False - enable after setting up oanda_demo in broker_config.py)
-REM start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda_demo
+REM oanda (enabled=True - IPC issue resolved 2026-05-11, use oanda not oanda_demo)
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda
