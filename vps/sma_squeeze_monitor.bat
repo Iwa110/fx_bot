@@ -18,10 +18,10 @@ set PYTHONW=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pytho
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\sma_squeeze.py
 
 REM axiory (enabled=True, demo)
-start /B "" "%PYTHONW%" "%SCRIPT%" --broker axiory
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker axiory --debug
 
 REM exness (enabled=True, demo)
-start /B "" "%PYTHONW%" "%SCRIPT%" --broker exness
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker exness --debug
 
 REM oanda (enabled=True - IPC issue resolved 2026-05-11, use oanda not oanda_demo)
-start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda --debug
