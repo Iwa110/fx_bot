@@ -1,5 +1,5 @@
 """
-bb_monitor.py  - BB逆張り戦略（5分毎実行）v17
+bb_monitor.py  - BB逆張り戦略（5分毎実行）v19
 v14:
   - ALLOWED_HOURS_UTC辞書を追加（ペア別UTC時間帯フィルター）
   - main()ループに時間帯チェックを追加（空リスト=停止、None=制限なし）
@@ -10,6 +10,14 @@ v16
   - calc_bb_signal内のTP/SL計算にsl_atr_multを渡す
 v17 sl_atr_mult updated
 v18 マルチブローカー対応: broker_utils / argparse --broker 追加
+v19 EURUSD/GBPUSD エントリー条件強化 (2026-05-12)
+  - ENTRY_FILTER: EURUSD/GBPUSD に use_htf4h=True 追加（4h EMA20フィルター）
+  - EURUSD: sl_atr_mult 3.0→1.2, bb_width_th=0.0020 追加（低ボラ除外）
+  - GBPUSD: sl_atr_mult 2.0→1.2
+  - calc_bb_signal: bb_width_th ペア別設定対応
+  BT根拠 (1h足, 2024-04-24〜2026-04-24):
+    EURUSD htf4h_and_bb_width(bw=0.002) sl=1.2 rr=1.5 → PF=1.649 WR=50.6% N=83
+    GBPUSD htf4h_only sl=1.2 rr=1.5 → PF=3.440 WR=69.1% N=97
 """
 
 import sys, os, ssl, json, argparse
@@ -54,6 +62,8 @@ ALLOWED_HOURS_UTC = {
 ENTRY_FILTER = {
     'GBPJPY': {'use_htf4h': True},
     'USDJPY': {'use_htf4h': True},
+    'EURUSD': {'use_htf4h': True},
+    'GBPUSD': {'use_htf4h': True},
 }
 BB_PAIRS = {
     'USDCAD': {
@@ -89,12 +99,13 @@ BB_PAIRS = {
     'EURUSD': {
         'is_jpy': False, 'max_pos': 1, 'sigma': None,
         'filter_type': None,
-        'sl_atr_mult': 3.0,  # 停止方向・変更なし
+        'sl_atr_mult': 1.2,      # v19 BT採用値 (旧3.0)
+        'bb_width_th': 0.0020,   # v19 低ボラ除外（BB幅<0.0020 pipsスキップ）
     },
     'GBPUSD': {
         'is_jpy': False, 'max_pos': 1, 'sigma': None,
         'filter_type': None,
-        'sl_atr_mult': 2.0,  # 停止方向・変更なし
+        'sl_atr_mult': 1.2,      # v19 BT採用値 (旧2.0)
     },
 }
 BB_PARAMS = {
@@ -561,6 +572,14 @@ def calc_bb_signal(symbol, cfg):
         log(symbol + ': BBバンド未到達（σ=' + f'{sigma_pos:+.2f}' + '） ' + htf_reason)
         return None
 
+    # BBバンド幅フィルター（低ボラ除外）
+    bb_width_th = cfg.get('bb_width_th')
+    if bb_width_th is not None:
+        bb_width = upper - lower
+        if bb_width < bb_width_th:
+            log(symbol + ': BB幅不足スキップ（width=' + f'{bb_width:.5f}' + ' < ' + str(bb_width_th) + '）')
+            return None
+
     rsi_ok, rsi_val, rsi_reason = rsi_filter(
         df_5m, direction,
         buy_max  = cfg.get('rsi_buy_max'),
@@ -678,7 +697,7 @@ def place_order(symbol, base_sym, sig, logf, webhook):
 def main():
     global BROKER_KEY
 
-    parser = argparse.ArgumentParser(description='BB逆張り戦略モニター v17')
+    parser = argparse.ArgumentParser(description='BB逆張り戦略モニター v19')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='使用するブローカーキー')
@@ -774,7 +793,7 @@ def main():
             executed += 1
 
     now = datetime.now().strftime('%H:%M')
-    log('[' + now + '] BB v17完了: 発注' + str(executed) + '件 ' +
+    log('[' + now + '] BB v19完了: 発注' + str(executed) + '件 ' +
         'スキップ' + str(skipped) + '件 ' +
         'ポジション' + str(count_total()) + '/' + str(MAX_TOTAL_POS) +
         ' broker=' + BROKER_KEY)
