@@ -1,5 +1,7 @@
-# 価格データ（容量大）
-data/
+# 価格データ: 5m足(容量大)と生成ファイルは除外、1h足のみ管理
+data/*_5m.csv
+data/*_4h.csv
+data/update_log.txt
 
 # センシティブ情報
 *.env
