@@ -15,7 +15,8 @@ import pandas as pd
 from pathlib import Path
 
 # ===== パス設定 =====
-DATA_DIR         = r'C:\Users\Administrator\fx_bot\data'
+_VPS_DATA_DIR    = r'C:\Users\Administrator\fx_bot\data'
+DATA_DIR         = _VPS_DATA_DIR if os.path.isdir(_VPS_DATA_DIR) else str(Path(__file__).parent.parent / 'data')
 CANDIDATES_FILE  = 'candidates.json'
 SUGGESTIONS_FILE = 'suggestions.json'
 OUTPUT_FILE      = 'backtest_results.json'
