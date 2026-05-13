@@ -1,5 +1,5 @@
 """
-bb_monitor.py  - BB逆張り戦略（5分毎実行）v19
+bb_monitor.py  - BB逆張り戦略（5分毎実行）v20
 v14:
   - ALLOWED_HOURS_UTC辞書を追加（ペア別UTC時間帯フィルター）
   - main()ループに時間帯チェックを追加（空リスト=停止、None=制限なし）
@@ -18,6 +18,17 @@ v19 EURUSD/GBPUSD エントリー条件強化 (2026-05-12)
   BT根拠 (1h足, 2024-04-24〜2026-04-24):
     EURUSD htf4h_and_bb_width(bw=0.002) sl=1.2 rr=1.5 → PF=1.649 WR=50.6% N=83
     GBPUSD htf4h_only sl=1.2 rr=1.5 → PF=3.440 WR=69.1% N=97
+v20 EURUSD/GBPUSD停止、GBPJPY/USDJPY F1フィルター削除 (2026-05-14)
+  - EURUSD: enabled=False（BT PF<0.7、BB戦略との相性不良により停止）
+  - GBPUSD: enabled=False（実稼働PF=0.397、BT最高0.854で目標未達のため停止）
+  - GBPJPY: filter_type None化（htf4h後はF1追加効果ゼロのためシンプル化）
+  - USDJPY: filter_type None化（htf4h後はF1追加効果ゼロのためシンプル化）
+  - main()ループにenabled=Falseチェック追加
+  BT根拠 (5m足, pair_grid_results.csv, 2026-05-14):
+    GBPJPY htf4h_only sl=3.5 s2d=0.3 → PF=1.326 WR=51.7% N=151
+    USDJPY f1_p3     sl=3.0 s2d=0.3 → PF=1.331 WR=49.4% N=83
+    EURUSD (全組合せ最高PF=0.681, N=132) → 停止
+    GBPUSD (全組合せ最高PF=0.854, N=153) → 停止
 """
 
 import sys, os, ssl, json, argparse
@@ -56,14 +67,13 @@ ALLOWED_HOURS_UTC = {
     'EURJPY': [9, 17],
     # 'USDJPY': [21, 22, 5],  # htf4h_onlyに統一のため無効化
     # [FIX: Phase1データ蓄積再開のため制限解除。PF改善確認後に再停止を検討]
-    'EURUSD': None,
-    'GBPUSD': None,
+    'EURUSD': [],  # v20: BT PF<0.7, BB戦略との相性不良により停止
+    'GBPUSD': [],  # v20: 実稼働PF=0.397, BT最高0.854で目標未達のため停止
 }
 ENTRY_FILTER = {
     'GBPJPY': {'use_htf4h': True},
     'USDJPY': {'use_htf4h': True},
-    'EURUSD': {'use_htf4h': True},
-    'GBPUSD': {'use_htf4h': True},
+    # EURUSD/GBPUSD は v20 で停止のためエントリーフィルター不要
 }
 BB_PAIRS = {
     'USDCAD': {
@@ -78,9 +88,7 @@ BB_PAIRS = {
     },
     'GBPJPY': {
         'is_jpy': True, 'max_pos': 1, 'sigma': None,
-        'filter_type': 'F2andF1',
-        'f1_param': 3,
-        'f2_param': 10.0,
+        'filter_type': None,  # v20: F1フィルター削除（htf4h後は追加効果ゼロのためシンプル化）
         'sl_atr_mult': 3.0,  # BT採用値
     },
     'EURJPY': {
@@ -92,17 +100,18 @@ BB_PAIRS = {
     },
     'USDJPY': {
         'is_jpy': True, 'max_pos': 1, 'sigma': 2.0,
-        'filter_type': 'F1',
-        'f1_param': 5,
+        'filter_type': None,  # v20: F1フィルター削除（htf4h後は追加効果ゼロのためシンプル化）
         'sl_atr_mult': 3.0,  # BT採用値
     },
     'EURUSD': {
+        'enabled': False,        # BT PF<0.7, BB戦略との相性不良により停止 (v20)
         'is_jpy': False, 'max_pos': 1, 'sigma': None,
         'filter_type': None,
         'sl_atr_mult': 1.2,      # v19 BT採用値 (旧3.0)
         'bb_width_th': 0.0020,   # v19 低ボラ除外（BB幅<0.0020 pipsスキップ）
     },
     'GBPUSD': {
+        'enabled': False,        # 実稼働PF=0.397, BT最高0.854で目標未達のため停止 (v20)
         'is_jpy': False, 'max_pos': 1, 'sigma': None,
         'filter_type': None,
         'sl_atr_mult': 1.2,      # v19 BT採用値 (旧2.0)
@@ -697,7 +706,7 @@ def place_order(symbol, base_sym, sig, logf, webhook):
 def main():
     global BROKER_KEY
 
-    parser = argparse.ArgumentParser(description='BB逆張り戦略モニター v19')
+    parser = argparse.ArgumentParser(description='BB逆張り戦略モニター v20')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='使用するブローカーキー')
@@ -742,6 +751,8 @@ def main():
     skipped  = 0
 
     for base_sym, cfg in BB_PAIRS.items():
+        if not cfg.get('enabled', True):  # v20: enabled=False のペアはスキップ
+            continue
         strategy = 'BB_' + base_sym
         symbol   = _rsym(base_sym)
 
@@ -793,10 +804,11 @@ def main():
             executed += 1
 
     now = datetime.now().strftime('%H:%M')
-    log('[' + now + '] BB v19完了: 発注' + str(executed) + '件 ' +
+    log('[' + now + '] BB v20完了: 発注' + str(executed) + '件 ' +
         'スキップ' + str(skipped) + '件 ' +
         'ポジション' + str(count_total()) + '/' + str(MAX_TOTAL_POS) +
         ' broker=' + BROKER_KEY)
+
 
     try:
         import heartbeat_check as hb_mod
