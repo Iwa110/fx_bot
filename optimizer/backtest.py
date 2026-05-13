@@ -43,12 +43,12 @@ USDCAD_CFG = {
 }
 # ===== BB全ペア設定 =====
 BB_PAIRS_CFG = {
-    'GBPJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
+    'GBPJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5, 'use_htf4h': True},
     'EURJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5},
     'AUDJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
-    'USDJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 2.0, 'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5},
-    'EURUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.5, 'tp_sl_ratio': 1.5},
-    'GBPUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.5, 'tp_sl_ratio': 1.5},
+    'USDJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 2.0, 'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5, 'use_htf4h': True},
+    'EURUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.2, 'tp_sl_ratio': 1.5, 'use_htf4h': True, 'bb_width_th': 0.002},
+    'GBPUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.2, 'tp_sl_ratio': 1.5, 'use_htf4h': False},
 }
 
 # ===== フィルターBT対象ペア =====
@@ -192,11 +192,12 @@ def f1_ok(close_arr, i, direction, param):
     else:
         return diff > 0
 
-# ===== simulate_with_stage2（変更なし） =====
+# ===== simulate_with_stage2 =====
 def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
                           sl_atr_mult=None, n_bars=5000):
     """
     Stage2トレーリングSLシミュレーター。
+    pair_cfg追加対応キー: use_htf4h, filter_type('F1'/'F2andF1'/None), f1_param, bb_width_th
     戻り値: {'avg_exit_pct', 'win_rate', 'pf', 'trades', 'rr_actual',
               'tp_count', 'trail_count', 'sl_count'}
     """
@@ -218,6 +219,11 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
     atr     = calc_atr(df_5m, cfg['atr_period'])
     htf_lkp = build_htf_lookup(df_1h, cfg['htf_period'], cfg['htf_sigma'])
 
+    htf4h_lkp   = build_htf4h_ema_lookup(df_1h) if cfg.get('use_htf4h') else None
+    bb_width_th = cfg.get('bb_width_th')
+    filter_type = cfg.get('filter_type')
+    f1_param    = cfg.get('f1_param', 3)
+
     spread    = 2 * cfg['pip_unit']
     close_arr = close.values
     n         = len(df_5m)
@@ -237,6 +243,11 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
         if sl == 0 or np.isnan(sl) or np.isnan(c):
             continue
 
+        if bb_width_th is not None:
+            bw = (bb_std.iloc[i] * 2) / bb_ma.iloc[i] if bb_ma.iloc[i] != 0 else 0
+            if bw < bb_width_th:
+                continue
+
         dt      = df_5m['datetime'].iloc[i]
         htf_idx = htf_lkp.index.searchsorted(dt, side='right') - 1
         if htf_idx < 0:
@@ -255,6 +266,20 @@ def simulate_with_stage2(symbol, pair_cfg, stage2_activate, stage2_distance,
             direction = 'sell'
         if direction is None:
             continue
+
+        if filter_type in ('F1', 'F2andF1'):
+            if not f1_ok(close_arr, i, direction, f1_param):
+                continue
+
+        if htf4h_lkp is not None:
+            htf4h_idx = htf4h_lkp.index.searchsorted(dt, side='right') - 1
+            if htf4h_idx < 0:
+                continue
+            htf4h_sig = htf4h_lkp.iloc[htf4h_idx]
+            if direction == 'buy'  and htf4h_sig != 1:
+                continue
+            if direction == 'sell' and htf4h_sig != -1:
+                continue
 
         entry    = c + spread if direction == 'buy' else c - spread
         tp_price = entry + tp  if direction == 'buy' else entry - tp
@@ -1349,6 +1374,153 @@ def run_stage2_opt():
                   f'{r["trades"]:>5}')
 
 
+# ===== ペア別グリッドサーチBT =====
+PAIR_GRID_STAGE2_DISTANCES = [0.1, 0.2, 0.3]
+PAIR_GRID_STAGE2_ACTIVATE  = 0.7
+PAIR_GRID_MIN_N            = 30
+
+_PAIR_GRID_DEFS = {
+    'GBPUSD': {
+        'base': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'tp_sl_ratio': 1.5},
+        'filter_configs': [
+            {'label': 'no_filter',  'use_htf4h': False, 'filter_type': None},
+            {'label': 'f1_p3',      'use_htf4h': False, 'filter_type': 'F1', 'f1_param': 3},
+            {'label': 'f1_p5',      'use_htf4h': False, 'filter_type': 'F1', 'f1_param': 5},
+            {'label': 'htf4h_only', 'use_htf4h': True,  'filter_type': None},
+        ],
+        'sl_candidates': [1.0, 1.2, 1.5, 2.0],
+    },
+    'EURUSD': {
+        'base': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'tp_sl_ratio': 1.5},
+        'filter_configs': [
+            {'label': 'htf4h_bw002',  'use_htf4h': True,  'bb_width_th': 0.0020},
+            {'label': 'htf4h_bw0015', 'use_htf4h': True,  'bb_width_th': 0.0015},
+            {'label': 'htf4h_bw0025', 'use_htf4h': True,  'bb_width_th': 0.0025},
+            {'label': 'htf4h_nobw',   'use_htf4h': True,  'bb_width_th': None},
+            {'label': 'no_filter',    'use_htf4h': False, 'bb_width_th': None},
+        ],
+        'sl_candidates': [1.2, 1.5, 2.0, 2.5],
+    },
+    'GBPJPY': {
+        'base': {'is_jpy': True, 'pip_unit': 0.01, 'bb_sigma': 1.5, 'tp_sl_ratio': 1.5},
+        'filter_configs': [
+            {'label': 'F2andF1_p3', 'use_htf4h': True, 'filter_type': 'F2andF1', 'f1_param': 3, 'f2_param': 10.0},
+            {'label': 'F2andF1_p5', 'use_htf4h': True, 'filter_type': 'F2andF1', 'f1_param': 5, 'f2_param': 10.0},
+            {'label': 'F1only_p3',  'use_htf4h': True, 'filter_type': 'F1',      'f1_param': 3},
+            {'label': 'htf4h_only', 'use_htf4h': True, 'filter_type': None},
+        ],
+        'sl_candidates': [2.5, 3.0, 3.5],
+    },
+    'USDJPY': {
+        'base': {'is_jpy': True, 'pip_unit': 0.01, 'bb_sigma': 2.0, 'tp_sl_ratio': 1.5},
+        'filter_configs': [
+            {'label': 'f1_p3', 'use_htf4h': True, 'filter_type': 'F1', 'f1_param': 3},
+            {'label': 'f1_p5', 'use_htf4h': True, 'filter_type': 'F1', 'f1_param': 5},
+            {'label': 'f1_p7', 'use_htf4h': True, 'filter_type': 'F1', 'f1_param': 7},
+        ],
+        'sl_candidates': [2.5, 3.0, 3.5],
+    },
+}
+
+
+def run_pair_grid_bt():
+    """
+    ペア別グリッドサーチBT。
+    filter_config x sl_atr_mult x stage2_distance の全組み合わせを実行。
+    出力: optimizer/pair_grid_results.csv
+    """
+    print('=== ペア別グリッドサーチBT ===')
+    print(f'stage2_distances : {PAIR_GRID_STAGE2_DISTANCES}')
+    print(f'stage2_activate  : {PAIR_GRID_STAGE2_ACTIVATE} (固定)')
+    print(f'min_N for summary: {PAIR_GRID_MIN_N}')
+
+    all_rows = []
+    total_runs = sum(
+        len(d['filter_configs']) * len(d['sl_candidates']) * len(PAIR_GRID_STAGE2_DISTANCES)
+        for d in _PAIR_GRID_DEFS.values()
+    )
+    print(f'総実行数: {total_runs} runs\n')
+
+    for symbol, grid_def in _PAIR_GRID_DEFS.items():
+        n_runs = (len(grid_def['filter_configs'])
+                  * len(grid_def['sl_candidates'])
+                  * len(PAIR_GRID_STAGE2_DISTANCES))
+        print(f'{"="*70}')
+        print(f'  {symbol}  ({n_runs} runs)')
+        print(f'{"="*70}')
+        hdr = (f'  {"filter":>14} | {"sl":>4} | {"s2d":>4} | '
+               f'{"PF":>6} | {"WR":>5} | {"RR":>5} | {"exit":>7} | '
+               f'{"TP":>3}/{"Tr":>3}/{"SL":>3} | {"N":>5}')
+        print(hdr)
+        print('  ' + '-' * 75)
+
+        for fc in grid_def['filter_configs']:
+            label = fc['label']
+            fc_params = {k: v for k, v in fc.items() if k != 'label'}
+            for sl_mult in grid_def['sl_candidates']:
+                for s2d in PAIR_GRID_STAGE2_DISTANCES:
+                    pair_cfg = {**grid_def['base'], **fc_params}
+                    res = simulate_with_stage2(
+                        symbol, pair_cfg,
+                        stage2_activate=PAIR_GRID_STAGE2_ACTIVATE,
+                        stage2_distance=s2d,
+                        sl_atr_mult=sl_mult,
+                    )
+                    if res is None:
+                        continue
+                    row = {
+                        'symbol':          symbol,
+                        'filter_label':    label,
+                        'sl_atr_mult':     sl_mult,
+                        'stage2_distance': s2d,
+                        'pf':              res['pf'],
+                        'win_rate':        res['win_rate'],
+                        'rr_actual':       res['rr_actual'],
+                        'avg_exit_pct':    res['avg_exit_pct'],
+                        'tp_count':        res['tp_count'],
+                        'trail_count':     res['trail_count'],
+                        'sl_count':        res['sl_count'],
+                        'trades':          res['trades'],
+                    }
+                    all_rows.append(row)
+                    mark = ' *' if res['trades'] < PAIR_GRID_MIN_N else ''
+                    print(f'  {label:>14} | {sl_mult:>4.1f} | {s2d:>4.2f} | '
+                          f'{res["pf"]:>6.3f} | '
+                          f'{res["win_rate"]:>4.1f}% | '
+                          f'{res["rr_actual"]:>5.3f} | '
+                          f'{res["avg_exit_pct"]:>+6.1f}%TP | '
+                          f'{res["tp_count"]:>3}/{res["trail_count"]:>3}/{res["sl_count"]:>3} | '
+                          f'{res["trades"]:>5}{mark}')
+
+    if not all_rows:
+        print('[ERROR] 結果なし。CSVデータを確認してください。')
+        return
+
+    out_csv = str(Path(__file__).parent / 'pair_grid_results.csv')
+    df_out = pd.DataFrame(all_rows)
+    df_out.to_csv(out_csv, index=False, encoding='utf-8')
+    print(f'\n出力: {out_csv}')
+
+    print('\n' + '=' * 70)
+    print(f'  PF>=1.2 かつ N>={PAIR_GRID_MIN_N} の組み合わせ')
+    print('=' * 70)
+    for symbol in _PAIR_GRID_DEFS:
+        hits = [r for r in all_rows
+                if r['symbol'] == symbol
+                and r['pf'] >= 1.2
+                and r['trades'] >= PAIR_GRID_MIN_N]
+        if not hits:
+            print(f'\n  {symbol}: 該当なし')
+            continue
+        hits_sorted = sorted(hits, key=lambda x: x['pf'], reverse=True)
+        print(f'\n  {symbol}:')
+        for r in hits_sorted:
+            print(f'    [{r["filter_label"]}] '
+                  f'sl={r["sl_atr_mult"]} s2d={r["stage2_distance"]} '
+                  f'PF={r["pf"]} WR={r["win_rate"]}% '
+                  f'RR={r["rr_actual"]} N={r["trades"]}')
+
+
 # ===== メイン =====
 def main():
     parser = argparse.ArgumentParser()
@@ -1362,6 +1534,7 @@ def main():
     parser.add_argument('--distance-sweep', action='store_true', help='Stage2 distance 0.05/0.1/0.2/0.3 ペア別比較')
     parser.add_argument('--filter-bt',      action='store_true', help='エントリーフィルターBT（GBPJPY/USDJPY）')
     parser.add_argument('--stage2-opt',     action='store_true', help='stage2_distance x sl_atr_mult グリッドサーチ（6ペア）')
+    parser.add_argument('--pair-grid',      action='store_true', help='ペア別グリッドサーチBT')
     args = parser.parse_args()
 
     if args.stage2:
@@ -1381,6 +1554,9 @@ def main():
         return
     if args.stage2_opt:
         run_stage2_opt()
+        return
+    if args.pair_grid:
+        run_pair_grid_bt()
         return
 
     print('=== backtest.py Phase3 開始 ===')
