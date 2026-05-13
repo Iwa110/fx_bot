@@ -1,0 +1,531 @@
+"""
+dashboard.py - FX Dashboard (Phase A)
+Generates a standalone HTML dashboard from MT5 trade history and opens it in the browser.
+
+Usage: python dashboard.py --broker axiory --days 7
+Output: logs/dashboard_YYYYMMDD.html
+"""
+
+import sys
+import os
+import json
+import argparse
+import webbrowser
+from datetime import datetime, timedelta, timezone
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+try:
+    import MetaTrader5 as mt5
+except ImportError:
+    print('[ERROR] MetaTrader5 not found: pip install MetaTrader5')
+    sys.exit(1)
+
+from broker_utils import connect_mt5, disconnect_mt5
+from daily_report import fetch_open_positions, MAGIC_MAP, JPY_PAIRS
+
+BASE_DIR = r'C:\Users\Administrator\fx_bot'
+LOG_DIR = os.path.join(BASE_DIR, 'logs')
+JST = timezone(timedelta(hours=9))
+
+STRATEGY_COLORS = {
+    'BB':         '#4e8ef7',
+    'SMC_GBPAUD': '#4ecb71',
+    'stat_arb':   '#f7a84e',
+    'SMA_SQ':     '#c471f7',
+}
+
+
+def fetch_deals_range(from_dt: datetime, to_dt: datetime) -> list:
+    """history_deals_get でクローズ済み deal を取得し close_date を含めて返す。"""
+    deals = mt5.history_deals_get(from_dt, to_dt)
+    if deals is None:
+        print('[WARN] history_deals_get failed: {}'.format(mt5.last_error()))
+        return []
+
+    entry_map = {}
+    for d in deals:
+        if d.entry == mt5.DEAL_ENTRY_IN:
+            entry_map[d.position_id] = d
+
+    rows = []
+    for d in deals:
+        if d.entry != mt5.DEAL_ENTRY_OUT:
+            continue
+        if d.magic not in MAGIC_MAP:
+            continue
+
+        entry_d = entry_map.get(d.position_id)
+        open_price = entry_d.price if entry_d else d.price
+        is_buy = (entry_d.type == mt5.DEAL_TYPE_BUY) if entry_d else (d.type == mt5.DEAL_TYPE_SELL)
+        close_dt_jst = datetime.fromtimestamp(d.time, tz=JST)
+
+        rows.append({
+            'ticket':      d.position_id,
+            'symbol':      d.symbol,
+            'type':        'BUY' if is_buy else 'SELL',
+            'lots':        round(float(d.volume), 2),
+            'open_price':  float(open_price),
+            'close_price': float(d.price),
+            'profit':      round(float(d.profit), 2),
+            'magic':       d.magic,
+            'strategy':    MAGIC_MAP[d.magic],
+            'close_date':  close_dt_jst.strftime('%Y-%m-%d'),
+            'close_time':  close_dt_jst.strftime('%H:%M'),
+        })
+    return rows
+
+
+HTML_TEMPLATE = '''<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FX Dashboard - __BROKER__</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  background: #0d1117; color: #c9d1d9;
+  font-family: Consolas, 'Courier New', monospace;
+  font-size: 14px; padding: 16px; max-width: 1200px; margin: 0 auto;
+}
+h2 {
+  color: #79c0ff; font-size: 13px; margin: 20px 0 10px;
+  padding-bottom: 6px; border-bottom: 1px solid #21262d;
+  text-transform: uppercase; letter-spacing: 1px;
+}
+.header {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-bottom: 24px; flex-wrap: wrap; gap: 12px;
+}
+.header h1 { color: #58a6ff; font-size: 22px; }
+.header-meta { color: #8b949e; font-size: 12px; margin-top: 4px; }
+.period-btns button {
+  background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+  padding: 6px 16px; cursor: pointer; border-radius: 4px; margin-left: 6px;
+  font-size: 13px; font-family: inherit;
+}
+.period-btns button.active { background: #1f6feb; border-color: #388bfd; color: #fff; }
+.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
+@media (max-width: 600px) { .cards { grid-template-columns: 1fr; } }
+.card { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 16px; }
+.card-label { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+.card-value { font-size: 28px; font-weight: bold; margin-top: 8px; }
+.card-sub { color: #8b949e; font-size: 12px; margin-top: 6px; }
+.pos { color: #3fb950; } .neg { color: #f85149; } .neu { color: #c9d1d9; }
+.section { margin-bottom: 24px; }
+.chart-wrap {
+  background: #161b22; border: 1px solid #21262d; border-radius: 8px;
+  padding: 16px; position: relative; height: 280px;
+}
+.table-wrap { background: #161b22; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th {
+  background: #161b22; color: #8b949e; padding: 8px 12px;
+  text-align: right; font-weight: normal; font-size: 11px;
+  text-transform: uppercase; border-bottom: 1px solid #21262d;
+}
+th:first-child, th:nth-child(2) { text-align: left; }
+td { padding: 8px 12px; border-bottom: 1px solid #0d1117; text-align: right; }
+td:first-child, td:nth-child(2) { text-align: left; }
+tr:last-child td { border-bottom: none; }
+tr:hover td { background: #1c2128; }
+.op-list { display: flex; flex-direction: column; gap: 8px; }
+.op-card {
+  background: #161b22; border: 1px solid #21262d; border-radius: 6px;
+  padding: 12px 16px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center;
+}
+.op-symbol { font-weight: bold; color: #79c0ff; min-width: 80px; font-size: 15px; }
+.op-tag { background: #21262d; padding: 3px 8px; border-radius: 4px; font-size: 12px; color: #8b949e; }
+.op-strat { border-left-width: 3px; border-left-style: solid; padding-left: 8px; }
+.op-pnl { font-size: 20px; font-weight: bold; margin-left: auto; }
+.empty-msg {
+  color: #8b949e; padding: 20px; text-align: center;
+  background: #161b22; border: 1px solid #21262d; border-radius: 8px;
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div>
+    <h1>FX Dashboard</h1>
+    <div class="header-meta">__BROKER__ &nbsp;|&nbsp; Generated: __GENERATED_AT__ &nbsp;|&nbsp; Max: __DAYS__d</div>
+  </div>
+  <div class="period-btns">
+    <button id="btn7"  onclick="setPeriod(7)">7日</button>
+    <button id="btn30" onclick="setPeriod(30)">30日</button>
+    <button id="btn90" onclick="setPeriod(90)">90日</button>
+  </div>
+</div>
+
+<div class="cards">
+  <div class="card">
+    <div class="card-label">総損益</div>
+    <div class="card-value" id="card-total">-</div>
+    <div class="card-sub"  id="card-total-sub"></div>
+  </div>
+  <div class="card">
+    <div class="card-label">Profit Factor</div>
+    <div class="card-value" id="card-pf">-</div>
+    <div class="card-sub"  id="card-pf-sub"></div>
+  </div>
+  <div class="card">
+    <div class="card-label">勝率</div>
+    <div class="card-value" id="card-wr">-</div>
+    <div class="card-sub"  id="card-wr-sub"></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>累積損益推移</h2>
+  <div class="chart-wrap"><canvas id="equityChart"></canvas></div>
+</div>
+
+<div class="section">
+  <h2>ペア別パフォーマンス</h2>
+  <div class="chart-wrap"><canvas id="pairChart"></canvas></div>
+</div>
+
+<div class="section">
+  <h2>前日サマリー (__YESTERDAY__)</h2>
+  <div id="yesterday-section"></div>
+</div>
+
+<div class="section">
+  <h2>オープンポジション</h2>
+  <div id="open-section"></div>
+</div>
+
+<script>
+Chart.register(ChartDataLabels);
+
+var ALL_TRADES      = __TRADES_JSON__;
+var OPEN_POSITIONS  = __POSITIONS_JSON__;
+var STRATEGY_COLORS = __STRATEGY_COLORS_JSON__;
+var MAX_DAYS        = __DAYS__;
+var YESTERDAY       = '__YESTERDAY__';
+
+var equityChart = null;
+var pairChart   = null;
+
+function getDateCutoff(days) {
+  var d = new Date();
+  d.setDate(d.getDate() - days);
+  return d.toISOString().slice(0, 10);
+}
+
+function filterTrades(days) {
+  var cutoff = getDateCutoff(days);
+  return ALL_TRADES.filter(function(t) { return t.close_date >= cutoff; });
+}
+
+function fmt2(n) { return (n >= 0 ? '+' : '') + n.toFixed(2); }
+function colorClass(n) { return n > 0 ? 'pos' : (n < 0 ? 'neg' : 'neu'); }
+
+function updateSummaryCards(trades) {
+  var profits = trades.map(function(t) { return t.profit; });
+  var wins    = profits.filter(function(p) { return p > 0; });
+  var losses  = profits.filter(function(p) { return p < 0; });
+  var total   = profits.reduce(function(a, b) { return a + b; }, 0);
+  var gp      = wins.reduce(function(a, b) { return a + b; }, 0);
+  var gl      = Math.abs(losses.reduce(function(a, b) { return a + b; }, 0));
+  var pf      = gl > 0 ? gp / gl : 0;
+  var wr      = trades.length > 0 ? wins.length / trades.length * 100 : 0;
+
+  var totalEl = document.getElementById('card-total');
+  totalEl.textContent = fmt2(total);
+  totalEl.className   = 'card-value ' + colorClass(total);
+  document.getElementById('card-total-sub').textContent = trades.length + '件 (JPY/USD混在)';
+
+  var pfEl = document.getElementById('card-pf');
+  pfEl.textContent = gl > 0 ? pf.toFixed(3) : 'N/A';
+  pfEl.className   = 'card-value ' + (pf >= 1.2 ? 'pos' : (gl > 0 ? 'neg' : 'neu'));
+  document.getElementById('card-pf-sub').textContent =
+    '総利益: ' + gp.toFixed(2) + ' / 総損失: ' + gl.toFixed(2);
+
+  var wrEl = document.getElementById('card-wr');
+  wrEl.textContent = wr.toFixed(1) + '%';
+  wrEl.className   = 'card-value ' + (wr >= 50 ? 'pos' : 'neg');
+  document.getElementById('card-wr-sub').textContent =
+    '勝: ' + wins.length + ' / 負: ' + losses.length + ' / 計: ' + trades.length;
+}
+
+function buildEquityData(trades) {
+  var sorted = trades.slice().sort(function(a, b) {
+    var ka = a.close_date + a.close_time, kb = b.close_date + b.close_time;
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+  var dateSet = {}, stratSet = {};
+  sorted.forEach(function(t) { dateSet[t.close_date] = true; stratSet[t.strategy] = true; });
+  var dates      = Object.keys(dateSet).sort();
+  var strategies = Object.keys(stratSet).sort();
+  var datasets   = [];
+
+  var cumTotal = 0;
+  datasets.push({
+    label: 'Total',
+    data: dates.map(function(date) {
+      var pnl = sorted.filter(function(t) { return t.close_date === date; })
+                      .reduce(function(a, t) { return a + t.profit; }, 0);
+      cumTotal += pnl;
+      return +cumTotal.toFixed(2);
+    }),
+    borderColor: '#ffffff', backgroundColor: 'transparent',
+    borderWidth: 2, tension: 0.2,
+    pointRadius: dates.length <= 14 ? 3 : 0,
+    datalabels: { display: false },
+  });
+
+  strategies.forEach(function(strat) {
+    var cum = 0;
+    datasets.push({
+      label: strat,
+      data: dates.map(function(date) {
+        var pnl = sorted.filter(function(t) { return t.strategy === strat && t.close_date === date; })
+                        .reduce(function(a, t) { return a + t.profit; }, 0);
+        cum += pnl;
+        return +cum.toFixed(2);
+      }),
+      borderColor: STRATEGY_COLORS[strat] || '#aaaaaa',
+      backgroundColor: 'transparent',
+      borderWidth: 1.5, tension: 0.2, pointRadius: 0,
+      datalabels: { display: false },
+    });
+  });
+
+  return { labels: dates, datasets: datasets };
+}
+
+function buildPairData(trades) {
+  var pairMap = {};
+  trades.forEach(function(t) {
+    if (!pairMap[t.symbol]) pairMap[t.symbol] = [];
+    pairMap[t.symbol].push(t);
+  });
+  var symbols = Object.keys(pairMap).sort();
+  var profits = symbols.map(function(sym) {
+    return +pairMap[sym].reduce(function(a, t) { return a + t.profit; }, 0).toFixed(2);
+  });
+  var pfs = symbols.map(function(sym) {
+    var pts = pairMap[sym];
+    var gp  = pts.filter(function(t) { return t.profit > 0; }).reduce(function(a, t) { return a + t.profit; }, 0);
+    var gl  = Math.abs(pts.filter(function(t) { return t.profit < 0; }).reduce(function(a, t) { return a + t.profit; }, 0));
+    return gl > 0 ? +(gp / gl).toFixed(2) : null;
+  });
+  return { symbols: symbols, profits: profits, pfs: pfs };
+}
+
+function updateEquityChart(trades) {
+  var data = buildEquityData(trades);
+  if (equityChart) {
+    equityChart.data = data; equityChart.update();
+  } else {
+    equityChart = new Chart(document.getElementById('equityChart'), {
+      type: 'line', data: data,
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { labels: { color: '#8b949e', font: { size: 11 } } },
+          datalabels: { display: false },
+        },
+        scales: {
+          x: { ticks: { color: '#8b949e', maxTicksLimit: 12 }, grid: { color: '#21262d' } },
+          y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        },
+      },
+    });
+  }
+}
+
+function updatePairChart(trades) {
+  var pd      = buildPairData(trades);
+  var pfsRef  = pd.pfs;
+  var colors  = pd.profits.map(function(p) { return p >= 0 ? '#3fb950' : '#f85149'; });
+  var chartData = {
+    labels: pd.symbols,
+    datasets: [{
+      label: '合計損益', data: pd.profits, backgroundColor: colors,
+      datalabels: {
+        anchor: 'end', align: 'end',
+        formatter: function(value, ctx) {
+          var pf = pfsRef[ctx.dataIndex];
+          return pf !== null ? 'PF:' + pf : '';
+        },
+        color: '#c9d1d9', font: { size: 10 },
+      },
+    }],
+  };
+  if (pairChart) {
+    pairChart.data = chartData; pairChart.update();
+  } else {
+    pairChart = new Chart(document.getElementById('pairChart'), {
+      type: 'bar', data: chartData,
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        layout: { padding: { top: 28 } },
+        plugins: {
+          legend: { display: false },
+          datalabels: {},
+          tooltip: {
+            callbacks: {
+              afterLabel: function(ctx) {
+                var pf = pfsRef[ctx.dataIndex];
+                return 'PF: ' + (pf !== null ? pf : 'N/A');
+              },
+            },
+          },
+        },
+        scales: {
+          x: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+          y: { ticks: { color: '#8b949e' }, grid: { color: '#21262d' } },
+        },
+      },
+    });
+  }
+}
+
+function buildYesterdayTable() {
+  var trades = ALL_TRADES.filter(function(t) { return t.close_date === YESTERDAY; });
+  var el = document.getElementById('yesterday-section');
+  if (trades.length === 0) {
+    el.innerHTML = '<div class="empty-msg">前日の取引なし (' + YESTERDAY + ')</div>';
+    return;
+  }
+  var groups = {};
+  trades.forEach(function(t) {
+    if (!groups[t.strategy]) groups[t.strategy] = {};
+    if (!groups[t.strategy][t.symbol]) groups[t.strategy][t.symbol] = [];
+    groups[t.strategy][t.symbol].push(t);
+  });
+  var html = '<div class="table-wrap"><table><thead><tr>' +
+    '<th>戦略</th><th>ペア</th><th>件数</th><th>勝率</th><th>PF</th><th>合計損益</th>' +
+    '</tr></thead><tbody>';
+  Object.keys(groups).sort().forEach(function(strat) {
+    Object.keys(groups[strat]).sort().forEach(function(sym) {
+      var pts   = groups[strat][sym];
+      var wins  = pts.filter(function(t) { return t.profit > 0; }).length;
+      var total = +pts.reduce(function(a, t) { return a + t.profit; }, 0).toFixed(2);
+      var gp    = pts.filter(function(t) { return t.profit > 0; }).reduce(function(a, t) { return a + t.profit; }, 0);
+      var gl    = Math.abs(pts.filter(function(t) { return t.profit < 0; }).reduce(function(a, t) { return a + t.profit; }, 0));
+      var pf    = gl > 0 ? (gp / gl).toFixed(3) : 'N/A';
+      var wr    = (wins / pts.length * 100).toFixed(0) + '%';
+      var cls   = colorClass(total);
+      html += '<tr><td>' + strat + '</td><td>' + sym + '</td><td>' + pts.length +
+        '</td><td>' + wr + '</td><td>' + pf + '</td>' +
+        '<td class="' + cls + '">' + fmt2(total) + '</td></tr>';
+    });
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+function buildOpenPositions() {
+  var el = document.getElementById('open-section');
+  if (OPEN_POSITIONS.length === 0) {
+    el.innerHTML = '<div class="empty-msg">オープンポジションなし</div>';
+    return;
+  }
+  var html = '<div class="op-list">';
+  OPEN_POSITIONS.forEach(function(p) {
+    var color = STRATEGY_COLORS[p.strategy] || '#aaaaaa';
+    var cls   = colorClass(p.profit);
+    html += '<div class="op-card">' +
+      '<span class="op-symbol">' + p.symbol + '</span>' +
+      '<span class="op-tag op-strat" style="border-color:' + color + '">' + p.strategy + '</span>' +
+      '<span class="op-tag">' + p.type + '</span>' +
+      '<span class="op-tag">lots=' + p.lots.toFixed(2) + '</span>' +
+      '<span class="op-tag">open=' + p.open.toFixed(5) + '</span>' +
+      '<span class="op-tag">now=' + p.current.toFixed(5) + '</span>' +
+      '<span class="op-pnl ' + cls + '">' + fmt2(p.profit) + '</span>' +
+      '</div>';
+  });
+  html += '</div>';
+  el.innerHTML = html;
+}
+
+function setPeriod(days) {
+  var effective = Math.min(days, MAX_DAYS);
+  [7, 30, 90].forEach(function(d) {
+    var btn = document.getElementById('btn' + d);
+    if (btn) btn.className = (d === days) ? 'active' : '';
+  });
+  var trades = filterTrades(effective);
+  updateSummaryCards(trades);
+  updateEquityChart(trades);
+  updatePairChart(trades);
+}
+
+setPeriod(Math.min(MAX_DAYS, 7));
+buildYesterdayTable();
+buildOpenPositions();
+</script>
+</body>
+</html>'''
+
+
+def generate_html(trades: list, open_positions: list, broker: str,
+                  days: int, generated_at: str, yesterday: str) -> str:
+    html = HTML_TEMPLATE
+    html = html.replace('__TRADES_JSON__',         json.dumps(trades,         ensure_ascii=False))
+    html = html.replace('__POSITIONS_JSON__',       json.dumps(open_positions, ensure_ascii=False))
+    html = html.replace('__STRATEGY_COLORS_JSON__', json.dumps(STRATEGY_COLORS))
+    html = html.replace('__BROKER__',               broker)
+    html = html.replace('__GENERATED_AT__',         generated_at)
+    html = html.replace('__DAYS__',                 str(days))
+    html = html.replace('__YESTERDAY__',            yesterday)
+    return html
+
+
+def main():
+    parser = argparse.ArgumentParser(description='FX Dashboard generator (Phase A)')
+    parser.add_argument('--broker', default='axiory',
+                        choices=['axiory', 'oanda', 'exness'],
+                        help='Broker key (default: axiory)')
+    parser.add_argument('--days', type=int, default=7,
+                        choices=[7, 30, 90],
+                        help='History period in days (default: 7)')
+    args = parser.parse_args()
+
+    print('[INFO] Connecting to MT5: broker={}'.format(args.broker))
+    if not connect_mt5(args.broker):
+        print('[ERROR] MT5 connection failed')
+        sys.exit(1)
+
+    try:
+        now_jst  = datetime.now(tz=JST)
+        to_utc   = now_jst.astimezone(timezone.utc)
+        from_utc = (now_jst - timedelta(days=args.days)).astimezone(timezone.utc)
+        yesterday = (now_jst - timedelta(days=1)).strftime('%Y-%m-%d')
+
+        print('[INFO] Fetching {} days of history ({} -> {})'.format(
+            args.days, from_utc.date(), to_utc.date()))
+
+        trades         = fetch_deals_range(from_utc, to_utc)
+        open_positions = fetch_open_positions()
+
+        print('[INFO] Closed trades: {}  Open positions: {}'.format(
+            len(trades), len(open_positions)))
+
+        generated_at = now_jst.strftime('%Y-%m-%d %H:%M:%S') + ' JST'
+        html = generate_html(trades, open_positions, args.broker,
+                             args.days, generated_at, yesterday)
+
+        os.makedirs(LOG_DIR, exist_ok=True)
+        fname = 'dashboard_{}.html'.format(now_jst.strftime('%Y%m%d'))
+        fpath = os.path.join(LOG_DIR, fname)
+        with open(fpath, 'w', encoding='utf-8') as f:
+            f.write(html)
+        print('[INFO] Dashboard saved: {}'.format(fpath))
+
+        webbrowser.open('file:///' + fpath.replace('\\', '/'))
+        print('[INFO] Opened in browser.')
+
+    finally:
+        disconnect_mt5()
+
+
+if __name__ == '__main__':
+    main()
