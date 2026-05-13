@@ -52,7 +52,7 @@ COOLDOWN_MINUTES = 15
 # 時間帯フィルター（UTC）空リスト=全停止、None=制限なし
 ALLOWED_HOURS_UTC = {
     'USDCAD': [],
-    'GBPJPY': [9, 17],
+    'GBPJPY': None,  # time_filter_bt結果: [9,17]は逆効果（PF 0.936→0.872, N=563→31）
     'EURJPY': [9, 17],
     # 'USDJPY': [21, 22, 5],  # htf4h_onlyに統一のため無効化
     # [FIX: Phase1データ蓄積再開のため制限解除。PF改善確認後に再停止を検討]
