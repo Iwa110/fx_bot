@@ -35,11 +35,12 @@ def load_env():
 def main():
     env = load_env()
 
-    if not mt5.initialize(
-        login=int(env.get('OANDA_LOGIN', 0)),
-        password=env.get('OANDA_PASSWORD', ''),
-        server=env.get('OANDA_SERVER', '')
-    ):
+    # if not mt5.initialize(  # OANDA口座期限切れのため一時コメントアウト
+    #     login=int(env.get('OANDA_LOGIN', 0)),
+    #     password=env.get('OANDA_PASSWORD', ''),
+    #     server=env.get('OANDA_SERVER', '')
+    # ):
+    if not mt5.initialize():
         print('MT5初期化失敗:', mt5.last_error())
         return
 
