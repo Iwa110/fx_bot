@@ -35,6 +35,13 @@ STRATEGY_COLORS = {
     'SMA_SQ':     '#c471f7',
 }
 
+# Phase1判定基準
+PHASE1_PF_MIN  = 1.2
+PHASE1_WR_MIN  = 50.0
+PHASE1_DD_MAX  = 15.0   # % (peak比)
+PHASE1_N_TARGET = 100   # 目標サンプル数
+PHASE1_BB_PAIRS = ['GBPJPY', 'USDJPY', 'EURUSD', 'GBPUSD']
+
 
 def fetch_deals_range(from_dt: datetime, to_dt: datetime) -> list:
     """history_deals_get でクローズ済み deal を取得し close_date を含めて返す。"""
@@ -108,13 +115,15 @@ h2 {
   font-size: 13px; font-family: inherit;
 }
 .period-btns button.active { background: #1f6feb; border-color: #388bfd; color: #fff; }
-.cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 20px; }
-@media (max-width: 600px) { .cards { grid-template-columns: 1fr; } }
+.cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+@media (max-width: 700px) { .cards { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 400px) { .cards { grid-template-columns: 1fr; } }
 .card { background: #161b22; border: 1px solid #21262d; border-radius: 8px; padding: 16px; }
 .card-label { color: #8b949e; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
 .card-value { font-size: 28px; font-weight: bold; margin-top: 8px; }
 .card-sub { color: #8b949e; font-size: 12px; margin-top: 6px; }
 .pos { color: #3fb950; } .neg { color: #f85149; } .neu { color: #c9d1d9; }
+.warn { color: #e3b341; }
 .section { margin-bottom: 24px; }
 .chart-wrap {
   background: #161b22; border: 1px solid #21262d; border-radius: 8px;
@@ -145,6 +154,19 @@ tr:hover td { background: #1c2128; }
   color: #8b949e; padding: 20px; text-align: center;
   background: #161b22; border: 1px solid #21262d; border-radius: 8px;
 }
+/* Phase1 panel */
+.p1-table th:first-child { min-width: 80px; }
+.progress-bar-bg {
+  background: #21262d; border-radius: 4px; height: 6px; margin-top: 4px; width: 100%; min-width: 60px;
+}
+.progress-bar-fill { background: #4e8ef7; border-radius: 4px; height: 6px; }
+.badge {
+  display: inline-block; padding: 2px 7px; border-radius: 4px;
+  font-size: 11px; font-weight: bold;
+}
+.badge-pass { background: #1a3a24; color: #3fb950; }
+.badge-fail { background: #3a1a1a; color: #f85149; }
+.badge-na   { background: #21262d; color: #8b949e; }
 </style>
 </head>
 <body>
@@ -177,6 +199,16 @@ tr:hover td { background: #1c2128; }
     <div class="card-value" id="card-wr">-</div>
     <div class="card-sub"  id="card-wr-sub"></div>
   </div>
+  <div class="card">
+    <div class="card-label">Max Drawdown</div>
+    <div class="card-value" id="card-dd">-</div>
+    <div class="card-sub"  id="card-dd-sub"></div>
+  </div>
+</div>
+
+<div class="section">
+  <h2>Phase1 判定 (BB戦略・全期間)</h2>
+  <div id="phase1-section"></div>
 </div>
 
 <div class="section">
@@ -187,6 +219,11 @@ tr:hover td { background: #1c2128; }
 <div class="section">
   <h2>ペア別パフォーマンス</h2>
   <div class="chart-wrap"><canvas id="pairChart"></canvas></div>
+</div>
+
+<div class="section">
+  <h2>戦略別サマリー (期間フィルタ連動)</h2>
+  <div id="strategy-section"></div>
 </div>
 
 <div class="section">
@@ -207,6 +244,11 @@ var OPEN_POSITIONS  = __POSITIONS_JSON__;
 var STRATEGY_COLORS = __STRATEGY_COLORS_JSON__;
 var MAX_DAYS        = __DAYS__;
 var YESTERDAY       = '__YESTERDAY__';
+var PHASE1_PF_MIN   = __PHASE1_PF_MIN__;
+var PHASE1_WR_MIN   = __PHASE1_WR_MIN__;
+var PHASE1_DD_MAX   = __PHASE1_DD_MAX__;
+var PHASE1_N_TARGET = __PHASE1_N_TARGET__;
+var PHASE1_BB_PAIRS = __PHASE1_BB_PAIRS_JSON__;
 
 var equityChart = null;
 var pairChart   = null;
@@ -225,6 +267,25 @@ function filterTrades(days) {
 function fmt2(n) { return (n >= 0 ? '+' : '') + n.toFixed(2); }
 function colorClass(n) { return n > 0 ? 'pos' : (n < 0 ? 'neg' : 'neu'); }
 
+/* ── DD計算 ────────────────────────────────────────────────── */
+function calcMaxDD(trades) {
+  if (trades.length === 0) return { maxDD: 0, maxDDPct: 0 };
+  var sorted = trades.slice().sort(function(a, b) {
+    var ka = a.close_date + a.close_time, kb = b.close_date + b.close_time;
+    return ka < kb ? -1 : ka > kb ? 1 : 0;
+  });
+  var cum = 0, peak = 0, maxDD = 0;
+  sorted.forEach(function(t) {
+    cum += t.profit;
+    if (cum > peak) peak = cum;
+    var dd = peak - cum;
+    if (dd > maxDD) maxDD = dd;
+  });
+  var maxDDPct = peak > 0 ? maxDD / peak * 100 : 0;
+  return { maxDD: +maxDD.toFixed(2), maxDDPct: +maxDDPct.toFixed(1) };
+}
+
+/* ── サマリーカード ─────────────────────────────────────────── */
 function updateSummaryCards(trades) {
   var profits = trades.map(function(t) { return t.profit; });
   var wins    = profits.filter(function(p) { return p > 0; });
@@ -251,8 +312,135 @@ function updateSummaryCards(trades) {
   wrEl.className   = 'card-value ' + (wr >= 50 ? 'pos' : 'neg');
   document.getElementById('card-wr-sub').textContent =
     '勝: ' + wins.length + ' / 負: ' + losses.length + ' / 計: ' + trades.length;
+
+  /* DD card */
+  var dd = calcMaxDD(trades);
+  var ddEl = document.getElementById('card-dd');
+  ddEl.textContent = dd.maxDDPct.toFixed(1) + '%';
+  ddEl.className = 'card-value ' +
+    (dd.maxDDPct < 5 ? 'pos' : dd.maxDDPct < PHASE1_DD_MAX ? 'warn' : 'neg');
+  document.getElementById('card-dd-sub').textContent =
+    '絶対値: ' + dd.maxDD.toFixed(2) + ' (peak比)';
 }
 
+/* ── Phase1判定パネル ──────────────────────────────────────── */
+function buildPhase1Panel() {
+  var bbTrades = ALL_TRADES.filter(function(t) { return t.strategy === 'BB'; });
+  var el = document.getElementById('phase1-section');
+
+  if (bbTrades.length === 0) {
+    el.innerHTML = '<div class="empty-msg">BB取引データなし</div>';
+    return;
+  }
+
+  /* ペア別集計 */
+  function pairStats(sym) {
+    var pts = bbTrades.filter(function(t) { return t.symbol === sym; });
+    if (pts.length === 0) return null;
+    var wins = pts.filter(function(t) { return t.profit > 0; });
+    var gp   = wins.reduce(function(a, t) { return a + t.profit; }, 0);
+    var gl   = Math.abs(pts.filter(function(t) { return t.profit < 0; })
+                          .reduce(function(a, t) { return a + t.profit; }, 0));
+    var pf   = gl > 0 ? gp / gl : null;
+    var wr   = wins.length / pts.length * 100;
+    var dd   = calcMaxDD(pts);
+    return { n: pts.length, pf: pf, wr: wr, dd: dd };
+  }
+
+  function badge(pass, naCondition) {
+    if (naCondition) return '<span class="badge badge-na">N/A</span>';
+    return pass
+      ? '<span class="badge badge-pass">PASS</span>'
+      : '<span class="badge badge-fail">FAIL</span>';
+  }
+
+  function progressBar(n) {
+    var pct = Math.min(n / PHASE1_N_TARGET * 100, 100);
+    return '<div class="progress-bar-bg"><div class="progress-bar-fill" style="width:' +
+      pct.toFixed(0) + '%"></div></div>';
+  }
+
+  var html = '<div class="table-wrap"><table class="p1-table"><thead><tr>' +
+    '<th>ペア</th><th>n (目標' + PHASE1_N_TARGET + ')</th>' +
+    '<th>PF ≥' + PHASE1_PF_MIN + '</th>' +
+    '<th>WR ≥' + PHASE1_WR_MIN + '%</th>' +
+    '<th>DD &lt;' + PHASE1_DD_MAX + '%</th>' +
+    '<th>総合</th>' +
+    '</tr></thead><tbody>';
+
+  PHASE1_BB_PAIRS.forEach(function(sym) {
+    var s = pairStats(sym);
+    if (!s) {
+      html += '<tr><td>' + sym + '</td><td colspan="5" style="color:#8b949e">データなし</td></tr>';
+      return;
+    }
+    var pfPass = s.pf !== null && s.pf >= PHASE1_PF_MIN;
+    var wrPass = s.wr >= PHASE1_WR_MIN;
+    var ddPass = s.dd.maxDDPct < PHASE1_DD_MAX;
+    var ddNA   = s.dd.maxDD === 0;
+    var allPass = pfPass && wrPass && (ddNA || ddPass);
+
+    html += '<tr>' +
+      '<td style="font-weight:bold;color:#79c0ff">' + sym + '</td>' +
+      '<td>' + s.n + progressBar(s.n) + '</td>' +
+      '<td>' + (s.pf !== null ? s.pf.toFixed(3) : 'N/A') + '<br>' + badge(pfPass, s.pf === null) + '</td>' +
+      '<td>' + s.wr.toFixed(1) + '%<br>' + badge(wrPass, false) + '</td>' +
+      '<td>' + (ddNA ? 'N/A' : s.dd.maxDDPct.toFixed(1) + '%') + '<br>' + badge(ddPass, ddNA) + '</td>' +
+      '<td>' + (allPass
+        ? '<span class="badge badge-pass" style="font-size:13px">&#10003; 合格</span>'
+        : '<span class="badge badge-fail" style="font-size:13px">&#10007; 不合格</span>') +
+      '</td>' +
+      '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+/* ── 戦略別サマリー ─────────────────────────────────────────── */
+function buildStrategyTable(trades) {
+  var el = document.getElementById('strategy-section');
+  if (trades.length === 0) {
+    el.innerHTML = '<div class="empty-msg">対象期間の取引なし</div>';
+    return;
+  }
+
+  var groups = {};
+  trades.forEach(function(t) {
+    if (!groups[t.strategy]) groups[t.strategy] = [];
+    groups[t.strategy].push(t);
+  });
+
+  var html = '<div class="table-wrap"><table><thead><tr>' +
+    '<th>戦略</th><th>件数</th><th>勝率</th><th>PF</th><th>合計損益</th>' +
+    '</tr></thead><tbody>';
+
+  Object.keys(groups).sort().forEach(function(strat) {
+    var pts  = groups[strat];
+    var wins = pts.filter(function(t) { return t.profit > 0; });
+    var gp   = wins.reduce(function(a, t) { return a + t.profit; }, 0);
+    var gl   = Math.abs(pts.filter(function(t) { return t.profit < 0; })
+                           .reduce(function(a, t) { return a + t.profit; }, 0));
+    var pf   = gl > 0 ? (gp / gl).toFixed(3) : 'N/A';
+    var wr   = (wins.length / pts.length * 100).toFixed(1) + '%';
+    var total = +pts.reduce(function(a, t) { return a + t.profit; }, 0).toFixed(2);
+    var color = STRATEGY_COLORS[strat] || '#aaaaaa';
+    var cls   = colorClass(total);
+
+    html += '<tr>' +
+      '<td style="border-left:3px solid ' + color + ';padding-left:9px">' + strat + '</td>' +
+      '<td>' + pts.length + '</td>' +
+      '<td>' + wr + '</td>' +
+      '<td>' + pf + '</td>' +
+      '<td class="' + cls + '">' + fmt2(total) + '</td>' +
+      '</tr>';
+  });
+
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+/* ── Equity chart ──────────────────────────────────────────── */
 function buildEquityData(trades) {
   var sorted = trades.slice().sort(function(a, b) {
     var ka = a.close_date + a.close_time, kb = b.close_date + b.close_time;
@@ -387,6 +575,7 @@ function updatePairChart(trades) {
   }
 }
 
+/* ── 前日サマリー ───────────────────────────────────────────── */
 function buildYesterdayTable() {
   var trades = ALL_TRADES.filter(function(t) { return t.close_date === YESTERDAY; });
   var el = document.getElementById('yesterday-section');
@@ -422,6 +611,7 @@ function buildYesterdayTable() {
   el.innerHTML = html;
 }
 
+/* ── オープンポジション ──────────────────────────────────────── */
 function buildOpenPositions() {
   var el = document.getElementById('open-section');
   if (OPEN_POSITIONS.length === 0) {
@@ -446,6 +636,7 @@ function buildOpenPositions() {
   el.innerHTML = html;
 }
 
+/* ── 期間切替 ───────────────────────────────────────────────── */
 function setPeriod(days) {
   var effective = Math.min(days, MAX_DAYS);
   [7, 30, 90].forEach(function(d) {
@@ -456,9 +647,12 @@ function setPeriod(days) {
   updateSummaryCards(trades);
   updateEquityChart(trades);
   updatePairChart(trades);
+  buildStrategyTable(trades);
 }
 
+/* ── 初期描画 ──────────────────────────────────────────────── */
 setPeriod(Math.min(MAX_DAYS, 7));
+buildPhase1Panel();
 buildYesterdayTable();
 buildOpenPositions();
 </script>
@@ -476,6 +670,11 @@ def generate_html(trades: list, open_positions: list, broker: str,
     html = html.replace('__GENERATED_AT__',         generated_at)
     html = html.replace('__DAYS__',                 str(days))
     html = html.replace('__YESTERDAY__',            yesterday)
+    html = html.replace('__PHASE1_PF_MIN__',        str(PHASE1_PF_MIN))
+    html = html.replace('__PHASE1_WR_MIN__',        str(PHASE1_WR_MIN))
+    html = html.replace('__PHASE1_DD_MAX__',        str(PHASE1_DD_MAX))
+    html = html.replace('__PHASE1_N_TARGET__',      str(PHASE1_N_TARGET))
+    html = html.replace('__PHASE1_BB_PAIRS_JSON__', json.dumps(PHASE1_BB_PAIRS))
     return html
 
 
