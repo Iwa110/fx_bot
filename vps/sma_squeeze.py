@@ -4,6 +4,7 @@ Trend-following: SMA200 slope filter + SMA20 squeeze/expansion entry.
 magic: 20260010
 v2 2026-05-12: A-1 SMA_long slope reversal exit + B-1 breakeven SL move
   be_r=0.5 / slope_exit=3 (BT-optimized: sma_squeeze_exit_bt.py, 80 runs)
+v2.1 2026-05-13: enhanced debug logging in check_entry (sub-condition breakdown)
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -207,13 +208,15 @@ def calc_squeeze_ratio(sma_short_val, sma_long_val):
 # ══════════════════════════════════════════
 # Entry signal
 # ══════════════════════════════════════════
-def check_entry(df, cfg):
+def check_entry(df, cfg, base_sym=''):
     """
     Check entry on last confirmed bar (iloc[-2]).
     Returns 'long' / 'short' / None.
+    With debug logging: shows exactly which sub-condition fails and by how much.
     """
     min_bars = cfg['sma_long'] + cfg['slope_period'] + 5
     if len(df) < min_bars:
+        log_print(base_sym + ': bars=' + str(len(df)) + ' < ' + str(min_bars) + ' (not enough)', debug=True)
         return None
 
     cur  = df.iloc[-2]
@@ -227,19 +230,29 @@ def check_entry(df, cfg):
     o     = cur['open']
 
     if any(pd.isna(x) for x in [sl_v, ss_v, atr_v, adx_v, c, o]):
+        log_print(base_sym + ': NaN in indicators  skip', debug=True)
         return None
 
+    # ADX filter
     if adx_v <= 20.0:
-        log_print(f'ADX={adx_v:.1f} <= 20  skip', debug=True)
+        log_print(base_sym + ': ADX=' + f'{adx_v:.1f}' + ' <= 20  skip', debug=True)
         return None
 
+    # Squeeze filter
     sq_ratio = calc_squeeze_ratio(ss_v, sl_v)
     if sq_ratio > cfg['squeeze_th']:
-        log_print(f'squeeze_ratio={sq_ratio:.3f} > {cfg["squeeze_th"]}  skip', debug=True)
+        log_print(base_sym + ': sq=' + f'{sq_ratio:.3f}' + ' > th=' + str(cfg['squeeze_th']) + '  skip', debug=True)
         return None
 
+    # Slope filter
     slope = calc_slope(df['sma_long'], cfg['slope_period'])
     if slope is None:
+        # Show last few diffs to diagnose non-monotone slope
+        vals  = df['sma_long'].dropna().values
+        seg   = vals[-cfg['slope_period']:]
+        diffs = np.diff(seg)
+        log_print(base_sym + ': slope=None (non-monotone)  diffs=' +
+                  str([round(float(d), 6) for d in diffs]), debug=True)
         return None
 
     prev_c = prev['close']
@@ -247,10 +260,41 @@ def check_entry(df, cfg):
     if pd.isna(prev_c) or pd.isna(prev_s):
         return None
 
-    if slope is True and c > sl_v and prev_c < prev_s and c > ss_v and c > o:
-        return 'long'
-    if slope is False and c < sl_v and prev_c > prev_s and c < ss_v and c < o:
-        return 'short'
+    slope_dir = 'UP' if slope else 'DN'
+
+    # Check directional conditions and log sub-condition breakdown on miss
+    if slope is True:
+        if c > sl_v and prev_c < prev_s and c > ss_v and c > o:
+            return 'long'
+        fails = []
+        if not (c > sl_v):
+            fails.append('c>SMAlong?NO gap=' + f'{c - sl_v:.5f}')
+        if not (prev_c < prev_s):
+            fails.append('prev_c<SMAshort?NO gap=' + f'{prev_c - prev_s:.5f}')
+        if not (c > ss_v):
+            fails.append('c>SMAshort?NO gap=' + f'{c - ss_v:.5f}')
+        if not (c > o):
+            fails.append('bullish_bar?NO c-o=' + f'{c - o:.5f}')
+        log_print(base_sym + ': LONG_miss slope=' + slope_dir +
+                  ' ADX=' + f'{adx_v:.1f}' +
+                  ' sq=' + f'{sq_ratio:.3f}' +
+                  '  ' + '  '.join(fails), debug=True)
+    else:
+        if c < sl_v and prev_c > prev_s and c < ss_v and c < o:
+            return 'short'
+        fails = []
+        if not (c < sl_v):
+            fails.append('c<SMAlong?NO gap=' + f'{sl_v - c:.5f}')
+        if not (prev_c > prev_s):
+            fails.append('prev_c>SMAshort?NO gap=' + f'{prev_s - prev_c:.5f}')
+        if not (c < ss_v):
+            fails.append('c<SMAshort?NO gap=' + f'{ss_v - c:.5f}')
+        if not (c < o):
+            fails.append('bearish_bar?NO o-c=' + f'{o - c:.5f}')
+        log_print(base_sym + ': SHORT_miss slope=' + slope_dir +
+                  ' ADX=' + f'{adx_v:.1f}' +
+                  ' sq=' + f'{sq_ratio:.3f}' +
+                  '  ' + '  '.join(fails), debug=True)
 
     return None
 
@@ -552,9 +596,8 @@ def main_loop(webhook):
                     continue
 
                 df_ind    = calc_indicators(df, cfg)
-                direction = check_entry(df_ind, cfg)
+                direction = check_entry(df_ind, cfg, base_sym)
                 if direction is None:
-                    log_print(base_sym + ': no signal', debug=True)
                     continue
 
                 cur     = df_ind.iloc[-2]
@@ -585,7 +628,7 @@ def main_loop(webhook):
 def main():
     global BROKER_KEY, LOG_FILE, DEBUG
 
-    parser = argparse.ArgumentParser(description='SMA Squeeze Play monitor v1')
+    parser = argparse.ArgumentParser(description='SMA Squeeze Play monitor v2')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='broker key')
