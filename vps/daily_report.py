@@ -1,7 +1,12 @@
 """
 daily_report.py - FX日次レポート生成スクリプト v2
-Task Schedulerで毎朝7時JST実行を想定。
+朝1回のみ実行（Task Scheduler: 毎日07:00 JST）。
 v2: マルチブローカー対応 (--broker argparse + broker_utils)
+
+Task Scheduler設定（ブローカーごとに1タスク）:
+  トリガー: 毎日 07:00 JST
+  操作: python daily_report.py --broker axiory  (exness / oanda も同様)
+  ※ 本スクリプト内に時刻チェックなし。実行タイミングはTask Schedulerで制御する。
 
 出力:
   - logs/daily_report_{broker}_YYYYMMDD.txt
@@ -443,7 +448,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='FX日次レポート v2')
     parser.add_argument('--broker', default=BROKER_KEY,
-                        choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
+                        choices=['oanda', 'axiory', 'exness'],
                         help='使用するブローカーキー')
     args = parser.parse_args()
     BROKER_KEY = args.broker
