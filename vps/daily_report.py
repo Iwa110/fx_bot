@@ -448,7 +448,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='FX日次レポート v2')
     parser.add_argument('--broker', default=BROKER_KEY,
-                        choices=['oanda', 'axiory', 'exness'],
+                        choices=['axiory', 'exness'],  # oanda: 実口座稼働開始後に追加
                         help='使用するブローカーキー')
     args = parser.parse_args()
     BROKER_KEY = args.broker
