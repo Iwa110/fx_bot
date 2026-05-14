@@ -1,6 +1,6 @@
 # 戦略一覧
 
-最終更新: 2026-05-14（GBPJPY htf4h_rsi_bw フィルター追加）
+最終更新: 2026-05-14（USDJPY htf4h_rsi_bw フィルター追加）
 
 ---
 
@@ -13,7 +13,7 @@
 | magic | 20250001 |
 | ステータス | **稼働中**（GBPJPY / USDJPY / EURJPY のみ） |
 | TF | 5分足エントリー |
-| HTFフィルター | GBPJPY: 4h EMA20+RSI14<60(buy)/RSI14>55(sell) + 5m BBwidth(×1.2) / USDJPY: 4h EMA20+RSI14<55(buy)/RSI14>45(sell) |
+| HTFフィルター | GBPJPY: 4h EMA20+RSI14<60(buy)/RSI14>55(sell) + 5m BBwidth(×1.2/lb=20) / USDJPY: 4h EMA20+RSI14<55(buy)/RSI14>45(sell) + 5m BBwidth(×0.8/lb=30) |
 
 ### 対象ペア
 
@@ -21,7 +21,7 @@
 |-----|------|-----------|-----|------------|------|-----|
 | GBPJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h_rsi_bw（EMA20+RSI<60/>55 + BBwidth×1.2/lb=20） | 制限なし | v21: Stage2廃止→固定TP・RSI+BBwidthフィルター追加 |
 | EURJPY | ✅ | 2.5 | rm.calc_tp_sl | F1andF2 (f1=5, f2=10.0) | 9,17 UTC | 変更なし |
-| USDJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h_rsi（EMA20+RSI） | 制限なし | v21: Stage2廃止→固定TP・RSIフィルター追加 |
+| USDJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h_rsi_bw（EMA20+RSI<55/>45 + BBwidth×0.8/lb=30） | 制限なし | v21: Stage2廃止→固定TP・RSI+BBwidthフィルター追加 |
 | EURUSD | ❌ | 1.2 | — | — | — | **停止中**（BT PF<0.7） |
 | GBPUSD | ❌ | 1.2 | — | — | — | **停止中**（実稼働PF=0.397） |
 | USDCAD | ❌ | 1.5 | — | — | — | **停止中** |
@@ -67,6 +67,26 @@
 **→ STABLE（全期間PF>1.0 / 過学習リスク低）**
 
 BT根拠ファイル: `optimizer/gbpjpy_filter_bt.py` / `optimizer/gbpjpy_split_validation.py`
+
+### USDJPY フィルター改善 BT結果（2026-05-14実施）
+
+フィルター: `htf4h_rsi_bw`（4h EMA20方向 + 4h RSI<55/RSI>45 + 5m BBwidth > 30bar平均×0.8）
+
+| 指標 | ベースライン(htf4h_rsi) | 採用フィルター(BBwidth追加) | 改善幅 |
+|-----|----------------------|--------------------------|------|
+| PF | 1.242 | 1.300 | +0.058 |
+| WR | 45.6% | 49.7% | +4.1pt |
+| N | 103 | 157 | +54（緩い閾値により増加） |
+| MaxDD | 219.8 pips | 301.9 pips | +82.1（増） |
+
+> 判定: CONDITIONAL（PF>1.1 かつ N>=80 かつ RSI_OK）。VPS実稼働でデータ蓄積後に再判定。
+
+SELL閾値グリッド検証（`usdjpy_sell_grid.py`）での知見:
+- SELL RSI閾値 sell>50 時: SELL N=20 → RSI_CAUTION（SELL過少）
+- sell>45（ベースライン維持）でも BBwidth 追加で PF=1.300 / N=157 / SELL N=74（RSI_OK）
+- RSI閾値は変更せず BBwidth フィルターのみ追加
+
+BT根拠ファイル: `optimizer/usdjpy_filter_bt.py` / `optimizer/usdjpy_sell_grid.py` / `optimizer/usdjpy_split_validation.py`
 
 ### Phase1完了判定結果（2026-04-24〜2026-05-03, n=8〜41）
 
