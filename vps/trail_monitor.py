@@ -1,4 +1,4 @@
-# trail_monitor.py v12
+# trail_monitor.py v13
 # トレーリングストップ監視スクリプト
 #
 # 【対象戦略】
@@ -34,6 +34,7 @@
 #   v12 MOM_ENZ/MOM_ECA/MOM_GBU追加（3ペアBT結果適用）
 #       MOM_JPY/MOM_GBJ パラメータ再検証・更新（stage2=True化）
 #   v12+ マルチブローカー対応: broker_utils / argparse --broker 追加
+#   v13 BB_GBPJPY/BB_USDJPY Stage2無効化（bb_monitor v21 固定TP対応）
 
 import MetaTrader5 as mt5
 import argparse, json, os, socket, time, urllib.request, sys
@@ -70,8 +71,8 @@ STAGE2_LOCK_DEFAULT  = 0.2   # Stage2 SL位置のデフォルト: entry + ATR×0
 #   stage2=Falseの戦略には不要
 TRAIL_CONFIG = {
     'BB_':        {'stage2': True,  'stage3_activate': 1.2, 'stage3_distance': 0.8,  'stage2_distance': 0.3},
-    'BB_GBPJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 1.0},  # PF=1.02 勝率=38.4% N=276 (旧:0.3 -> 新:1.0, +0.70)
-    'BB_USDJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 0.7},  # PF=1.268  勝率=48.6% N=138 (旧:0.3 -> 新:0.7, +0.40)
+    'BB_GBPJPY': {"stage2": False, "stage3_activate": 1.2, "stage3_distance": 0.8},  # v13: Stage2無効化（bb_monitor v21 固定TP=SL×1.5）
+    'BB_USDJPY': {"stage2": False, "stage3_activate": 1.2, "stage3_distance": 0.8},  # v13: Stage2無効化（bb_monitor v21 固定TP=SL×1.5）
     'BB_EURUSD': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 0.1},  # PF=0.663  勝率=33.7% N=246 (旧:0.1 -> 新:0.1, 変更なし)
     'BB_GBPUSD': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 1.0},  # PF=0.777  勝率=32.1% N=293 (旧:0.3 -> 新:1.0, +0.70)
     'BB_EURJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 0.7},  # PF=1.041  勝率=44.7% N=284 (旧:0.3 -> 新:0.7, +0.40)
