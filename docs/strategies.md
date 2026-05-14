@@ -1,6 +1,6 @@
 # 戦略一覧
 
-最終更新: 2026-05-14
+最終更新: 2026-05-14（GBPJPY htf4h_rsi_bw フィルター追加）
 
 ---
 
@@ -13,13 +13,13 @@
 | magic | 20250001 |
 | ステータス | **稼働中**（GBPJPY / USDJPY / EURJPY のみ） |
 | TF | 5分足エントリー |
-| HTFフィルター | GBPJPY: 4h EMA20方向一致 / USDJPY: 4h EMA20方向一致 + RSI14<55(buy)/RSI14>45(sell) |
+| HTFフィルター | GBPJPY: 4h EMA20+RSI14<60(buy)/RSI14>55(sell) + 5m BBwidth(×1.2) / USDJPY: 4h EMA20+RSI14<55(buy)/RSI14>45(sell) |
 
 ### 対象ペア
 
 | ペア | 有効 | SL_ATR倍率 | TP | HTFフィルター | 時間帯 | 備考 |
 |-----|------|-----------|-----|------------|------|-----|
-| GBPJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h（EMA20方向） | 制限なし | v21: Stage2廃止→固定TP |
+| GBPJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h_rsi_bw（EMA20+RSI<60/>55 + BBwidth×1.2/lb=20） | 制限なし | v21: Stage2廃止→固定TP・RSI+BBwidthフィルター追加 |
 | EURJPY | ✅ | 2.5 | rm.calc_tp_sl | F1andF2 (f1=5, f2=10.0) | 9,17 UTC | 変更なし |
 | USDJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h_rsi（EMA20+RSI） | 制限なし | v21: Stage2廃止→固定TP・RSIフィルター追加 |
 | EURUSD | ❌ | 1.2 | — | — | — | **停止中**（BT PF<0.7） |
@@ -44,6 +44,29 @@
 | BB_EURUSD | ✅ | 0.1 | 1.2 | 0.8 |
 | BB_GBPUSD | ✅ | 1.0 | 1.2 | 0.8 |
 | BB_EURJPY | ✅ | 0.7 | 1.2 | 0.8 |
+
+### GBPJPY フィルター改善 BT結果（2026-05-14実施）
+
+フィルター: `htf4h_rsi_bw`（4h EMA20方向 + 4h RSI<60/RSI>55 + 5m BBwidth > 20bar平均×1.2）
+
+| 指標 | ベースライン(htf4h_only) | 採用フィルター | 改善幅 |
+|-----|----------------------|------------|------|
+| PF | 0.944 | 1.861 | +0.917 |
+| WR | 40.0% | 59.8% | +19.8pt |
+| N | 557 | 92 | −465（厳選） |
+| MaxDD | 2,443.7 pips | 186.8 pips | −92% |
+
+期間分割検証（全データを3等分）:
+
+| 期間 | 日付 | PF | 判定 |
+|-----|-----|----|-----|
+| Period_A | 2026-02-02〜03-02 | 1.315 | ✅ |
+| Period_B | 2026-03-02〜03-30 | 1.612 | ✅ |
+| Period_C | 2026-03-30〜04-24 | 3.539 | ✅ |
+
+**→ STABLE（全期間PF>1.0 / 過学習リスク低）**
+
+BT根拠ファイル: `optimizer/gbpjpy_filter_bt.py` / `optimizer/gbpjpy_split_validation.py`
 
 ### Phase1完了判定結果（2026-04-24〜2026-05-03, n=8〜41）
 
