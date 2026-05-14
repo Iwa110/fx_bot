@@ -1,5 +1,5 @@
 """
-bb_monitor.py  - BB逆張り戦略（5分毎実行）v20
+bb_monitor.py  - BB逆張り戦略（5分毎実行）v21
 v14:
   - ALLOWED_HOURS_UTC辞書を追加（ペア別UTC時間帯フィルター）
   - main()ループに時間帯チェックを追加（空リスト=停止、None=制限なし）
@@ -29,6 +29,11 @@ v20 EURUSD/GBPUSD停止、GBPJPY/USDJPY F1フィルター削除 (2026-05-14)
     USDJPY f1_p3     sl=3.0 s2d=0.3 → PF=1.331 WR=49.4% N=83
     EURUSD (全組合せ最高PF=0.681, N=132) → 停止
     GBPUSD (全組合せ最高PF=0.854, N=153) → 停止
+v21 GBPJPY/USDJPY Stage2廃止→固定TP、USDJPY htf4h_rsiフィルター追加 (2026-05-14)
+  - GBPJPY: fixed_tp_rr=1.5 追加（TP=SL×1.5）、trail_monitor Stage2無効化
+  - USDJPY: fixed_tp_rr=1.5 追加（TP=SL×1.5）、trail_monitor Stage2無効化
+  - USDJPY: ENTRY_FILTER use_htf4h_rsi=True（4h EMA20方向一致+RSI<55/RSI>45）
+  - get_htf4h_rsi_signal() 新規追加
 """
 
 import sys, os, ssl, json, argparse
@@ -72,7 +77,7 @@ ALLOWED_HOURS_UTC = {
 }
 ENTRY_FILTER = {
     'GBPJPY': {'use_htf4h': True},
-    'USDJPY': {'use_htf4h': True},
+    'USDJPY': {'use_htf4h_rsi': True},  # v21: 4h EMA20方向一致+RSI<55/RSI>45
     # EURUSD/GBPUSD は v20 で停止のためエントリーフィルター不要
 }
 BB_PAIRS = {
@@ -90,6 +95,7 @@ BB_PAIRS = {
         'is_jpy': True, 'max_pos': 1, 'sigma': None,
         'filter_type': None,  # v20: F1フィルター削除（htf4h後は追加効果ゼロのためシンプル化）
         'sl_atr_mult': 3.0,  # BT採用値
+        'fixed_tp_rr': 1.5,  # v21: Stage2廃止→固定TP(SL×1.5)
     },
     'EURJPY': {
         'is_jpy': True, 'max_pos': 1, 'sigma': None,
@@ -102,6 +108,7 @@ BB_PAIRS = {
         'is_jpy': True, 'max_pos': 1, 'sigma': 2.0,
         'filter_type': None,  # v20: F1フィルター削除（htf4h後は追加効果ゼロのためシンプル化）
         'sl_atr_mult': 3.0,  # BT採用値
+        'fixed_tp_rr': 1.5,  # v21: Stage2廃止→固定TP(SL×1.5)
     },
     'EURUSD': {
         'enabled': False,        # BT PF<0.7, BB戦略との相性不良により停止 (v20)
@@ -331,6 +338,23 @@ def get_htf4h_signal(symbol):
     closes = pd.Series([r['close'] for r in rates])
     ema20 = closes.ewm(span=20, adjust=False).mean()
     return 1 if closes.iloc[-1] > ema20.iloc[-1] else -1
+
+def get_htf4h_rsi_signal(symbol):  # v21
+    """4h足EMA20方向一致+RSI14フィルター。+1=Buy許可 / -1=Sell許可 / 0=条件不成立"""
+    rates = mt5.copy_rates_from_pos(symbol, mt5.TIMEFRAME_H4, 0, 30)
+    if rates is None or len(rates) < 25:
+        return None
+    df = pd.DataFrame(rates)
+    closes = df['close']
+    ema20 = closes.ewm(span=20, adjust=False).mean()
+    rsi_val = calc_rsi(df, 14)
+    last_close = float(closes.iloc[-1])
+    last_ema = float(ema20.iloc[-1])
+    if last_close > last_ema and rsi_val < 55:   # buy許可: EMA20上方+RSI<55
+        return 1
+    if last_close < last_ema and rsi_val > 45:   # sell許可: EMA20下方+RSI>45
+        return -1
+    return 0
 
 # ══════════════════════════════════════════
 # RSIフィルター
@@ -610,6 +634,9 @@ def calc_bb_signal(symbol, cfg):
         if sl_mult_pair != 2.0:
             floor = rm.ATR_FLOOR_JPY if is_jpy else rm.ATR_FLOOR_NONJPY
             sl_dist = max(atr, floor) * sl_mult_pair
+        fixed_tp_rr = cfg.get('fixed_tp_rr')
+        if fixed_tp_rr is not None:
+            tp_dist = sl_dist * fixed_tp_rr  # v21: Stage2廃止→固定TP(SL×fixed_tp_rr)
     except Exception as e:
         log(symbol + ': TP/SL計算エラー: ' + str(e))
         return None
@@ -706,7 +733,7 @@ def place_order(symbol, base_sym, sig, logf, webhook):
 def main():
     global BROKER_KEY
 
-    parser = argparse.ArgumentParser(description='BB逆張り戦略モニター v20')
+    parser = argparse.ArgumentParser(description='BB逆張り戦略モニター v21')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='使用するブローカーキー')
@@ -800,11 +827,26 @@ def main():
                 skipped += 1
                 continue
 
+        if ENTRY_FILTER.get(base_sym, {}).get('use_htf4h_rsi'):  # v21
+            htf4h_sig = get_htf4h_rsi_signal(symbol)
+            if htf4h_sig is None:
+                log(base_sym + ': HTF4h RSI取得失敗 スキップ', logf)
+                skipped += 1
+                continue
+            if sig['direction'] == 'buy' and htf4h_sig != 1:
+                log(base_sym + ': HTF4h RSI BUY不可（EMA20下方 or RSI>=55） スキップ', logf)
+                skipped += 1
+                continue
+            if sig['direction'] == 'sell' and htf4h_sig != -1:
+                log(base_sym + ': HTF4h RSI SELL不可（EMA20上方 or RSI<=45） スキップ', logf)
+                skipped += 1
+                continue
+
         if place_order(symbol, base_sym, sig, logf, webhook):
             executed += 1
 
     now = datetime.now().strftime('%H:%M')
-    log('[' + now + '] BB v20完了: 発注' + str(executed) + '件 ' +
+    log('[' + now + '] BB v21完了: 発注' + str(executed) + '件 ' +
         'スキップ' + str(skipped) + '件 ' +
         'ポジション' + str(count_total()) + '/' + str(MAX_TOTAL_POS) +
         ' broker=' + BROKER_KEY)
