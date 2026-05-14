@@ -21,8 +21,8 @@ REM axiory (enabled=True, demo)
 REM exness (enabled=True, demo)
 "%PYTHON%" "%SCRIPT%" --broker exness
 
-REM oanda (enabled=True, demo)
-"%PYTHON%" "%SCRIPT%" --broker oanda
+REM oanda (実口座稼働開始後に有効化)
+REM "%PYTHON%" "%SCRIPT%" --broker oanda
 
 REM oanda_demo (enabled=False)
 REM "%PYTHON%" "%SCRIPT%" --broker oanda_demo

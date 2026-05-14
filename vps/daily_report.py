@@ -5,7 +5,7 @@ v2: マルチブローカー対応 (--broker argparse + broker_utils)
 
 Task Scheduler設定（ブローカーごとに1タスク）:
   トリガー: 毎日 07:00 JST
-  操作: python daily_report.py --broker axiory  (exness / oanda も同様)
+  操作: python daily_report.py --broker axiory  (exness も同様)
   ※ 本スクリプト内に時刻チェックなし。実行タイミングはTask Schedulerで制御する。
 
 出力:
@@ -31,6 +31,7 @@ from broker_utils import connect_mt5, disconnect_mt5
 # 定数・設定
 # ══════════════════════════════════════════
 BROKER_KEY    = 'axiory'
+ACCOUNT_CCY   = 'JPY'   # 接続後に mt5.account_info().currency で上書き
 
 BASE_DIR      = r'C:\Users\Administrator\fx_bot'
 LOG_DIR       = os.path.join(BASE_DIR, 'logs')
@@ -65,8 +66,6 @@ MAGIC_MAP = {
     20260010: 'SMA_SQ',
 }
 
-# JPYペアかどうか（損益表示の単位判定用）
-JPY_PAIRS = {'GBPJPY', 'USDJPY', 'EURJPY', 'AUDJPY', 'CADJPY', 'NZDJPY', 'CHFJPY'}
 
 
 # ══════════════════════════════════════════
@@ -103,8 +102,9 @@ def send_discord(msg: str, webhook: str):
         print(f'[WARN] Discord送信エラー: {e}')
 
 
-def profit_currency(symbol: str) -> str:
-    return '円' if symbol in JPY_PAIRS else 'USD'
+def profit_currency(symbol: str = '') -> str:
+    # 口座通貨に基づく表示単位。JPY口座は全ペアの損益が円建て、USD口座はUSD建て
+    return '円' if ACCOUNT_CCY == 'JPY' else ACCOUNT_CCY
 
 
 # ══════════════════════════════════════════
@@ -308,7 +308,7 @@ def build_report(target_date: datetime.date, trades: list[dict], open_positions:
                     )
 
             # 戦略合計
-            cur_total = '円' if all(sym in JPY_PAIRS for sym in groups[strat].keys()) else ''
+            cur_total = profit_currency()
             pf_str    = f'{strat_m["pf"]:.3f}' if strat_m['losses'] > 0 else 'N/A'
             lines.append(
                 f'    ---合計--- n={strat_m["n"]:2d}'
@@ -444,7 +444,7 @@ def build_discord_summary(target_date: datetime.date, trades: list[dict], open_p
 # エントリーポイント
 # ══════════════════════════════════════════
 def main():
-    global BROKER_KEY
+    global BROKER_KEY, ACCOUNT_CCY
 
     parser = argparse.ArgumentParser(description='FX日次レポート v2')
     parser.add_argument('--broker', default=BROKER_KEY,
@@ -464,6 +464,15 @@ def main():
         sys.exit(1)
 
     try:
+        # 接続口座の確認・通貨設定
+        acct = mt5.account_info()
+        if acct:
+            ACCOUNT_CCY = acct.currency
+            print('[INFO] 接続口座: login={} name={} currency={}'.format(
+                acct.login, acct.name, ACCOUNT_CCY))
+        else:
+            print('[WARN] account_info取得失敗。ACCOUNT_CCY=JPYで継続')
+
         from_utc, to_utc  = get_yesterday_range_utc()
         target_date       = (datetime.now(tz=JST) - timedelta(days=1)).date()
 
@@ -475,11 +484,12 @@ def main():
         print('[INFO] クローズ取引: {}件  オープン: {}件'.format(len(trades), len(open_positions)))
 
         # 拡張セクション用データ取得
-        acct      = mt5.account_info()
-        balance   = float(acct.balance) if acct else None
+        balance    = float(acct.balance) if acct else None
         all_trades = fetch_full_history(days=90)
-        print('[INFO] 全履歴: {}件  残高: {}円'.format(
-            len(all_trades), '{:,.0f}'.format(balance) if balance else 'N/A'))
+        print('[INFO] 全履歴: {}件  残高: {}{}'.format(
+            len(all_trades),
+            '{:,.0f}'.format(balance) if balance else 'N/A',
+            ACCOUNT_CCY))
 
         report_text = build_report(target_date, trades, open_positions,
                                    all_trades=all_trades, balance=balance)
