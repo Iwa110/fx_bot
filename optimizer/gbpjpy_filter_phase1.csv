@@ -1,0 +1,29 @@
+phase,filter_type,params,PF,WR,N,MaxDD,avg_win,avg_loss,verdict,N_flag,delta_pf
+1,F1_RSI,"rsi_buy<45,rsi_sell>40",0.725,37.8,148,835.8,31.2,26.2,REJECT,,-0.219
+1,F1_RSI,"rsi_buy<45,rsi_sell>45",0.79,36.1,97,514.5,34.4,24.6,REJECT,,-0.154
+1,F1_RSI,"rsi_buy<45,rsi_sell>50",0.569,31.8,22,355.7,35.0,28.7,REJECT,N_insufficient,-0.375
+1,F1_RSI,"rsi_buy<50,rsi_sell>40",0.687,37.4,163,1019.1,30.5,26.6,REJECT,,-0.257
+1,F1_RSI,"rsi_buy<50,rsi_sell>45",0.724,35.7,112,632.1,33.0,25.4,REJECT,,-0.22
+1,F1_RSI,"rsi_buy<50,rsi_sell>50",0.495,32.4,37,524.4,30.1,29.2,REJECT,N_insufficient,-0.449
+1,F1_RSI,"rsi_buy<50,rsi_sell>55",0.388,33.3,15,273.3,23.3,30.0,REJECT,N_insufficient,-0.556
+1,F1_RSI,"rsi_buy<55,rsi_sell>40",0.785,40.3,258,1212.4,30.3,26.1,REJECT,,-0.159
+1,F1_RSI,"rsi_buy<55,rsi_sell>45",0.833,40.1,207,810.6,31.5,25.3,REJECT,,-0.111
+1,F1_RSI,"rsi_buy<55,rsi_sell>50",0.81,41.7,132,778.4,30.1,26.5,REJECT,,-0.134
+1,F1_RSI,"rsi_buy<55,rsi_sell>55",0.875,43.6,110,556.4,29.4,26.0,REJECT,,-0.069
+1,F1_RSI,"rsi_buy<60,rsi_sell>40",0.933,42.9,347,947.5,31.0,25.0,REJECT,,-0.011
+1,F1_RSI,"rsi_buy<60,rsi_sell>45",1.003,43.2,296,694.3,31.8,24.2,CONDITIONAL,,0.059
+1,F1_RSI,"rsi_buy<60,rsi_sell>50",1.049,45.2,221,587.9,31.1,24.5,CONDITIONAL,,0.105
+1,F1_RSI,"rsi_buy<60,rsi_sell>55",1.131,46.7,199,427.7,30.9,23.9,ADOPT,,0.187
+1,F2_ADX,adx>=20,0.643,38.6,311,2476.5,27.7,27.0,REJECT,,-0.301
+1,F2_ADX,adx>=25,0.525,36.5,200,2235.7,26.2,28.7,REJECT,,-0.419
+1,F2_ADX,adx>=30,0.52,38.5,148,1670.8,23.5,28.3,REJECT,,-0.424
+1,F3_BBwidth,"bw_ratio=0.8,bw_lookback=20",0.953,45.3,455,1629.7,31.3,27.2,REJECT,,0.009
+1,F3_BBwidth,"bw_ratio=0.8,bw_lookback=30",0.986,46.6,414,1559.9,31.8,28.2,REJECT,,0.042
+1,F3_BBwidth,"bw_ratio=1.0,bw_lookback=20",1.218,51.2,340,801.2,32.0,27.6,ADOPT,,0.274
+1,F3_BBwidth,"bw_ratio=1.0,bw_lookback=30",1.159,51.0,300,685.6,32.2,28.9,ADOPT,,0.215
+1,F3_BBwidth,"bw_ratio=1.2,bw_lookback=20",1.253,51.5,235,459.8,32.3,27.3,ADOPT,,0.309
+1,F3_BBwidth,"bw_ratio=1.2,bw_lookback=30",1.364,55.3,215,563.5,32.0,29.1,ADOPT,,0.42
+1,F4_Hour,"SET_A=[6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]",0.906,44.8,194,1462.8,35.2,31.5,REJECT,,-0.038
+1,F4_Hour,"SET_B=[13, 14, 15, 16, 17, 18, 19, 20, 21, 22]",0.811,40.7,231,1444.4,32.8,27.7,REJECT,,-0.133
+1,F4_Hour,"SET_C=[6, 7, 8, 13, 14, 15, 16, 17, 20, 21, 22]",0.844,43.3,231,1454.5,33.3,30.2,REJECT,,-0.1
+1,F4_Hour,"SET_D=[7, 8, 9, 10, 11, 12, 13, 14, 15, 16]",0.93,45.5,156,1288.2,37.1,33.3,REJECT,,-0.014
