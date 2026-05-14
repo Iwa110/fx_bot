@@ -1,6 +1,6 @@
 # 戦略一覧
 
-最終更新: 2026-05-14（SMA Squeeze Play v2 追記）
+最終更新: 2026-05-14（EURJPY フィルター改善 v22 追記）
 
 ---
 
@@ -8,19 +8,19 @@
 
 | 項目 | 内容 |
 |-----|-----|
-| ファイル | `vps/bb_monitor.py` v21 |
+| ファイル | `vps/bb_monitor.py` v22 |
 | 起動 | `bb_monitor_all.bat` → タスクスケジューラ `FX_BB_Monitor_All`（毎分） |
 | magic | 20250001 |
 | ステータス | **稼働中**（GBPJPY / USDJPY / EURJPY のみ） |
 | TF | 5分足エントリー |
-| HTFフィルター | GBPJPY: 4h EMA20+RSI14<60(buy)/RSI14>55(sell) + 5m BBwidth(×1.2/lb=20) / USDJPY: 4h EMA20+RSI14<55(buy)/RSI14>45(sell) + 5m BBwidth(×0.8/lb=30) |
+| HTFフィルター | GBPJPY: 4h EMA20+RSI14<60(buy)/RSI14>55(sell) + 5m BBwidth(×1.2/lb=20) / USDJPY: 4h EMA20+RSI14<55(buy)/RSI14>45(sell) + 5m BBwidth(×0.8/lb=30) / EURJPY: 4h EMA20方向のみ |
 
 ### 対象ペア
 
 | ペア | 有効 | SL_ATR倍率 | TP | HTFフィルター | 時間帯 | 備考 |
 |-----|------|-----------|-----|------------|------|-----|
 | GBPJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h_rsi_bw（EMA20+RSI<60/>55 + BBwidth×1.2/lb=20） | 制限なし | v21: Stage2廃止→固定TP・RSI+BBwidthフィルター追加 |
-| EURJPY | ✅ | 2.5 | rm.calc_tp_sl | F1andF2 (f1=5, f2=10.0) | 9,17 UTC | 変更なし |
+| EURJPY | ✅ | 2.5 | SL×1.5（固定） | htf4h_only（4h EMA20方向のみ） | 9,17 UTC | v22: F1andF2廃止→固定TP・Stage2無効化 |
 | USDJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h_rsi_bw（EMA20+RSI<55/>45 + BBwidth×0.8/lb=30） | 制限なし | v21: Stage2廃止→固定TP・RSI+BBwidthフィルター追加 |
 | EURUSD | ❌ | 1.2 | — | — | — | **停止中**（BT PF<0.7） |
 | GBPUSD | ❌ | 1.2 | — | — | — | **停止中**（実稼働PF=0.397） |
@@ -43,7 +43,7 @@
 | BB_USDJPY | ❌ | — | 1.2 | 0.8 | <!-- v13: 固定TP移行のため無効化 -->
 | BB_EURUSD | ✅ | 0.1 | 1.2 | 0.8 |
 | BB_GBPUSD | ✅ | 1.0 | 1.2 | 0.8 |
-| BB_EURJPY | ✅ | 0.7 | 1.2 | 0.8 |
+| BB_EURJPY | ❌ | — | 1.2 | 0.8 | <!-- v22: 固定TP移行のため無効化 -->
 
 ### GBPJPY フィルター改善 BT結果（2026-05-14実施）
 
@@ -87,6 +87,29 @@ SELL閾値グリッド検証（`usdjpy_sell_grid.py`）での知見:
 - RSI閾値は変更せず BBwidth フィルターのみ追加
 
 BT根拠ファイル: `optimizer/usdjpy_filter_bt.py` / `optimizer/usdjpy_sell_grid.py` / `optimizer/usdjpy_split_validation.py`
+
+### EURJPY フィルター改善 BT結果（2026-05-14実施）
+
+フィルター: `htf4h_only`（4h EMA20方向のみ、既存F1andF2を廃止）
+
+| 指標 | htf4h_only（採用） | rsi+bw（不採用） |
+|-----|-----------------|----------------|
+| PF（全データ） | 1.645 | 2.386 |
+| WR | 50.0% | 50.0% |
+| N | 30 | 26 |
+| MaxDD | 294.0 pips | 343.9 pips |
+
+期間分割検証（全データを3等分、1h足 2024-04-24〜2026-04-24）:
+
+| 期間 | 日付 | baseline PF | RSI+BW PF | 判定 |
+|-----|-----|-----------|---------|-----|
+| Period_A | 2024-04-24〜2024-12-23 | 2.903 | 3.871 | ✅ |
+| Period_B | 2024-12-23〜2025-08-22 | 1.078 | 3.358 | ✅ |
+| Period_C | 2025-08-22〜2026-04-24 | 1.543 | 0.610 | ❌ |
+
+**→ htf4h_only: STABLE（全期間PF>1.0）/ rsi+bw: UNSTABLE（Period_C過適合）→ htf4h_only を採用**
+
+BT根拠ファイル: `optimizer/eurjpy_filter_bt.py` / `optimizer/eurjpy_split_validation.py`
 
 ### Phase1完了判定結果（2026-04-24〜2026-05-03, n=8〜41）
 

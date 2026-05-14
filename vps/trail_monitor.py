@@ -75,7 +75,7 @@ TRAIL_CONFIG = {
     'BB_USDJPY': {"stage2": False, "stage3_activate": 1.2, "stage3_distance": 0.8},  # v13: Stage2無効化（bb_monitor v21 固定TP=SL×1.5）
     'BB_EURUSD': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 0.1},  # PF=0.663  勝率=33.7% N=246 (旧:0.1 -> 新:0.1, 変更なし)
     'BB_GBPUSD': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 1.0},  # PF=0.777  勝率=32.1% N=293 (旧:0.3 -> 新:1.0, +0.70)
-    'BB_EURJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 0.7},  # PF=1.041  勝率=44.7% N=284 (旧:0.3 -> 新:0.7, +0.40)
+    'BB_EURJPY': {"stage2": False, "stage3_activate": 1.2, "stage3_distance": 0.8},  # v22: Stage2無効化（bb_monitor v22 固定TP=SL×1.5）
     'BB_AUDJPY': {"stage2": True, "stage3_activate": 1.2, "stage3_distance": 0.8, "stage2_distance": 1.0},  # PF=0.647  勝率=29.8% N=292 (旧:0.3 -> 新:1.0, +0.70)
 
     'MOM_JPY':          {'stage2': True,  'stage3_activate': 0.7, 'stage3_distance': 0.3,  'stage2_distance': 1.0},  # PF=1.379 WR=51.8% n=135 (v12 BT更新)
