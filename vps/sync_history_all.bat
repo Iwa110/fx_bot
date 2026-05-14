@@ -1,8 +1,8 @@
 @echo off
 REM sync_history_all.bat
-REM MT5全ブローカーの取引履歴をhistory.csvに同期してgit pushする。
-REM Task Scheduler: FX_Sync_History (毎日 22:00 JST) から呼び出される。
-REM 手動実行も可能。ログは logs\sync_history.log に追記。
+REM Sync trade history from all MT5 brokers to history.csv and git push.
+REM Called by Task Scheduler: FX_Sync_History (daily 22:00 JST).
+REM Can also be run manually. Log is appended to logs\sync_history.log.
 
 set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\python.exe
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\sync_history.py

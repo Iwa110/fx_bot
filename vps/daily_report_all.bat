@@ -6,23 +6,20 @@ REM
 REM HOW TO DISABLE A BROKER:
 REM   Set enabled=False in broker_config.py, then REM-out the corresponding line below.
 REM
-REM oanda_demo NOTE:
-REM   attach=True - OANDA MT5 terminal must already be running and logged in.
-REM
-REM oanda (live) NOTE:
-REM   Remove the REM prefix from the oanda line when ready.
+REM oanda NOTE:
+REM   MT5 terminal must already be running and logged in.
 
 set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\daily_report.py
 
-REM axiory (enabled=True, demo)
+REM axiory (enabled=True)
 "%PYTHON%" "%SCRIPT%" --broker axiory
 
-REM exness (enabled=True, demo)
+REM exness (enabled=True)
 "%PYTHON%" "%SCRIPT%" --broker exness
 
-REM oanda (実口座稼働開始後に有効化)
-REM "%PYTHON%" "%SCRIPT%" --broker oanda
+REM oanda (enabled=True)
+"%PYTHON%" "%SCRIPT%" --broker oanda
 
 REM oanda_demo (enabled=False)
 REM "%PYTHON%" "%SCRIPT%" --broker oanda_demo

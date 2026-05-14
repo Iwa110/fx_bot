@@ -1,15 +1,14 @@
 @echo off
 REM register_sync.bat
-REM FX_Sync_History タスクをTask Schedulerに登録する。
+REM Register FX_Sync_History task in Task Scheduler.
 REM Run as Administrator.
 REM
-REM スケジュール: 毎日 22:00 JST
-REM   ユーザーが夜の作業を始める前にhistory.csvを最新化してgit pushする。
-REM   実行後はローカルPCで git pull するだけで当日分の取引データを取得できる。
+REM Schedule: daily 22:00 JST
+REM   Syncs history.csv and git push before nightly work session.
 REM
 REM WHY /ru Administrator /it /rl HIGHEST:
 REM   MT5 Python IPC requires the same user session AND elevated privileges.
-REM   (register_brokers.bat と同じ理由)
+REM   (same reason as register_brokers.bat)
 
 set TASK_NAME=FX_Sync_History
 set BAT_DIR=C:\Users\Administrator\fx_bot\vps
