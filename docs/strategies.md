@@ -1,6 +1,6 @@
 # 戦略一覧
 
-最終更新: 2026-05-06
+最終更新: 2026-05-14
 
 ---
 
@@ -8,23 +8,23 @@
 
 | 項目 | 内容 |
 |-----|-----|
-| ファイル | `vps/bb_monitor.py` v17 |
-| 起動 | `run_bb.bat` → タスクスケジューラ `FX BB Monitor`（TimeTrigger 繰り返し） |
+| ファイル | `vps/bb_monitor.py` v21 |
+| 起動 | `bb_monitor_all.bat` → タスクスケジューラ `FX_BB_Monitor_All`（毎分） |
 | magic | 20250001 |
-| ステータス | **稼働中** |
+| ステータス | **稼働中**（GBPJPY / USDJPY / EURJPY のみ） |
 | TF | 5分足エントリー |
-| HTFフィルター | 4H BB（GBPJPY / USDJPY のみ `use_htf4h: True`） |
+| HTFフィルター | GBPJPY: 4h EMA20方向一致 / USDJPY: 4h EMA20方向一致 + RSI14<55(buy)/RSI14>45(sell) |
 
 ### 対象ペア
 
-| ペア | 有効 | SL_ATR倍率 | フィルター | 備考 |
-|-----|------|-----------|----------|-----|
-| GBPJPY | ✅ | 3.0 | F2andF1 (f1=3, f2=10.0) | ALLOWED: 9,17 UTC / htf4h_only |
-| EURJPY | ✅ | 2.5 | F1andF2 (f1=5, f2=10.0) | ALLOWED: 9,17 UTC |
-| USDJPY | ✅ | 3.0 | F1 (f1=5, sigma=2.0) | htf4h_only |
-| EURUSD | ✅ | 3.0 | なし | ALLOWED: なし（時間制限なし）|
-| GBPUSD | ✅ | 2.0 | なし | ALLOWED: なし（時間制限なし）|
-| USDCAD | ❌ | 1.5 | — | **停止中**（enabled=False） |
+| ペア | 有効 | SL_ATR倍率 | TP | HTFフィルター | 時間帯 | 備考 |
+|-----|------|-----------|-----|------------|------|-----|
+| GBPJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h（EMA20方向） | 制限なし | v21: Stage2廃止→固定TP |
+| EURJPY | ✅ | 2.5 | rm.calc_tp_sl | F1andF2 (f1=5, f2=10.0) | 9,17 UTC | 変更なし |
+| USDJPY | ✅ | 3.0 | SL×1.5（固定） | htf4h_rsi（EMA20+RSI） | 制限なし | v21: Stage2廃止→固定TP・RSIフィルター追加 |
+| EURUSD | ❌ | 1.2 | — | — | — | **停止中**（BT PF<0.7） |
+| GBPUSD | ❌ | 1.2 | — | — | — | **停止中**（実稼働PF=0.397） |
+| USDCAD | ❌ | 1.5 | — | — | — | **停止中** |
 
 ### BBパラメータ共通
 
@@ -32,16 +32,15 @@
 |----------|---|
 | period | 20 |
 | sigma（エントリー） | 1.5 |
-| RR | 1.0 |
 | exit_sigma | 1.0 |
 
-### トレーリング設定（trail_monitor.py）
+### トレーリング設定（trail_monitor.py v13）
 
 | ペア | stage2 | stage2_distance | stage3_activate | stage3_distance |
 |-----|--------|----------------|----------------|----------------|
 | BB_（共通） | ✅ | 0.3 | 1.2 | 0.8 |
-| BB_GBPJPY | ✅ | 1.0 | 1.2 | 0.8 |
-| BB_USDJPY | ✅ | 0.7 | 1.2 | 0.8 |
+| BB_GBPJPY | ❌ | — | 1.2 | 0.8 | <!-- v13: 固定TP移行のため無効化 -->
+| BB_USDJPY | ❌ | — | 1.2 | 0.8 | <!-- v13: 固定TP移行のため無効化 -->
 | BB_EURUSD | ✅ | 0.1 | 1.2 | 0.8 |
 | BB_GBPUSD | ✅ | 1.0 | 1.2 | 0.8 |
 | BB_EURJPY | ✅ | 0.7 | 1.2 | 0.8 |
@@ -163,7 +162,7 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 
 | 項目 | 内容 |
 |-----|-----|
-| ファイル | `vps/trail_monitor.py` v12（トレーリング管理のみ） |
+| ファイル | `vps/trail_monitor.py` v13（トレーリング管理のみ） |
 | magic | 20260002 |
 | ステータス | **稼働中**（trail_monitor内で管理） |
 | 方向 | **Sell専用** |
