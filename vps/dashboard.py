@@ -22,7 +22,7 @@ except ImportError:
     sys.exit(1)
 
 from broker_utils import connect_mt5, disconnect_mt5
-from daily_report import fetch_open_positions, MAGIC_MAP, JPY_PAIRS
+from daily_report import fetch_open_positions, MAGIC_MAP
 
 BASE_DIR = r'C:\Users\Administrator\fx_bot'
 LOG_DIR = os.path.join(BASE_DIR, 'logs')
