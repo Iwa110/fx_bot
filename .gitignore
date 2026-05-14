@@ -3,6 +3,9 @@ data/*_5m.csv
 data/*_4h.csv
 data/update_log.txt
 
+# VPS日次エクスポート（export_daily.py生成・git管理不要）
+data/daily_*.csv
+
 # BTサーチ結果CSV（生成ファイル・大容量）
 optimizer/*_bt_result.csv
 
