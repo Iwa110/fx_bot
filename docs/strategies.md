@@ -1,6 +1,6 @@
 # 戦略一覧
 
-最終更新: 2026-05-14（USDJPY htf4h_rsi_bw フィルター追加）
+最終更新: 2026-05-14（SMA Squeeze Play v2 追記）
 
 ---
 
@@ -243,6 +243,60 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 
 ---
 
+## 8. SMA Squeeze Play戦略
+
+| 項目 | 内容 |
+|-----|-----|
+| ファイル | `vps/sma_squeeze.py` v2.1 |
+| 起動 | `vps/sma_squeeze_monitor.bat`（axiory/exness対象、oandaはREM） |
+| magic | 20260010 |
+| STRATEGY_TAG | `SMA_SQ` |
+| ステータス | **稼働中**（v2: 2026-05-12実装・VPS展開済み） |
+| 方向 | Long / Short |
+| TF | ペア別（4H / 1H） |
+| MAX_TOTAL_POS | 3 |
+| MAX_JPY_LOT | 0.4 lot |
+| COOLDOWN_MIN | 60分／ペア |
+
+### エントリー条件
+
+- SMA長期スロープが単調増加（Long）/ 単調減少（Short）
+- divergence_rate ≤ squeeze_th（スクイーズ状態）
+- ADX14 > 20
+- 前足がSMAショート側、現足がSMAショート超え＋陽線（Long） / その逆（Short）
+
+### ペア別パラメータ（BT最適値）
+
+| ペア | TF | SMA短/長 | sq_th | slope_period | RR | SL×ATR | BT PF | BT WR | BT n |
+|-----|-----|---------|-------|------------|-----|--------|-------|-------|------|
+| USDJPY | 4h | 25/150 | 2.0 | 5 | 2.5 | 1.5 | 1.815 | 43.3% | 30 |
+| GBPJPY | 1h | 25/250 | 0.5 | 10 | 2.0 | 1.5 | 1.462 | 41.8% | 55 |
+| EURUSD | 4h | 25/200 | 2.0 | 10 | 2.5 | 1.0 | 2.670 | 46.7% | 30 |
+| GBPUSD | 1h | 15/250 | 1.5 | 20 | 2.0 | 1.0 | 1.341 | 41.2% | 228 |
+| EURJPY | 4h | 15/150 | 2.0 | 20 | 2.5 | 1.5 | 3.673 | 56.7% | 30 |
+
+BT期間: 2024-04-24〜2026-04-24 / 9720 runs（`optimizer/sma_squeeze_bt.py`）
+
+### v2 決済改善（2026-05-12実装）
+
+| 機能 | パラメータ | 詳細 |
+|-----|---------|-----|
+| A-1 SMA_long slope reversal exit | slope_exit=3 | SMA長期の傾きが反転したら強制決済（force-close より優先） |
+| B-1 Breakeven SL move | be_r=0.5 | 含み益 ≥ 原SL距離×0.5 でSLを建値移動（order_modify） |
+
+BT結果（`optimizer/sma_squeeze_exit_bt.py`, 80 runs）:
+
+| ペア | PF改善幅 |
+|-----|---------|
+| USDJPY | +0.17 |
+| GBPJPY | +0.22 |
+| EURUSD | +0.31 |
+| EURJPY | +0.07 |
+
+ログ確認キーワード: `BE:` / `slope-exit:`
+
+---
+
 ## magic番号体系
 
 | magic | 戦略 |
@@ -260,3 +314,4 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 | 20260001 | stat_arb |
 | 20260002 | SMC_GBPAUD |
 | 20260003 | 200MA Pullback |
+| 20260010 | SMA Squeeze Play |
