@@ -18,6 +18,12 @@ if %ERRORLEVEL% NEQ 0 (
 
 set PYTHONIOENCODING=utf-8
 py "%SCRIPT%" >> "%LOG%" 2>&1
+set EXIT_CODE=%ERRORLEVEL%
 
-echo [%DATE% %TIME%] END ExitCode=%ERRORLEVEL% >> "%LOG%"
-exit /b 0
+REM Kill any lingering git child processes after script completes
+taskkill /F /T /IM git.exe                      > nul 2>&1
+taskkill /F /T /IM git-credential-manager.exe   > nul 2>&1
+taskkill /F /T /IM git-credential-manager-core.exe > nul 2>&1
+
+echo [%DATE% %TIME%] END ExitCode=%EXIT_CODE% >> "%LOG%"
+exit /b %EXIT_CODE%
