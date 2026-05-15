@@ -177,7 +177,11 @@ tr:hover td { background: #1c2128; }
 }
 .nav-btn:hover { background: #2d333b; }
 .nav-btn:disabled { opacity: 0.3; cursor: default; }
-.hist-table { font-size: 12px; }
+.hist-wrap {
+  background: #161b22; border: 1px solid #21262d; border-radius: 8px;
+  overflow-x: auto; -webkit-overflow-scrolling: touch;
+}
+.hist-table { font-size: 12px; white-space: nowrap; }
 .hist-table th { font-size: 10px; }
 .hist-table td { padding: 6px 10px; }
 </style>
@@ -194,6 +198,11 @@ tr:hover td { background: #1c2128; }
     <button id="btn30" onclick="setPeriod(30)">30日</button>
     <button id="btn90" onclick="setPeriod(90)">90日</button>
   </div>
+</div>
+
+<div class="section">
+  <h2>オープンポジション</h2>
+  <div id="open-section"></div>
 </div>
 
 <div class="cards">
@@ -252,11 +261,6 @@ tr:hover td { background: #1c2128; }
 <div class="section">
   <h2>全取引履歴</h2>
   <div id="all-trades-section"></div>
-</div>
-
-<div class="section">
-  <h2>オープンポジション</h2>
-  <div id="open-section"></div>
 </div>
 
 <script>
@@ -672,7 +676,7 @@ function buildAllTradesSection() {
     var ka = a.close_date + a.close_time, kb = b.close_date + b.close_time;
     return ka > kb ? -1 : ka < kb ? 1 : 0;
   });
-  var html = '<div class="table-wrap"><table class="hist-table"><thead><tr>' +
+  var html = '<div class="hist-wrap"><table class="hist-table"><thead><tr>' +
     '<th style="text-align:left">決済日時</th>' +
     '<th style="text-align:left">エントリー日時</th>' +
     '<th style="text-align:left">ペア</th>' +
