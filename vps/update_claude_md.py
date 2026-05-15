@@ -237,7 +237,7 @@ def git_push():
     cmds = [
         (f'{g} add CLAUDE.md',                              'add'),
         (f'{g} commit -m "auto: stats update {now_str}"',   'commit'),
-        (f'{g} pull --rebase origin main',                   'pull'),
+        (f'{g} pull --rebase --autostash origin main',         'pull'),
         (f'{g} push origin main',                            'push'),
     ]
     for cmd, label in cmds:
