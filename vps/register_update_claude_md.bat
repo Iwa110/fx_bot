@@ -4,9 +4,7 @@ REM Register update_claude_md.py in Task Scheduler (daily 07:10 JST).
 REM Run as Administrator.
 
 set TASK_NAME=FX_UpdateClaudeMd
-set PYTHON_EXE=C:\Users\Administrator\AppData\Local\Programs\Python\Python311\python.exe
-set SCRIPT_PATH=C:\Users\Administrator\fx_bot\vps\update_claude_md.py
-set LOG_PATH=C:\Users\Administrator\fx_bot\logs\scheduler_update_claude_md.log
+set WRAPPER=C:\Users\Administrator\fx_bot\vps\run_update_claude_md.bat
 
 echo [INFO] Registering: %TASK_NAME%
 
@@ -17,9 +15,10 @@ REM Delete existing task if present
 schtasks /delete /tn "%TASK_NAME%" /f 2>nul
 
 REM Register task to run daily at 07:10 JST (10 minutes after daily_report.py)
+REM cmd.exe 経由でラッパーbatを実行 → リダイレクトが正しく動作する
 schtasks /create ^
   /tn "%TASK_NAME%" ^
-  /tr "\"%PYTHON_EXE%\" \"%SCRIPT_PATH%\" >> \"%LOG_PATH%\" 2>&1" ^
+  /tr "cmd /c \"%WRAPPER%\"" ^
   /sc DAILY ^
   /st 07:10 ^
   /ru SYSTEM ^
