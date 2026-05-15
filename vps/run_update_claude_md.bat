@@ -1,4 +1,5 @@
 @echo off
+chcp 65001 > nul
 REM run_update_claude_md.bat - Task Schedulerから呼び出されるラッパー
 
 set BASE=C:\Users\Administrator\fx_bot

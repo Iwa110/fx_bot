@@ -250,7 +250,7 @@ def git_push():
             )
             out = (result.stdout + result.stderr).strip()
             if result.returncode != 0:
-                if 'nothing to commit' in out:
+                if 'nothing to commit' in out or 'no changes added to commit' in out:
                     print(f'[INFO] git {label}: 変更なし（スキップ）')
                 else:
                     print(f'[WARN] git {label} 失敗: {out[:300]}')
