@@ -66,6 +66,7 @@ def fetch_deals_range(from_dt: datetime, to_dt: datetime) -> list:
         open_price = entry_d.price if entry_d else d.price
         is_buy = (entry_d.type == mt5.DEAL_TYPE_BUY) if entry_d else (d.type == mt5.DEAL_TYPE_SELL)
         close_dt_jst = datetime.fromtimestamp(d.time, tz=JST)
+        open_dt_jst  = datetime.fromtimestamp(entry_d.time, tz=JST) if entry_d else close_dt_jst
 
         rows.append({
             'ticket':      d.position_id,
@@ -77,6 +78,8 @@ def fetch_deals_range(from_dt: datetime, to_dt: datetime) -> list:
             'profit':      round(float(d.profit), 2),
             'magic':       d.magic,
             'strategy':    MAGIC_MAP[d.magic],
+            'open_date':   open_dt_jst.strftime('%Y-%m-%d'),
+            'open_time':   open_dt_jst.strftime('%H:%M'),
             'close_date':  close_dt_jst.strftime('%Y-%m-%d'),
             'close_time':  close_dt_jst.strftime('%H:%M'),
         })
@@ -167,6 +170,16 @@ tr:hover td { background: #1c2128; }
 .badge-pass { background: #1a3a24; color: #3fb950; }
 .badge-fail { background: #3a1a1a; color: #f85149; }
 .badge-na   { background: #21262d; color: #8b949e; }
+.nav-btn {
+  background: #21262d; color: #c9d1d9; border: 1px solid #30363d;
+  padding: 2px 10px; cursor: pointer; border-radius: 4px;
+  font-size: 16px; font-family: inherit; line-height: 1.4;
+}
+.nav-btn:hover { background: #2d333b; }
+.nav-btn:disabled { opacity: 0.3; cursor: default; }
+.hist-table { font-size: 12px; }
+.hist-table th { font-size: 10px; }
+.hist-table td { padding: 6px 10px; }
 </style>
 </head>
 <body>
@@ -227,8 +240,18 @@ tr:hover td { background: #1c2128; }
 </div>
 
 <div class="section">
-  <h2>前日サマリー (__YESTERDAY__)</h2>
+  <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
+    <h2 style="margin:0;border:none;padding:0">日別サマリー</h2>
+    <button class="nav-btn" onclick="navDay(-1)">&#8249;</button>
+    <span id="daily-date-label" style="color:#79c0ff;font-weight:bold;font-size:14px;min-width:110px;text-align:center">-</span>
+    <button class="nav-btn" onclick="navDay(1)">&#8250;</button>
+  </div>
   <div id="yesterday-section"></div>
+</div>
+
+<div class="section">
+  <h2>全取引履歴</h2>
+  <div id="all-trades-section"></div>
 </div>
 
 <div class="section">
@@ -575,12 +598,39 @@ function updatePairChart(trades) {
   }
 }
 
-/* ── 前日サマリー ───────────────────────────────────────────── */
-function buildYesterdayTable() {
-  var trades = ALL_TRADES.filter(function(t) { return t.close_date === YESTERDAY; });
+/* ── 日別サマリー（ナビゲーション付き） ──────────────────────── */
+var DAY_DATES  = [];  // 取引のある日付リスト（降順）
+var DAY_INDEX  = 0;   // 現在表示中のインデックス
+
+function initDailyNav() {
+  var today = new Date().toISOString().slice(0, 10);
+  var dateSet = { [today]: true };
+  ALL_TRADES.forEach(function(t) { dateSet[t.close_date] = true; });
+  DAY_DATES = Object.keys(dateSet).sort().reverse();
+  DAY_INDEX = 0;
+  renderDailyTable();
+}
+
+function navDay(delta) {
+  var next = DAY_INDEX + delta;
+  if (next < 0 || next >= DAY_DATES.length) return;
+  DAY_INDEX = next;
+  renderDailyTable();
+}
+
+function renderDailyTable() {
+  var date = DAY_DATES[DAY_INDEX];
+  document.getElementById('daily-date-label').textContent = date;
+
+  var prevBtn = document.querySelector('.nav-btn:first-of-type');
+  var nextBtn = document.querySelector('.nav-btn:last-of-type');
+  if (prevBtn) prevBtn.disabled = (DAY_INDEX >= DAY_DATES.length - 1);
+  if (nextBtn) nextBtn.disabled = (DAY_INDEX <= 0);
+
+  var trades = ALL_TRADES.filter(function(t) { return t.close_date === date; });
   var el = document.getElementById('yesterday-section');
   if (trades.length === 0) {
-    el.innerHTML = '<div class="empty-msg">前日の取引なし (' + YESTERDAY + ')</div>';
+    el.innerHTML = '<div class="empty-msg">取引なし (' + date + ')</div>';
     return;
   }
   var groups = {};
@@ -606,6 +656,48 @@ function buildYesterdayTable() {
         '</td><td>' + wr + '</td><td>' + pf + '</td>' +
         '<td class="' + cls + '">' + fmt2(total) + '</td></tr>';
     });
+  });
+  html += '</tbody></table></div>';
+  el.innerHTML = html;
+}
+
+/* ── 全取引履歴 ─────────────────────────────────────────────── */
+function buildAllTradesSection() {
+  var el = document.getElementById('all-trades-section');
+  if (ALL_TRADES.length === 0) {
+    el.innerHTML = '<div class="empty-msg">取引データなし</div>';
+    return;
+  }
+  var sorted = ALL_TRADES.slice().sort(function(a, b) {
+    var ka = a.close_date + a.close_time, kb = b.close_date + b.close_time;
+    return ka > kb ? -1 : ka < kb ? 1 : 0;
+  });
+  var html = '<div class="table-wrap"><table class="hist-table"><thead><tr>' +
+    '<th style="text-align:left">決済日時</th>' +
+    '<th style="text-align:left">エントリー日時</th>' +
+    '<th style="text-align:left">ペア</th>' +
+    '<th style="text-align:left">方向</th>' +
+    '<th>ロット</th>' +
+    '<th>エントリー</th>' +
+    '<th>決済</th>' +
+    '<th>損益</th>' +
+    '<th style="text-align:left">戦略</th>' +
+    '</tr></thead><tbody>';
+  sorted.forEach(function(t) {
+    var cls   = colorClass(t.profit);
+    var color = STRATEGY_COLORS[t.strategy] || '#aaaaaa';
+    var typeColor = t.type === 'BUY' ? '#3fb950' : '#f85149';
+    html += '<tr>' +
+      '<td style="text-align:left;white-space:nowrap">' + t.close_date + ' ' + t.close_time + '</td>' +
+      '<td style="text-align:left;white-space:nowrap;color:#8b949e">' + (t.open_date || '-') + ' ' + (t.open_time || '') + '</td>' +
+      '<td style="text-align:left;font-weight:bold;color:#79c0ff">' + t.symbol + '</td>' +
+      '<td style="text-align:left;color:' + typeColor + '">' + t.type + '</td>' +
+      '<td>' + t.lots.toFixed(2) + '</td>' +
+      '<td>' + t.open_price.toFixed(5) + '</td>' +
+      '<td>' + t.close_price.toFixed(5) + '</td>' +
+      '<td class="' + cls + '">' + fmt2(t.profit) + '</td>' +
+      '<td style="text-align:left;border-left:3px solid ' + color + ';padding-left:7px">' + t.strategy + '</td>' +
+      '</tr>';
   });
   html += '</tbody></table></div>';
   el.innerHTML = html;
@@ -653,7 +745,8 @@ function setPeriod(days) {
 /* ── 初期描画 ──────────────────────────────────────────────── */
 setPeriod(Math.min(MAX_DAYS, 7));
 buildPhase1Panel();
-buildYesterdayTable();
+initDailyNav();
+buildAllTradesSection();
 buildOpenPositions();
 </script>
 </body>
