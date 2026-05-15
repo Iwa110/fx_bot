@@ -207,7 +207,7 @@ def update_claude_md(stats_text):
     bi = content.find(MARKER_BEGIN)
     ei = content.find(MARKER_END)
     if bi == -1 or ei == -1:
-        print('[ERROR] CLAUDE.mdにAUTO_STATSマーカーが見つかりません')
+        print('[ERROR] AUTO_STATS markers not found in CLAUDE.md')
         return False
 
     new_block   = f'{MARKER_BEGIN}\n{stats_text}\n{MARKER_END}'
@@ -216,13 +216,13 @@ def update_claude_md(stats_text):
     with open(CLAUDE_MD, 'w', encoding='utf-8') as f:
         f.write(new_content)
 
-    print('[INFO] CLAUDE.md 更新完了')
+    print('[INFO] CLAUDE.md updated')
     return True
 
 
 def git_push():
     if GIT_EXE is None:
-        print('[WARN] git.exe が見つかりません。手動でpushしてください')
+        print('[WARN] git.exe not found. Push skipped.')
         return
 
     print(f'[INFO] git: {GIT_EXE}')
@@ -231,44 +231,43 @@ def git_push():
     env = os.environ.copy()
     env['GIT_TERMINAL_PROMPT'] = '0'
     env['GCM_INTERACTIVE']     = 'never'
-    env['PATH'] = os.path.dirname(GIT_EXE) + ';' + env.get('PATH', '')
 
-    g = f'"{GIT_EXE}"'
+    # shell=False: git.exe is killed directly on timeout (no orphan process)
     cmds = [
-        (f'{g} add CLAUDE.md',                              'add'),
-        (f'{g} commit -m "auto: stats update {now_str}"',   'commit'),
-        (f'{g} pull --rebase --autostash origin main',         'pull'),
-        (f'{g} push origin main',                            'push'),
+        ([GIT_EXE, 'add', 'CLAUDE.md'],                                    'add'),
+        ([GIT_EXE, 'commit', '-m', f'auto: stats update {now_str}'],       'commit'),
+        ([GIT_EXE, 'pull', '--rebase', '--autostash', 'origin', 'main'],   'pull'),
+        ([GIT_EXE, 'push', 'origin', 'main'],                              'push'),
     ]
     for cmd, label in cmds:
-        print(f'[INFO] git {label} 実行中...')
+        print(f'[INFO] git {label}...')
         try:
             result = subprocess.run(
-                cmd, capture_output=True, text=True,
-                cwd=BASE_DIR, shell=True, env=env, timeout=30,
+                cmd, capture_output=True, text=True, encoding='utf-8', errors='replace',
+                cwd=BASE_DIR, env=env, timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             out = (result.stdout + result.stderr).strip()
             if result.returncode != 0:
                 if 'nothing to commit' in out or 'no changes added to commit' in out:
-                    print(f'[INFO] git {label}: 変更なし（スキップ）')
+                    print(f'[INFO] git {label}: no changes')
                 else:
-                    print(f'[WARN] git {label} 失敗: {out[:300]}')
+                    print(f'[WARN] git {label} failed: {out[:200]}')
             else:
                 print(f'[INFO] git {label}: OK')
         except subprocess.TimeoutExpired:
-            print(f'[WARN] git {label}: タイムアウト（30秒）スキップ')
+            print(f'[WARN] git {label}: timeout (30s), skipped')
             break
 
 
 def main():
-    print(f'[INFO] update_claude_md.py 開始 {datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")} JST')
+    print(f'[INFO] started {datetime.now(JST).strftime("%Y-%m-%d %H:%M:%S")} JST')
 
     try:
         rows = load_history()
-        print(f'[INFO] history.csv 読み込み: {len(rows)}件')
+        print(f'[INFO] history.csv loaded: {len(rows)} records')
     except Exception as e:
-        print(f'[ERROR] history.csv読み込み失敗: {e}')
+        print(f'[ERROR] history.csv load failed: {e}')
         return
 
     stats_text = build_stats_section(rows)
@@ -276,7 +275,7 @@ def main():
     if update_claude_md(stats_text):
         git_push()
 
-    print('[INFO] 完了')
+    print('[INFO] done')
 
 
 if __name__ == '__main__':
