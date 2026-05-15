@@ -222,13 +222,12 @@ def update_claude_md(stats_text):
 
 def git_push():
     if GIT_EXE is None:
-        print('[WARN] git.exe が見つかりません。CLAUDE.mdはローカル更新のみ。手動でpushしてください')
+        print('[WARN] git.exe が見つかりません。手動でpushしてください')
         return
 
     print(f'[INFO] git: {GIT_EXE}')
     now_str = datetime.now(JST).strftime('%Y-%m-%d %H:%M JST')
 
-    # 認証プロンプト・ダイアログを一切出さない
     env = os.environ.copy()
     env['GIT_TERMINAL_PROMPT'] = '0'
     env['GCM_INTERACTIVE']     = 'never'
@@ -236,32 +235,29 @@ def git_push():
 
     g = f'"{GIT_EXE}"'
     cmds = [
-        (f'{g} add CLAUDE.md',                                   'add'),
-        (f'{g} commit -m "auto: stats update {now_str}"',        'commit'),
-        (f'{g} -c credential.helper= push origin main',          'push'),
+        (f'{g} add CLAUDE.md',                              'add'),
+        (f'{g} commit -m "auto: stats update {now_str}"',   'commit'),
+        (f'{g} pull --rebase origin main',                   'pull'),
+        (f'{g} push origin main',                            'push'),
     ]
     for cmd, label in cmds:
         print(f'[INFO] git {label} 実行中...')
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
-                cwd=BASE_DIR, shell=True, env=env, timeout=20,
+                cwd=BASE_DIR, shell=True, env=env, timeout=30,
                 creationflags=subprocess.CREATE_NO_WINDOW
             )
             out = (result.stdout + result.stderr).strip()
             if result.returncode != 0:
                 if 'nothing to commit' in out:
                     print(f'[INFO] git {label}: 変更なし（スキップ）')
-                elif label == 'push':
-                    # push失敗は致命的でない（CLAUDE.mdはローカル更新済み）
-                    print(f'[WARN] git push 失敗（SYSTEMユーザーの認証なし）: {out[:200]}')
-                    print('[WARN] CLAUDE.mdはVPS上で更新済み。次回git pullで反映されます')
                 else:
-                    print(f'[WARN] git {label}: {out}')
+                    print(f'[WARN] git {label} 失敗: {out[:300]}')
             else:
                 print(f'[INFO] git {label}: OK')
         except subprocess.TimeoutExpired:
-            print(f'[WARN] git {label}: タイムアウト（20秒）スキップ')
+            print(f'[WARN] git {label}: タイムアウト（30秒）スキップ')
             break
 
 
