@@ -19,6 +19,20 @@ HISTORY_CSV  = os.path.join(BASE_DIR, 'optimizer', 'history.csv')
 CLAUDE_MD    = os.path.join(BASE_DIR, 'CLAUDE.md')
 JST          = timezone(timedelta(hours=9))
 
+# git.exe のフルパスを検索（SYSTEMユーザーのPATHにgitが無いため）
+def _find_git():
+    candidates = [
+        r'C:\Program Files\Git\cmd\git.exe',
+        r'C:\Program Files\Git\bin\git.exe',
+        r'C:\Program Files (x86)\Git\cmd\git.exe',
+    ]
+    for p in candidates:
+        if os.path.isfile(p):
+            return p
+    return None
+
+GIT_EXE = _find_git()
+
 MARKER_BEGIN = '<!-- AUTO_STATS_BEGIN -->'
 MARKER_END   = '<!-- AUTO_STATS_END -->'
 
@@ -207,35 +221,48 @@ def update_claude_md(stats_text):
 
 
 def git_push():
+    if GIT_EXE is None:
+        print('[WARN] git.exe が見つかりません。CLAUDE.mdはローカル更新のみ。手動でpushしてください')
+        return
+
+    print(f'[INFO] git: {GIT_EXE}')
     now_str = datetime.now(JST).strftime('%Y-%m-%d %H:%M JST')
-    # GIT_TERMINAL_PROMPT=0 で認証プロンプトを抑制（ハング防止）
+
+    # 認証プロンプト・ダイアログを一切出さない
     env = os.environ.copy()
     env['GIT_TERMINAL_PROMPT'] = '0'
     env['GCM_INTERACTIVE']     = 'never'
+    env['PATH'] = os.path.dirname(GIT_EXE) + ';' + env.get('PATH', '')
 
+    g = f'"{GIT_EXE}"'
     cmds = [
-        'git add CLAUDE.md',
-        f'git commit -m "auto: stats update {now_str}"',
-        'git push origin main',
+        (f'{g} add CLAUDE.md',                                   'add'),
+        (f'{g} commit -m "auto: stats update {now_str}"',        'commit'),
+        (f'{g} -c credential.helper= push origin main',          'push'),
     ]
-    for cmd in cmds:
-        label = cmd.split()[1]
+    for cmd, label in cmds:
         print(f'[INFO] git {label} 実行中...')
         try:
             result = subprocess.run(
                 cmd, capture_output=True, text=True,
-                cwd=BASE_DIR, shell=True, env=env, timeout=30
+                cwd=BASE_DIR, shell=True, env=env, timeout=20,
+                creationflags=subprocess.CREATE_NO_WINDOW
             )
             out = (result.stdout + result.stderr).strip()
             if result.returncode != 0:
                 if 'nothing to commit' in out:
                     print(f'[INFO] git {label}: 変更なし（スキップ）')
+                elif label == 'push':
+                    # push失敗は致命的でない（CLAUDE.mdはローカル更新済み）
+                    print(f'[WARN] git push 失敗（SYSTEMユーザーの認証なし）: {out[:200]}')
+                    print('[WARN] CLAUDE.mdはVPS上で更新済み。次回git pullで反映されます')
                 else:
                     print(f'[WARN] git {label}: {out}')
             else:
                 print(f'[INFO] git {label}: OK')
         except subprocess.TimeoutExpired:
-            print(f'[ERROR] git {label}: タイムアウト（30秒）。認証設定を確認してください')
+            print(f'[WARN] git {label}: タイムアウト（20秒）スキップ')
+            break
 
 
 def main():
