@@ -208,23 +208,34 @@ def update_claude_md(stats_text):
 
 def git_push():
     now_str = datetime.now(JST).strftime('%Y-%m-%d %H:%M JST')
+    # GIT_TERMINAL_PROMPT=0 で認証プロンプトを抑制（ハング防止）
+    env = os.environ.copy()
+    env['GIT_TERMINAL_PROMPT'] = '0'
+    env['GCM_INTERACTIVE']     = 'never'
+
     cmds = [
-        ['git', 'add', 'CLAUDE.md'],
-        ['git', 'commit', '-m', f'auto: stats update {now_str}'],
-        ['git', 'push', 'origin', 'main'],
+        'git add CLAUDE.md',
+        f'git commit -m "auto: stats update {now_str}"',
+        'git push origin main',
     ]
     for cmd in cmds:
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=BASE_DIR, shell=True)
-        label  = ' '.join(cmd[:2])
-        if result.returncode != 0:
-            stderr = result.stderr.strip()
-            # "nothing to commit" は正常
-            if 'nothing to commit' in stderr or 'nothing to commit' in result.stdout:
-                print(f'[INFO] {label}: nothing to commit（変更なし）')
+        label = cmd.split()[1]
+        print(f'[INFO] git {label} 実行中...')
+        try:
+            result = subprocess.run(
+                cmd, capture_output=True, text=True,
+                cwd=BASE_DIR, shell=True, env=env, timeout=30
+            )
+            out = (result.stdout + result.stderr).strip()
+            if result.returncode != 0:
+                if 'nothing to commit' in out:
+                    print(f'[INFO] git {label}: 変更なし（スキップ）')
+                else:
+                    print(f'[WARN] git {label}: {out}')
             else:
-                print(f'[WARN] {label}: {stderr}')
-        else:
-            print(f'[INFO] {label}: OK')
+                print(f'[INFO] git {label}: OK')
+        except subprocess.TimeoutExpired:
+            print(f'[ERROR] git {label}: タイムアウト（30秒）。認証設定を確認してください')
 
 
 def main():

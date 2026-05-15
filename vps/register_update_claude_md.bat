@@ -10,6 +10,9 @@ set LOG_PATH=C:\Users\Administrator\fx_bot\logs\scheduler_update_claude_md.log
 
 echo [INFO] Registering: %TASK_NAME%
 
+REM ログディレクトリを作成（存在しない場合）
+if not exist "C:\Users\Administrator\fx_bot\logs" mkdir "C:\Users\Administrator\fx_bot\logs"
+
 REM Delete existing task if present
 schtasks /delete /tn "%TASK_NAME%" /f 2>nul
 
