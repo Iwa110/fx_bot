@@ -5,7 +5,7 @@ history.csvからパフォーマンス統計を計算し、CLAUDE.mdのAUTO_STAT
 
 Task Scheduler設定:
   トリガー: 毎日 07:10 JST（daily_report.py 07:00実行の10分後）
-  操作: python C:\Users\Administrator\fx_bot\vps\update_claude_md.py
+  操作: python C:/Users/Administrator/fx_bot/vps/update_claude_md.py
 """
 
 import os
