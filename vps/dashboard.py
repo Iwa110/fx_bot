@@ -666,34 +666,90 @@ function renderDailyTable() {
 }
 
 /* ── 全取引履歴 ─────────────────────────────────────────────── */
+var HIST_SORTED = [];
+
+function fmtDt(date, time) {
+  if (!date) return '-';
+  return date.slice(5).replace('-', '/') + ' ' + (time || '');
+}
+
 function buildAllTradesSection() {
-  var el = document.getElementById('all-trades-section');
-  if (ALL_TRADES.length === 0) {
-    el.innerHTML = '<div class="empty-msg">取引データなし</div>';
-    return;
-  }
-  var sorted = ALL_TRADES.slice().sort(function(a, b) {
+  HIST_SORTED = ALL_TRADES.slice().sort(function(a, b) {
     var ka = a.close_date + a.close_time, kb = b.close_date + b.close_time;
     return ka > kb ? -1 : ka < kb ? 1 : 0;
   });
+
+  var strategies = ['全て'].concat(
+    ALL_TRADES.map(function(t) { return t.strategy; })
+      .filter(function(v, i, a) { return a.indexOf(v) === i; }).sort()
+  );
+  var symbols = ['全て'].concat(
+    ALL_TRADES.map(function(t) { return t.symbol; })
+      .filter(function(v, i, a) { return a.indexOf(v) === i; }).sort()
+  );
+
+  function sel(id, opts) {
+    return '<select id="hf-' + id + '" onchange="renderHistTable()" style="' +
+      'background:#21262d;color:#c9d1d9;border:1px solid #30363d;' +
+      'padding:4px 8px;border-radius:4px;font-family:inherit;font-size:12px">' +
+      opts.map(function(o) { return '<option>' + o + '</option>'; }).join('') +
+      '</select>';
+  }
+
+  var filterBar = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center">' +
+    '<span style="font-size:11px;color:#8b949e">戦略</span>' + sel('strat', strategies) +
+    '<span style="font-size:11px;color:#8b949e">ペア</span>'  + sel('sym',   symbols)    +
+    '<span style="font-size:11px;color:#8b949e">方向</span>'  + sel('dir',   ['全て', 'BUY', 'SELL']) +
+    '<span style="font-size:11px;color:#8b949e">勝負</span>'  + sel('pnl',   ['全て', '勝ち', '負け']) +
+    '<span id="hf-count" style="font-size:11px;color:#8b949e;margin-left:4px"></span>' +
+    '</div>';
+
+  var el = document.getElementById('all-trades-section');
+  el.innerHTML = filterBar + '<div id="hist-table-wrap"></div>';
+  renderHistTable();
+}
+
+function renderHistTable() {
+  var fStrat = document.getElementById('hf-strat').value;
+  var fSym   = document.getElementById('hf-sym').value;
+  var fDir   = document.getElementById('hf-dir').value;
+  var fPnl   = document.getElementById('hf-pnl').value;
+
+  var rows = HIST_SORTED.filter(function(t) {
+    if (fStrat !== '全て' && t.strategy !== fStrat) return false;
+    if (fSym   !== '全て' && t.symbol   !== fSym)   return false;
+    if (fDir   !== '全て' && t.type     !== fDir)   return false;
+    if (fPnl   === '勝ち' && t.profit   <= 0)       return false;
+    if (fPnl   === '負け' && t.profit   >= 0)       return false;
+    return true;
+  });
+
+  document.getElementById('hf-count').textContent = rows.length + '件';
+
+  if (rows.length === 0) {
+    document.getElementById('hist-table-wrap').innerHTML =
+      '<div class="empty-msg">該当する取引なし</div>';
+    return;
+  }
+
   var html = '<div class="hist-wrap"><table class="hist-table"><thead><tr>' +
-    '<th style="text-align:left">決済日時</th>' +
-    '<th style="text-align:left">エントリー日時</th>' +
+    '<th style="text-align:left">決済</th>' +
+    '<th style="text-align:left">エントリー</th>' +
     '<th style="text-align:left">ペア</th>' +
     '<th style="text-align:left">方向</th>' +
-    '<th>ロット</th>' +
-    '<th>エントリー</th>' +
-    '<th>決済</th>' +
+    '<th>Lot</th>' +
+    '<th>IN</th>' +
+    '<th>OUT</th>' +
     '<th>損益</th>' +
     '<th style="text-align:left">戦略</th>' +
     '</tr></thead><tbody>';
-  sorted.forEach(function(t) {
-    var cls   = colorClass(t.profit);
-    var color = STRATEGY_COLORS[t.strategy] || '#aaaaaa';
+  rows.forEach(function(t) {
+    var cls       = colorClass(t.profit);
+    var color     = STRATEGY_COLORS[t.strategy] || '#aaaaaa';
     var typeColor = t.type === 'BUY' ? '#3fb950' : '#f85149';
     html += '<tr>' +
-      '<td style="text-align:left;white-space:nowrap">' + t.close_date + ' ' + t.close_time + '</td>' +
-      '<td style="text-align:left;white-space:nowrap;color:#8b949e">' + (t.open_date || '-') + ' ' + (t.open_time || '') + '</td>' +
+      '<td style="text-align:left;white-space:nowrap">' + fmtDt(t.close_date, t.close_time) + '</td>' +
+      '<td style="text-align:left;white-space:nowrap;color:#8b949e">' + fmtDt(t.open_date, t.open_time) + '</td>' +
       '<td style="text-align:left;font-weight:bold;color:#79c0ff">' + t.symbol + '</td>' +
       '<td style="text-align:left;color:' + typeColor + '">' + t.type + '</td>' +
       '<td>' + t.lots.toFixed(2) + '</td>' +
@@ -704,7 +760,7 @@ function buildAllTradesSection() {
       '</tr>';
   });
   html += '</tbody></table></div>';
-  el.innerHTML = html;
+  document.getElementById('hist-table-wrap').innerHTML = html;
 }
 
 /* ── オープンポジション ──────────────────────────────────────── */
