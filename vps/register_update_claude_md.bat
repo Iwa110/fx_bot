@@ -15,13 +15,15 @@ REM Delete existing task if present
 schtasks /delete /tn "%TASK_NAME%" /f 2>nul
 
 REM Register task to run daily at 07:10 JST (10 minutes after daily_report.py)
-REM cmd.exe 経由でラッパーbatを実行 → リダイレクトが正しく動作する
+REM /ru Administrator で実行 → git認証情報（Credential Manager）が使用可能
+REM /rp * で登録時にパスワードを入力
 schtasks /create ^
   /tn "%TASK_NAME%" ^
   /tr "cmd /c \"%WRAPPER%\"" ^
   /sc DAILY ^
   /st 07:10 ^
-  /ru SYSTEM ^
+  /ru Administrator ^
+  /rp * ^
   /rl HIGHEST ^
   /f
 
