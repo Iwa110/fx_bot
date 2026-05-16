@@ -1,6 +1,6 @@
 @echo off
 REM sma_squeeze_monitor.bat
-REM Launch sma_squeeze.py for all enabled brokers in parallel (daemon process).
+REM Kill existing sma_squeeze.py daemons, then relaunch for all enabled brokers.
 REM
 REM HOW TO DISABLE A BROKER:
 REM   Set enabled=False in broker_config.py, then REM-out the corresponding start /B line below.
@@ -17,6 +17,13 @@ REM   runs as a true background daemon.
 set PYTHONW=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\sma_squeeze.py
 
+REM ── Kill existing sma_squeeze.py processes ──────────────────────────────────
+echo Killing existing sma_squeeze.py processes...
+powershell -NoProfile -Command ^
+  "Get-WmiObject Win32_Process | Where-Object {$_.CommandLine -like '*sma_squeeze.py*'} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Host ('Killed PID ' + $_.ProcessId) }"
+timeout /T 2 /NOBREAK >nul
+
+REM ── Launch daemons ──────────────────────────────────────────────────────────
 REM axiory (enabled=True, demo)
 start /B "" "%PYTHONW%" "%SCRIPT%" --broker axiory --debug
 
@@ -25,3 +32,5 @@ start /B "" "%PYTHONW%" "%SCRIPT%" --broker exness --debug
 
 REM oanda (enabled=True - IPC issue resolved 2026-05-11, use oanda not oanda_demo)
 start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda --debug
+
+echo sma_squeeze_monitor started (3 brokers).
