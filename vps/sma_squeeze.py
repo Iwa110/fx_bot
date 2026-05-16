@@ -64,7 +64,7 @@ PAIRS_CFG = {
 }
 
 MAX_JPY_LOT   = 0.4
-MAX_TOTAL_POS = 3
+MAX_TOTAL_POS = 5  # 1 per pair (matches BT: each pair runs independently)
 COOLDOWN_MIN  = 180
 LOOP_INTERVAL = 60
 

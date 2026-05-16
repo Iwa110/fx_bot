@@ -101,7 +101,7 @@ EOF
   - USDJPY: daily_sma=20, daily_sp=3 / GBPJPY: daily_sma=20, daily_sp=3
   - EURUSD: daily_sma=50, daily_sp=3 / GBPUSD: daily_sma=20, daily_sp=5
   - EURJPY: daily_sma=20, daily_sp=5
-- **v3変更**: COOLDOWN_MIN=180分（60分→180分）
+- **v3変更**: COOLDOWN_MIN=180分（60分→180分）、MAX_TOTAL_POS=5（3→5、BTと一致）
 - BT PF（日足フィルター後）: USDJPY=1.928 / GBPJPY=1.522 / EURUSD=2.831 / GBPUSD=1.372 / EURJPY=3.748
 
 ### Phase1判定基準
