@@ -76,14 +76,14 @@ EOF
 
 ## 分析コンテキスト（戦略変更時に更新）
 
-**最終更新: 2026-05-15**
+**最終更新: 2026-05-16**
 
 ### 稼働中の戦略
 | 戦略 | magic | 対象ペア | バージョン | 状態 |
 |------|-------|---------|-----------|------|
 | BB | 20250001 | GBPJPY / USDJPY / EURJPY | v22 | ✅ 稼働中 |
 | BB | 20250001 | EURUSD / GBPUSD | v20 | ❌ 停止（enabled=False） |
-| SMA_SQ | 20260010 | USDJPY/GBPJPY/EURUSD/GBPUSD/EURJPY | v2 | ✅ 稼働中（新規） |
+| SMA_SQ | 20260010 | USDJPY/GBPJPY/EURUSD/GBPUSD/EURJPY | v3 | ✅ 稼働中 |
 | stat_arb | 20260001 | GBPJPY/USDJPY・EURUSD/GBPUSD ペア | - | ✅ 稼働中 |
 | MOM_JPY/MOM_GBJ/MOM_GBU/STR | 各magic | 各ペア | - | ✅ trail_monitor管理 |
 
@@ -93,10 +93,16 @@ EOF
 - EURJPY: `htf4h=True`（4h EMA20のみ）+ `fixed_tp_rr=1.5`、Stage2廃止
 - EURUSD/GBPUSD: `enabled=False`（BT PF未達のため停止）
 
-### SMA_SQ v2 現在の設定
+### SMA_SQ v3 現在の設定（2026-05-16更新）
+- 全5ペア稼働: USDJPY / GBPJPY / EURUSD / GBPUSD / EURJPY
 - A-1 SMA_long slope reversal exit（slope_exit=3）: 傾き反転で強制決済
 - B-1 breakeven move（be_r=0.5）: profit≥0.5×SLでSLを建値移動
-- 稼働開始直後のため実績少（n<20）
+- **v3追加**: 日足SMAスロープフィルター（1h/4h方向と日足方向が不一致→スキップ）
+  - USDJPY: daily_sma=20, daily_sp=3 / GBPJPY: daily_sma=20, daily_sp=3
+  - EURUSD: daily_sma=50, daily_sp=3 / GBPUSD: daily_sma=20, daily_sp=5
+  - EURJPY: daily_sma=20, daily_sp=5
+- **v3変更**: COOLDOWN_MIN=180分（60分→180分）
+- BT PF（日足フィルター後）: USDJPY=1.928 / GBPJPY=1.522 / EURUSD=2.831 / GBPUSD=1.372 / EURJPY=3.748
 
 ### Phase1判定基準
 - PF > 1.2 / WR > 50% / DD < 15%
@@ -114,7 +120,7 @@ EOF
 
 3. **戦略別評価**:
    - BB戦略（GBPJPY/USDJPY/EURJPY）: htf4h_rsi_bwフィルター+固定TP(SL×1.5)の効果。
-   - SMA_SQ（新戦略）: 稼働開始直後。データ不足を考慮しつつトレンドを評価。
+   - SMA_SQ v3（全5ペア）: 日足フィルター・COOLDOWN=180追加済み。ログに「daily_slope=DN/UP vs 1h」が出ているか確認。GBPUSDはデータ蓄積目的で再開（実績PF要監視）。
    - stat_arb: ペアトレードとしての機能評価。
 
 4. **改善提案**: PF<0.5のペアや連続損失パターンを特定し、具体的な改善アクションを提案。停止基準（PF<0.5 かつ n≥10）に該当するペアは即時対応を推奨。

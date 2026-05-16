@@ -56,7 +56,7 @@ PAIRS_CFG = {
     'GBPUSD': {'sma_short': 15, 'sma_long': 250, 'squeeze_th': 1.5,
                'slope_period': 20, 'rr': 2.0, 'sl_atr_mult': 1.0,
                'timeframe': '1h', 'be_r': 0.5, 'slope_exit': 3,
-               'daily_sma': 20, 'daily_slope_period': 5, 'enabled': False},
+               'daily_sma': 20, 'daily_slope_period': 5, 'enabled': True},
     'EURJPY': {'sma_short': 15, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 20, 'rr': 2.5, 'sl_atr_mult': 1.5,
                'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3,
