@@ -1,10 +1,12 @@
 """
-sma_squeeze.py - SMA Squeeze Play strategy monitor v2
+sma_squeeze.py - SMA Squeeze Play strategy monitor v3
 Trend-following: SMA200 slope filter + SMA20 squeeze/expansion entry.
 magic: 20260010
 v2 2026-05-12: A-1 SMA_long slope reversal exit + B-1 breakeven SL move
   be_r=0.5 / slope_exit=3 (BT-optimized: sma_squeeze_exit_bt.py, 80 runs)
 v2.1 2026-05-13: enhanced debug logging in check_entry (sub-condition breakdown)
+v3 2026-05-16: daily SMA slope filter (BT: sma_squeeze_daily_filter_bt.py)
+  COOLDOWN_MIN 60->180 / GBPUSD enabled=False (live PF<1.0)
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -41,24 +43,29 @@ def _rsym(base: str) -> str:
 PAIRS_CFG = {
     'USDJPY': {'sma_short': 25, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 5,  'rr': 2.5, 'sl_atr_mult': 1.5,
-               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
+               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3,
+               'daily_sma': 20, 'daily_slope_period': 3, 'enabled': True},
     'GBPJPY': {'sma_short': 25, 'sma_long': 250, 'squeeze_th': 0.5,
                'slope_period': 10, 'rr': 2.0, 'sl_atr_mult': 1.5,
-               'timeframe': '1h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
+               'timeframe': '1h', 'be_r': 0.5, 'slope_exit': 3,
+               'daily_sma': 20, 'daily_slope_period': 3, 'enabled': True},
     'EURUSD': {'sma_short': 25, 'sma_long': 200, 'squeeze_th': 2.0,
                'slope_period': 10, 'rr': 2.5, 'sl_atr_mult': 1.0,
-               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
+               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3,
+               'daily_sma': 50, 'daily_slope_period': 3, 'enabled': True},
     'GBPUSD': {'sma_short': 15, 'sma_long': 250, 'squeeze_th': 1.5,
                'slope_period': 20, 'rr': 2.0, 'sl_atr_mult': 1.0,
-               'timeframe': '1h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
+               'timeframe': '1h', 'be_r': 0.5, 'slope_exit': 3,
+               'daily_sma': 20, 'daily_slope_period': 5, 'enabled': False},
     'EURJPY': {'sma_short': 15, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 20, 'rr': 2.5, 'sl_atr_mult': 1.5,
-               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3, 'enabled': True},
+               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3,
+               'daily_sma': 20, 'daily_slope_period': 5, 'enabled': True},
 }
 
 MAX_JPY_LOT   = 0.4
 MAX_TOTAL_POS = 3
-COOLDOWN_MIN  = 60
+COOLDOWN_MIN  = 180
 LOOP_INTERVAL = 60
 
 DEBUG = False
@@ -119,12 +126,17 @@ def send_discord(msg, webhook):
 # OHLCV fetch
 # ══════════════════════════════════════════
 def get_ohlcv(symbol, tf, n, broker):
-    """Fetch OHLCV from MT5. tf='4h' resamples from 1h bars."""
+    """Fetch OHLCV from MT5. tf='4h'/'1d' resamples from 1h bars."""
     if tf == '4h':
         df_1h = get_ohlcv(symbol, '1h', n * 4 + 20, broker)
         if df_1h is None:
             return None
         return resample_4h(df_1h)
+    if tf == '1d':
+        df_1h = get_ohlcv(symbol, '1h', n * 24 + 48, broker)
+        if df_1h is None:
+            return None
+        return resample_1d(df_1h)
 
     tf_map = {'1h': mt5.TIMEFRAME_H1, '4h': mt5.TIMEFRAME_H4}
     mt5_tf = tf_map.get(tf, mt5.TIMEFRAME_H1)
@@ -147,6 +159,17 @@ def resample_4h(df_1h):
     df4h = df.resample('4h').agg(agg).dropna(subset=['close'])
     df4h.index.name = 'datetime'
     return df4h.reset_index()
+
+
+def resample_1d(df_1h):
+    """Resample 1h DataFrame to daily OHLCV."""
+    df = df_1h.set_index('datetime')
+    agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'}
+    if 'volume' in df.columns:
+        agg['volume'] = 'sum'
+    df1d = df.resample('1D').agg(agg).dropna(subset=['close'])
+    df1d.index.name = 'datetime'
+    return df1d.reset_index()
 
 
 # ══════════════════════════════════════════
@@ -208,10 +231,11 @@ def calc_squeeze_ratio(sma_short_val, sma_long_val):
 # ══════════════════════════════════════════
 # Entry signal
 # ══════════════════════════════════════════
-def check_entry(df, cfg, base_sym=''):
+def check_entry(df, cfg, base_sym='', df_daily=None):
     """
     Check entry on last confirmed bar (iloc[-2]).
     Returns 'long' / 'short' / None.
+    df_daily: daily OHLCV for daily SMA slope filter (v3).
     With debug logging: shows exactly which sub-condition fails and by how much.
     """
     min_bars = cfg['sma_long'] + cfg['slope_period'] + 5
@@ -254,6 +278,21 @@ def check_entry(df, cfg, base_sym=''):
         log_print(base_sym + ': slope=None (non-monotone)  diffs=' +
                   str([round(float(d), 6) for d in diffs]), debug=True)
         return None
+
+    # Daily SMA slope filter (v3 2026-05-16)
+    if df_daily is not None and 'daily_sma' in cfg:
+        daily_sma = cfg['daily_sma']
+        daily_sp  = cfg.get('daily_slope_period', 5)
+        d_ind = df_daily.copy()
+        d_ind['sma_daily'] = d_ind['close'].rolling(daily_sma).mean()
+        daily_slope = calc_slope(d_ind['sma_daily'], daily_sp)
+        if daily_slope is not None:
+            if slope is True and daily_slope is False:
+                log_print(base_sym + ': daily_slope=DN vs 1h UP -> skip', debug=True)
+                return None
+            if slope is False and daily_slope is True:
+                log_print(base_sym + ': daily_slope=UP vs 1h DN -> skip', debug=True)
+                return None
 
     prev_c = prev['close']
     prev_s = prev['sma_short']
@@ -595,8 +634,14 @@ def main_loop(webhook):
                     log_print(base_sym + ': OHLCV fetch failed', debug=True)
                     continue
 
+                # daily filter: fetch daily bars if configured
+                df_daily = None
+                if 'daily_sma' in cfg:
+                    d_n = cfg['daily_sma'] + cfg.get('daily_slope_period', 5) + 5
+                    df_daily = get_ohlcv(symbol, '1d', d_n, BROKER_KEY)
+
                 df_ind    = calc_indicators(df, cfg)
-                direction = check_entry(df_ind, cfg, base_sym)
+                direction = check_entry(df_ind, cfg, base_sym, df_daily=df_daily)
                 if direction is None:
                     continue
 

@@ -12,16 +12,17 @@ C:\Users\Administrator\fx_bot\
 │   ├── trail_monitor.py      # v10
 │   ├── smc_gbpaud.py         # v4 magic=20260002
 │   ├── stat_arb.py           # magic=20260001
-│   ├── sma_squeeze.py        # v2 magic=20260010 (A-1 slope exit + B-1 BE)
+│   ├── sma_squeeze.py        # v3 magic=20260010 (daily filter + COOLDOWN=180 + GBPUSD停止)
 │   └── sma_squeeze_monitor.bat
 ├── optimizer\    # バックテスト・最適化
 │   ├── loop_runner.py
 │   ├── backtest.py
 │   ├── evaluate.py
 │   ├── phase2_ai_analysis.py
-│   ├── make_4h_from_1h.py        # 1h→4hリサンプル
-│   ├── sma_squeeze_bt.py         # グリッドサーチBT（エントリーパラメータ）
-│   └── sma_squeeze_exit_bt.py    # 決済パラメータ最適化BT ★新規
+│   ├── make_4h_from_1h.py                  # 1h→4hリサンプル
+│   ├── sma_squeeze_bt.py                   # グリッドサーチBT（エントリーパラメータ）
+│   ├── sma_squeeze_exit_bt.py              # 決済パラメータ最適化BT
+│   └── sma_squeeze_daily_filter_bt.py      # 日足フィルターBT ★新規
 └── data\         # 14ペア 1h/5m足（*_1h.csvはgit管理）
 ```
 
@@ -43,25 +44,24 @@ C:\Users\Administrator\fx_bot\
 ### stat_arb
 - GBPJPY/USDJPY・EURUSD/GBPUSD、MAX_POS=2ペア
 
-### SMA Squeeze Play v1（新規・未稼働）
+### SMA Squeeze Play v3（稼働中）
 - magic=20260010、STRATEGY_TAG='SMA_SQ'
-- PAIRS: USDJPY/GBPJPY/EURUSD/GBPUSD/EURJPY
-- ロジック: SMA200スロープフィルタ（単調増加/減少）+ SMAスクイーズ解放エントリー
-  - エントリー条件: ADX14>20、divergence_rate≤squeeze_th、SMAスロープ単調、前足がSMAショート側・現足がSMAショート超え＋陽線（long）
-  - 決済: ATR×sl_atr_mult でSL、SL×rr でTP、SMA長期ブレイクで強制決済（優先）
-  - クールダウン: 60分/ペア、MAX_TOTAL_POS=3、MAX_JPY_LOT=0.4
-- BT結果（2024-04-24〜2026-04-24、9720 runs）:
-  | pair   | tf | sma     | sq_th | slp | rr  | sl  |  PF   |  WR   |  n  |
-  |--------|----|---------|----|-----|-----|-----|-------|-------|-----|
-  | USDJPY | 4h | 25/150  | 2.0 | 5   | 2.5 | 1.5 | 1.815 | 43.3% |  30 |
-  | GBPJPY | 1h | 25/250  | 0.5 | 10  | 2.0 | 1.5 | 1.462 | 41.8% |  55 |
-  | EURUSD | 4h | 25/200  | 2.0 | 10  | 2.5 | 1.0 | 2.670 | 46.7% |  30 |
-  | GBPUSD | 1h | 15/250  | 1.5 | 20  | 2.0 | 1.0 | 1.341 | 41.2% | 228 |
-  | EURJPY | 4h | 15/150  | 2.0 | 20  | 2.5 | 1.5 | 3.673 | 56.7% |  30 |
-- 起動: sma_squeeze_monitor.bat（axiory/exness対象、oandaはREM）
-- **v2追加 (2026-05-12)**: A-1 SMA_long slope reversal exit (slope_exit=3) + B-1 BE move (be_r=0.5)
-  - BT (sma_squeeze_exit_bt.py, 80 runs): USDJPY PF+0.17 / GBPJPY +0.22 / EURUSD +0.31 / EURJPY +0.07
-- **注意**: VPS側でgit pull後、sma_squeeze_monitor.batを手動実行して稼働開始すること
+- PAIRS: USDJPY/GBPJPY/EURUSD/EURJPY（GBPUSDは実稼働PF低迷で停止中）
+- ロジック: SMA200スロープフィルタ + SMAスクイーズ解放エントリー + 日足フィルター
+  - エントリー条件: ADX14>20、divergence_rate≤squeeze_th、SMAスロープ単調 + 日足SMA方向一致
+  - 決済: ATR×sl_atr_mult でSL、SL×rr でTP、SMA長期ブレイク強制決済 / slope-exit / BE移動
+  - クールダウン: 180分/ペア（v3: 60→180に変更）、MAX_TOTAL_POS=3、MAX_JPY_LOT=0.4
+- BT結果（日足フィルター追加後、sma_squeeze_daily_filter_bt.py）:
+  | pair   | tf | daily_sma | daily_sp |  PF(base) |  PF(filter) |  n  |
+  |--------|----|-----------|----------|-----------|-------------|-----|
+  | USDJPY | 4h | 20 | 3 | 1.815 | 1.928 | 27 |
+  | GBPJPY | 1h | 20 | 3 | 1.462 | 1.522 | 47 |
+  | EURUSD | 4h | 50 | 3 | 2.670 | 2.831 | 29 |
+  | GBPUSD | 1h | 20 | 5 | 1.341 | 1.372 | 208 | (停止中) |
+  | EURJPY | 4h | 20 | 5 | 3.673 | 3.748 | 29 |
+- **v3追加 (2026-05-16)**: 日足SMAスロープフィルター（1h方向と日足方向が不一致→スキップ）
+  + COOLDOWN_MIN 60→180 / GBPUSD enabled=False
+- **注意**: VPS側でgit pull後、sma_squeeze_monitor.batを手動再起動すること
 
 ## GitHub運用
 - Repo: https://github.com/Iwa110/fx_bot (Public)
@@ -72,7 +72,7 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-12 夜更新）
+## Top of mind（2026-05-16 夜更新）
 ### OANDA MT5接続問題・全ブローカー稼働化（2026-05-11完了）
 - **問題**: Axiory/Exnessに取引がなく、OANDAはterminal.trade_allowed=False
 - **根本原因1（OANDA IPC失敗）**: OANDAのMT5ログで `IPC failed to initialize IPC` / `IPC dispatcher not started` + ヒストリーファイルのERROR_SHARING_VIOLATION[32]を確認。Axiory/ExnessがIPCを先に確保するため
@@ -115,12 +115,19 @@ C:\Users\Administrator\fx_bot\
 - BT結果 (sma_squeeze_exit_bt.py, 80 runs): be_r=0.5が全ペア最優先。slope_exit=3はGBPJPYに効果
 - ヘルパー関数: _close_position() / _check_breakeven() 追加済み
 
+### SMA Squeeze v3 日足フィルター（2026-05-16完了）
+- 問題: GBP急騰局面でSELL方向に9連敗（5/13-14実稼働）。1h slopeだけでは転換検知が遅い
+- 解決: 日足SMA傾きと1h方向が不一致→スキップ（daily_slope_map）
+- BT (sma_squeeze_daily_filter_bt.py, 35 runs): 全ペアでPF改善確認
+  - USDJPY: 1.815→1.928 / GBPJPY: 1.462→1.522 / EURUSD: 2.670→2.831 / EURJPY: 3.673→3.748
+- COOLDOWN_MIN 60→180（連続エントリー抑制強化）
+- GBPUSD enabled=False（実稼働PF<1.0のため停止）
+- 変更ファイル: vps/sma_squeeze.py (v3) / optimizer/sma_squeeze_daily_filter_bt.py (新規)
+
 ### 翌日Chat確認事項
-- VPS: git pull → sma_squeeze_monitor.batを再起動してv2を稼働開始
-- sma_squeeze_log_axiory.txtで「BE:」「slope-exit:」ログが出ているか確認（稼働後）
-- VPS再起動後: OANDA→(60s)Axiory/Exness の起動順でIPC確保。trail_watcher.logで3ブローカーのHBを確認
-- GBPUSDのPF=0.397は特に低い。Stage2 distanceやTP設定を再確認すべきか？
-- EURUSDは41件でPF=0.748。RR改善（Stage2 distance=0.1）が効いていない可能性
+- VPS: git pull → sma_squeeze_monitor.batを再起動してv3を稼働開始
+- sma_squeeze_log_axiory.txtで「daily_slope=DN/UP vs 1h」ログが出ているか確認
+- BB戦略: GBPUSDのPF=0.239 / EURUSDのPF=0.297（直近7日）→ Stage2 distance再検討要
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
 
@@ -184,7 +191,8 @@ C:\Users\Administrator\fx_bot\
 - [x] OANDA MT5接続問題解消・全ブローカー稼働化（2026-05-11完了）
 - [x] SMA Squeeze Play v1 実装・BT完了・PAIRS_CFG最適化（2026-05-12完了）
 - [x] SMA Squeeze v2 決済改善 A-1+B-1 実装・BT最適化（2026-05-12完了）
-- [ ] VPS: git pull → sma_squeeze_monitor.bat再起動（v2稼働開始）
+- [x] SMA Squeeze v3 日足フィルター実装・BT・push（2026-05-16完了）
+- [ ] VPS: git pull → sma_squeeze_monitor.bat再起動（v3稼働開始）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
 - [ ] USDCAD再評価(BT結果待ち)
 - [ ] RR問題の深掘り（GBPUSD/EURUSD優先）
