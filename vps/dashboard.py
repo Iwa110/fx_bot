@@ -43,6 +43,26 @@ PHASE1_N_TARGET = 100   # 目標サンプル数
 PHASE1_BB_PAIRS = ['GBPJPY', 'USDJPY', 'EURUSD', 'GBPUSD']
 
 
+def _close_reason(d_reason: int, d_comment: str, strategy: str) -> str:
+    """MT5 deal の reason/comment から決済条件を返す。"""
+    c = d_comment or ''
+    if strategy == 'SMA_SQ':
+        if 'SLOPE_EXIT' in c:
+            return 'スロープ反転'
+        if 'SMA_SQ_CLOSE' in c:
+            return 'SMAブレイク'
+    elif strategy == 'stat_arb':
+        if 'stat_arb_close' in c:
+            return 'Z決済'
+    if d_reason == mt5.DEAL_REASON_TP:
+        return 'TP'
+    if d_reason == mt5.DEAL_REASON_SL:
+        return 'SL'
+    if d_reason == mt5.DEAL_REASON_CLIENT:
+        return '手動'
+    return 'その他'
+
+
 def fetch_deals_range(from_dt: datetime, to_dt: datetime) -> list:
     """history_deals_get でクローズ済み deal を取得し close_date を含めて返す。"""
     deals = mt5.history_deals_get(from_dt, to_dt)
@@ -67,21 +87,23 @@ def fetch_deals_range(from_dt: datetime, to_dt: datetime) -> list:
         is_buy = (entry_d.type == mt5.DEAL_TYPE_BUY) if entry_d else (d.type == mt5.DEAL_TYPE_SELL)
         close_dt_jst = datetime.fromtimestamp(d.time, tz=JST)
         open_dt_jst  = datetime.fromtimestamp(entry_d.time, tz=JST) if entry_d else close_dt_jst
+        strategy     = MAGIC_MAP[d.magic]
 
         rows.append({
-            'ticket':      d.position_id,
-            'symbol':      d.symbol,
-            'type':        'BUY' if is_buy else 'SELL',
-            'lots':        round(float(d.volume), 2),
-            'open_price':  float(open_price),
-            'close_price': float(d.price),
-            'profit':      round(float(d.profit), 2),
-            'magic':       d.magic,
-            'strategy':    MAGIC_MAP[d.magic],
-            'open_date':   open_dt_jst.strftime('%Y-%m-%d'),
-            'open_time':   open_dt_jst.strftime('%H:%M'),
-            'close_date':  close_dt_jst.strftime('%Y-%m-%d'),
-            'close_time':  close_dt_jst.strftime('%H:%M'),
+            'ticket':        d.position_id,
+            'symbol':        d.symbol,
+            'type':          'BUY' if is_buy else 'SELL',
+            'lots':          round(float(d.volume), 2),
+            'open_price':    float(open_price),
+            'close_price':   float(d.price),
+            'profit':        round(float(d.profit), 2),
+            'magic':         d.magic,
+            'strategy':      strategy,
+            'open_date':     open_dt_jst.strftime('%Y-%m-%d'),
+            'open_time':     open_dt_jst.strftime('%H:%M'),
+            'close_date':    close_dt_jst.strftime('%Y-%m-%d'),
+            'close_time':    close_dt_jst.strftime('%H:%M'),
+            'close_reason':  _close_reason(d.reason, d.comment, strategy),
         })
     return rows
 
@@ -696,11 +718,17 @@ function buildAllTradesSection() {
       '</select>';
   }
 
+  var reasons = ['全て'].concat(
+    ALL_TRADES.map(function(t) { return t.close_reason || 'その他'; })
+      .filter(function(v, i, a) { return a.indexOf(v) === i; }).sort()
+  );
+
   var filterBar = '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px;align-items:center">' +
-    '<span style="font-size:11px;color:#8b949e">戦略</span>' + sel('strat', strategies) +
-    '<span style="font-size:11px;color:#8b949e">ペア</span>'  + sel('sym',   symbols)    +
-    '<span style="font-size:11px;color:#8b949e">方向</span>'  + sel('dir',   ['全て', 'BUY', 'SELL']) +
-    '<span style="font-size:11px;color:#8b949e">勝負</span>'  + sel('pnl',   ['全て', '勝ち', '負け']) +
+    '<span style="font-size:11px;color:#8b949e">戦略</span>'   + sel('strat',  strategies) +
+    '<span style="font-size:11px;color:#8b949e">ペア</span>'   + sel('sym',    symbols)    +
+    '<span style="font-size:11px;color:#8b949e">方向</span>'   + sel('dir',    ['全て', 'BUY', 'SELL']) +
+    '<span style="font-size:11px;color:#8b949e">勝負</span>'   + sel('pnl',    ['全て', '勝ち', '負け']) +
+    '<span style="font-size:11px;color:#8b949e">決済条件</span>' + sel('reason', reasons) +
     '<span id="hf-count" style="font-size:11px;color:#8b949e;margin-left:4px"></span>' +
     '</div>';
 
@@ -710,17 +738,19 @@ function buildAllTradesSection() {
 }
 
 function renderHistTable() {
-  var fStrat = document.getElementById('hf-strat').value;
-  var fSym   = document.getElementById('hf-sym').value;
-  var fDir   = document.getElementById('hf-dir').value;
-  var fPnl   = document.getElementById('hf-pnl').value;
+  var fStrat  = document.getElementById('hf-strat').value;
+  var fSym    = document.getElementById('hf-sym').value;
+  var fDir    = document.getElementById('hf-dir').value;
+  var fPnl    = document.getElementById('hf-pnl').value;
+  var fReason = document.getElementById('hf-reason').value;
 
   var rows = HIST_SORTED.filter(function(t) {
-    if (fStrat !== '全て' && t.strategy !== fStrat) return false;
-    if (fSym   !== '全て' && t.symbol   !== fSym)   return false;
-    if (fDir   !== '全て' && t.type     !== fDir)   return false;
-    if (fPnl   === '勝ち' && t.profit   <= 0)       return false;
-    if (fPnl   === '負け' && t.profit   >= 0)       return false;
+    if (fStrat  !== '全て' && t.strategy     !== fStrat)  return false;
+    if (fSym    !== '全て' && t.symbol       !== fSym)    return false;
+    if (fDir    !== '全て' && t.type         !== fDir)    return false;
+    if (fPnl    === '勝ち' && t.profit       <= 0)        return false;
+    if (fPnl    === '負け' && t.profit       >= 0)        return false;
+    if (fReason !== '全て' && (t.close_reason || 'その他') !== fReason) return false;
     return true;
   });
 
@@ -732,6 +762,16 @@ function renderHistTable() {
     return;
   }
 
+  var REASON_COLORS = {
+    'TP':       '#3fb950',
+    'SL':       '#f85149',
+    'スロープ反転': '#e3b341',
+    'SMAブレイク': '#e3b341',
+    'Z決済':    '#c9d1d9',
+    '手動':     '#8b949e',
+    'その他':   '#8b949e',
+  };
+
   var html = '<div class="hist-wrap"><table class="hist-table"><thead><tr>' +
     '<th style="text-align:left">決済</th>' +
     '<th style="text-align:left">エントリー</th>' +
@@ -741,12 +781,15 @@ function renderHistTable() {
     '<th>IN</th>' +
     '<th>OUT</th>' +
     '<th>損益</th>' +
+    '<th style="text-align:left">決済条件</th>' +
     '<th style="text-align:left">戦略</th>' +
     '</tr></thead><tbody>';
   rows.forEach(function(t) {
-    var cls       = colorClass(t.profit);
-    var color     = STRATEGY_COLORS[t.strategy] || '#aaaaaa';
-    var typeColor = t.type === 'BUY' ? '#3fb950' : '#f85149';
+    var cls         = colorClass(t.profit);
+    var color       = STRATEGY_COLORS[t.strategy] || '#aaaaaa';
+    var typeColor   = t.type === 'BUY' ? '#3fb950' : '#f85149';
+    var reason      = t.close_reason || 'その他';
+    var reasonColor = REASON_COLORS[reason] || '#8b949e';
     html += '<tr>' +
       '<td style="text-align:left;white-space:nowrap">' + fmtDt(t.close_date, t.close_time) + '</td>' +
       '<td style="text-align:left;white-space:nowrap;color:#8b949e">' + fmtDt(t.open_date, t.open_time) + '</td>' +
@@ -756,6 +799,7 @@ function renderHistTable() {
       '<td>' + t.open_price.toFixed(5) + '</td>' +
       '<td>' + t.close_price.toFixed(5) + '</td>' +
       '<td class="' + cls + '">' + fmt2(t.profit) + '</td>' +
+      '<td style="text-align:left;color:' + reasonColor + ';font-weight:bold">' + reason + '</td>' +
       '<td style="text-align:left;border-left:3px solid ' + color + ';padding-left:7px">' + t.strategy + '</td>' +
       '</tr>';
   });
