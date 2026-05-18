@@ -273,9 +273,9 @@ tr:hover td { background: #1c2128; }
 <div class="section">
   <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px">
     <h2 style="margin:0;border:none;padding:0">日別サマリー</h2>
-    <button class="nav-btn" onclick="navDay(-1)">&#8249;</button>
+    <button class="nav-btn" id="nav-prev" onclick="navDay(1)">&#8249;</button>
     <span id="daily-date-label" style="color:#79c0ff;font-weight:bold;font-size:14px;min-width:110px;text-align:center">-</span>
-    <button class="nav-btn" onclick="navDay(1)">&#8250;</button>
+    <button class="nav-btn" id="nav-next" onclick="navDay(-1)">&#8250;</button>
   </div>
   <div id="yesterday-section"></div>
 </div>
@@ -301,6 +301,17 @@ var PHASE1_BB_PAIRS = __PHASE1_BB_PAIRS_JSON__;
 
 var equityChart = null;
 var pairChart   = null;
+
+var PAIR_COLORS = {
+  'GBPJPY': '#ffa657',
+  'USDJPY': '#79c0ff',
+  'EURUSD': '#56d364',
+  'GBPUSD': '#d2a8ff',
+  'EURJPY': '#ff7b72',
+  'AUDJPY': '#e3b341',
+  'USDCAD': '#63e6be',
+  'GBPAUD': '#f0883e',
+};
 
 function getDateCutoff(days) {
   var d = new Date();
@@ -648,8 +659,8 @@ function renderDailyTable() {
   var date = DAY_DATES[DAY_INDEX];
   document.getElementById('daily-date-label').textContent = date;
 
-  var prevBtn = document.querySelector('.nav-btn:first-of-type');
-  var nextBtn = document.querySelector('.nav-btn:last-of-type');
+  var prevBtn = document.getElementById('nav-prev');
+  var nextBtn = document.getElementById('nav-next');
   if (prevBtn) prevBtn.disabled = (DAY_INDEX >= DAY_DATES.length - 1);
   if (nextBtn) nextBtn.disabled = (DAY_INDEX <= 0);
 
@@ -693,6 +704,19 @@ var HIST_SORTED = [];
 function fmtDt(date, time) {
   if (!date) return '-';
   return date.slice(5).replace('-', '/') + ' ' + (time || '');
+}
+
+function calcDuration(openDate, openTime, closeDate, closeTime) {
+  try {
+    var o = new Date((openDate + 'T' + openTime + ':00').replace(/-/g, '/'));
+    var c = new Date((closeDate + 'T' + closeTime + ':00').replace(/-/g, '/'));
+    var diffMin = Math.round((c - o) / 60000);
+    if (isNaN(diffMin) || diffMin < 0) return '-';
+    var h = Math.floor(diffMin / 60);
+    var m = diffMin % 60;
+    if (h === 0) return m + 'm';
+    return h + 'h' + (m > 0 ? m + 'm' : '');
+  } catch(e) { return '-'; }
 }
 
 function buildAllTradesSection() {
@@ -773,11 +797,10 @@ function renderHistTable() {
   };
 
   var html = '<div class="hist-wrap"><table class="hist-table"><thead><tr>' +
-    '<th style="text-align:left">決済</th>' +
+    '<th style="text-align:left">保持時間</th>' +
     '<th style="text-align:left">エントリー</th>' +
     '<th style="text-align:left">ペア</th>' +
     '<th style="text-align:left">方向</th>' +
-    '<th>Lot</th>' +
     '<th>IN</th>' +
     '<th>OUT</th>' +
     '<th>損益</th>' +
@@ -786,21 +809,23 @@ function renderHistTable() {
     '</tr></thead><tbody>';
   rows.forEach(function(t) {
     var cls         = colorClass(t.profit);
-    var color       = STRATEGY_COLORS[t.strategy] || '#aaaaaa';
+    var stratColor  = STRATEGY_COLORS[t.strategy] || '#aaaaaa';
+    var pairColor   = PAIR_COLORS[t.symbol] || '#79c0ff';
     var typeColor   = t.type === 'BUY' ? '#3fb950' : '#f85149';
     var reason      = t.close_reason || 'その他';
     var reasonColor = REASON_COLORS[reason] || '#8b949e';
-    html += '<tr>' +
-      '<td style="text-align:left;white-space:nowrap">' + fmtDt(t.close_date, t.close_time) + '</td>' +
+    var duration    = calcDuration(t.open_date, t.open_time, t.close_date, t.close_time);
+    var closeLabel  = fmtDt(t.close_date, t.close_time);
+    html += '<tr style="border-left:3px solid ' + pairColor + '">' +
+      '<td style="text-align:left;white-space:nowrap;cursor:default" title="決済: ' + closeLabel + '">' + duration + '</td>' +
       '<td style="text-align:left;white-space:nowrap;color:#8b949e">' + fmtDt(t.open_date, t.open_time) + '</td>' +
-      '<td style="text-align:left;font-weight:bold;color:#79c0ff">' + t.symbol + '</td>' +
+      '<td style="text-align:left;font-weight:bold;color:' + pairColor + '">' + t.symbol + '</td>' +
       '<td style="text-align:left;color:' + typeColor + '">' + t.type + '</td>' +
-      '<td>' + t.lots.toFixed(2) + '</td>' +
       '<td>' + t.open_price.toFixed(5) + '</td>' +
       '<td>' + t.close_price.toFixed(5) + '</td>' +
       '<td class="' + cls + '">' + fmt2(t.profit) + '</td>' +
       '<td style="text-align:left;color:' + reasonColor + ';font-weight:bold">' + reason + '</td>' +
-      '<td style="text-align:left;border-left:3px solid ' + color + ';padding-left:7px">' + t.strategy + '</td>' +
+      '<td style="text-align:left;border-left:3px solid ' + stratColor + ';padding-left:7px">' + t.strategy + '</td>' +
       '</tr>';
   });
   html += '</tbody></table></div>';
