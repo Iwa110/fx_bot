@@ -8,11 +8,11 @@ FX自動売買システム。VPS(Windows Server 2022)で複数戦略を並行稼
 ```
 C:\Users\Administrator\fx_bot\
 ├── vps\          # 稼働中ボット
-│   ├── bb_monitor.py         # v17 magic=20250001
+│   ├── bb_monitor.py         # v22 magic=20250001
 │   ├── trail_monitor.py      # v10
 │   ├── smc_gbpaud.py         # v4 magic=20260002
 │   ├── stat_arb.py           # magic=20260001
-│   ├── sma_squeeze.py        # v3 magic=20260010 (daily filter + COOLDOWN=180 + GBPUSD停止)
+│   ├── sma_squeeze.py        # v3 magic=20260010 (daily filter + COOLDOWN=180)
 │   └── sma_squeeze_monitor.bat
 ├── optimizer\    # バックテスト・最適化
 │   ├── loop_runner.py
@@ -29,9 +29,13 @@ C:\Users\Administrator\fx_bot\
 ## 戦略別現状
 
 ### BB戦略
-- PAIRS: GBPJPY/USDJPY/EURUSD/GBPUSD (USDCADは停止中)
-- Stage2 distance: EURUSD=0.1、その他=0.3
-- USDJPY許可時間帯: [21,22,5] UTC
+- PAIRS: GBPJPY/USDJPY/EURJPY（EURUSD/GBPUSD/USDCADは停止中）
+  - EURUSD: v20(2026-05-14)で停止（BT PF最高0.681、BB戦略との相性不良）
+  - GBPUSD: v20(2026-05-14)で停止（実稼働PF=0.397、BT最高0.854で目標未達）
+- htf4h_rsi_bwフィルター: GBPJPY/USDJPYに適用（4h EMA20方向 + RSI条件）
+  - GBPJPY: Buy時RSI<60/Sell時RSI>55。GBP急騰局面ではRSI≥60で両方向ブロック注意
+  - USDJPY: Buy時RSI<55/Sell時RSI>45。RSI中立ゾーン外でもブロック
+- EURJPY: ALLOWED_HOURS_UTC=[9,17]（UTC9時台・17時台のみ）
 - RR問題あり(実RR=0.31 vs 設計1.50)、改善実施済み・データ蓄積中
 
 ### trail_monitor v10
@@ -46,7 +50,7 @@ C:\Users\Administrator\fx_bot\
 
 ### SMA Squeeze Play v3（稼働中）
 - magic=20260010、STRATEGY_TAG='SMA_SQ'
-- PAIRS: USDJPY/GBPJPY/EURUSD/EURJPY（GBPUSDは実稼働PF低迷で停止中）
+- PAIRS: USDJPY/GBPJPY/EURUSD/GBPUSD/EURJPY（全5ペア有効）
 - ロジック: SMA200スロープフィルタ + SMAスクイーズ解放エントリー + 日足フィルター
   - エントリー条件: ADX14>20、divergence_rate≤squeeze_th、SMAスロープ単調 + 日足SMA方向一致
   - 決済: ATR×sl_atr_mult でSL、SL×rr でTP、SMA長期ブレイク強制決済 / slope-exit / BE移動
@@ -121,13 +125,13 @@ C:\Users\Administrator\fx_bot\
 - BT (sma_squeeze_daily_filter_bt.py, 35 runs): 全ペアでPF改善確認
   - USDJPY: 1.815→1.928 / GBPJPY: 1.462→1.522 / EURUSD: 2.670→2.831 / EURJPY: 3.673→3.748
 - COOLDOWN_MIN 60→180（連続エントリー抑制強化）
-- GBPUSD enabled=False（実稼働PF<1.0のため停止）
+- GBPUSD: enabled=True（BT PF=1.372で継続稼働）
 - 変更ファイル: vps/sma_squeeze.py (v3) / optimizer/sma_squeeze_daily_filter_bt.py (新規)
 
 ### 翌日Chat確認事項
-- VPS: git pull → sma_squeeze_monitor.batを再起動してv3を稼働開始
 - sma_squeeze_log_axiory.txtで「daily_slope=DN/UP vs 1h」ログが出ているか確認
-- BB戦略: GBPUSDのPF=0.239 / EURUSDのPF=0.297（直近7日）→ Stage2 distance再検討要
+- BB戦略: GBPJPY/USDJPYのhtf4h_rsi_bwフィルター閾値の見直し検討（GBP急騰局面で両方向ブロック多発）
+- bb_monitor.py: rsi_ok 未チェックバグの修正（エントリー過多方向のバグ、優先度中）
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
 
@@ -193,10 +197,13 @@ C:\Users\Administrator\fx_bot\
 - [x] SMA Squeeze Play v1 実装・BT完了・PAIRS_CFG最適化（2026-05-12完了）
 - [x] SMA Squeeze v2 決済改善 A-1+B-1 実装・BT最適化（2026-05-12完了）
 - [x] SMA Squeeze v3 日足フィルター実装・BT・push（2026-05-16完了）
-- [ ] VPS: git pull → sma_squeeze_monitor.bat再起動（v3稼働開始）
+- [x] bb_monitor v20: EURUSD/GBPUSD停止（2026-05-14完了）
+- [x] bb_monitor v21/v22: GBPJPY/USDJPY htf4h_rsi_bwフィルター追加・EURJPY改善（2026-05-14以降）
+- [ ] VPS: sma_squeeze_monitor.bat再起動確認（v3稼働中か確認）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
+- [ ] bb_monitor: rsi_ok 未チェックバグ修正（エントリー過多方向バグ）
+- [ ] BB htf4h_rsi_bw閾値見直し（GBPJPY RSI<60緩和検討）
 - [ ] USDCAD再評価(BT結果待ち)
-- [ ] RR問題の深掘り（GBPUSD/EURUSD優先）
 
 ## 作業スタイル
 - 作業時間: 夜まとめて1〜2時間
