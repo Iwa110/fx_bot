@@ -852,9 +852,15 @@ function renderHistTable() {
     var reasonColor = REASON_COLORS[reason] || '#8b949e';
     var duration    = calcDuration(t.open_date, t.open_time, t.close_date, t.close_time);
     var closeLabel  = fmtDt(t.close_date, t.close_time);
-    html += '<tr class="clickable-row" style="border-left:3px solid ' + pairColor + '"' +
-      ' onclick="openTradeChart(\'' + t.symbol + '\',' + t.entry_ts + ',' + t.exit_ts +
-      ',\'' + t.strategy + '\',' + t.open_price + ',' + t.close_price + ',' + t.profit + ')">' +
+    html += '<tr class="clickable-row"' +
+      ' data-sym="' + t.symbol + '"' +
+      ' data-ets="' + t.entry_ts + '"' +
+      ' data-xts="' + t.exit_ts + '"' +
+      ' data-strat="' + t.strategy + '"' +
+      ' data-op="' + t.open_price + '"' +
+      ' data-cl="' + t.close_price + '"' +
+      ' data-pnl="' + t.profit + '"' +
+      ' style="border-left:3px solid ' + pairColor + '">' +
       '<td style="text-align:left;white-space:nowrap;cursor:default" title="決済: ' + closeLabel + '">' + duration + '</td>' +
       '<td style="text-align:left;white-space:nowrap;color:#8b949e">' + fmtDt(t.open_date, t.open_time) + '</td>' +
       '<td style="text-align:left;font-weight:bold;color:' + pairColor + '">' + t.symbol + '</td>' +
@@ -1017,6 +1023,12 @@ function closeChartModal() {
 document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeChartModal(); });
 document.getElementById('chart-modal').addEventListener('click', function(e) {
   if (e.target === this) closeChartModal();
+});
+document.addEventListener('click', function(e) {
+  var tr = e.target.closest('.clickable-row');
+  if (!tr || !tr.dataset.sym) return;
+  openTradeChart(tr.dataset.sym, parseInt(tr.dataset.ets), parseInt(tr.dataset.xts),
+    tr.dataset.strat, parseFloat(tr.dataset.op), parseFloat(tr.dataset.cl), parseFloat(tr.dataset.pnl));
 });
 
 /* ── 初期描画 ──────────────────────────────────────────────── */
