@@ -104,6 +104,8 @@ def fetch_deals_range(from_dt: datetime, to_dt: datetime) -> list:
             'close_date':    close_dt_jst.strftime('%Y-%m-%d'),
             'close_time':    close_dt_jst.strftime('%H:%M'),
             'close_reason':  _close_reason(d.reason, d.comment, strategy),
+            'entry_ts':      int(entry_d.time) if entry_d else int(d.time),
+            'exit_ts':       int(d.time),
         })
     return rows
 
@@ -116,6 +118,7 @@ HTML_TEMPLATE = '''<!DOCTYPE html>
 <title>FX Dashboard - __BROKER__</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body {
@@ -206,6 +209,27 @@ tr:hover td { background: #1c2128; }
 .hist-table { font-size: 12px; white-space: nowrap; }
 .hist-table th { font-size: 10px; }
 .hist-table td { padding: 6px 10px; }
+.clickable-row { cursor: pointer; }
+#chart-modal {
+  display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+  background: rgba(0,0,0,0.8); z-index: 1000;
+  align-items: center; justify-content: center;
+}
+.chart-modal-inner {
+  background: #161b22; border: 1px solid #30363d; border-radius: 10px;
+  padding: 20px; width: 93%; max-width: 980px; max-height: 90vh; overflow: auto;
+}
+.chart-modal-header {
+  display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px;
+}
+.chart-modal-title { color: #c9d1d9; font-size: 14px; font-weight: bold; }
+.chart-close-btn {
+  background: none; border: none; color: #8b949e; cursor: pointer;
+  font-size: 22px; line-height: 1; padding: 0 4px; font-family: inherit;
+}
+.chart-close-btn:hover { color: #c9d1d9; }
+#lw-chart-container { width: 100%; height: 420px; }
+.chart-footer { margin-top: 8px; font-size: 11px; color: #8b949e; text-align: right; }
 </style>
 </head>
 <body>
@@ -285,6 +309,17 @@ tr:hover td { background: #1c2128; }
   <div id="all-trades-section"></div>
 </div>
 
+<div id="chart-modal">
+  <div class="chart-modal-inner">
+    <div class="chart-modal-header">
+      <div class="chart-modal-title" id="chart-modal-title"></div>
+      <button class="chart-close-btn" onclick="closeChartModal()">&#x2715;</button>
+    </div>
+    <div id="lw-chart-container"></div>
+    <div class="chart-footer" id="chart-modal-footer"></div>
+  </div>
+</div>
+
 <script>
 Chart.register(ChartDataLabels);
 
@@ -293,6 +328,7 @@ var OPEN_POSITIONS  = __POSITIONS_JSON__;
 var STRATEGY_COLORS = __STRATEGY_COLORS_JSON__;
 var MAX_DAYS        = __DAYS__;
 var YESTERDAY       = '__YESTERDAY__';
+var BROKER          = '__BROKER__';
 var PHASE1_PF_MIN   = __PHASE1_PF_MIN__;
 var PHASE1_WR_MIN   = __PHASE1_WR_MIN__;
 var PHASE1_DD_MAX   = __PHASE1_DD_MAX__;
@@ -816,7 +852,9 @@ function renderHistTable() {
     var reasonColor = REASON_COLORS[reason] || '#8b949e';
     var duration    = calcDuration(t.open_date, t.open_time, t.close_date, t.close_time);
     var closeLabel  = fmtDt(t.close_date, t.close_time);
-    html += '<tr style="border-left:3px solid ' + pairColor + '">' +
+    html += '<tr class="clickable-row" style="border-left:3px solid ' + pairColor + '"' +
+      ' onclick="openTradeChart(\'' + t.symbol + '\',' + t.entry_ts + ',' + t.exit_ts +
+      ',\'' + t.strategy + '\',' + t.open_price + ',' + t.close_price + ',' + t.profit + ')">' +
       '<td style="text-align:left;white-space:nowrap;cursor:default" title="決済: ' + closeLabel + '">' + duration + '</td>' +
       '<td style="text-align:left;white-space:nowrap;color:#8b949e">' + fmtDt(t.open_date, t.open_time) + '</td>' +
       '<td style="text-align:left;font-weight:bold;color:' + pairColor + '">' + t.symbol + '</td>' +
@@ -870,6 +908,116 @@ function setPeriod(days) {
   updatePairChart(trades);
   buildStrategyTable(trades);
 }
+
+/* ── 取引チャートモーダル ────────────────────────────────────── */
+var _lwChart  = null;
+var _lwSeries = null;
+
+/* 戦略×ペアで推奨時間足を決定
+   BB:         H1  (1hBBシグナル + 4hフィルター)
+   SMA_SQ:     ペア別 (USDJPY/EURUSD/EURJPY=4h, GBPJPY/GBPUSD=1h)
+   SMC_GBPAUD: H1  (TF=1h)
+   stat_arb:   H4  (Z決済・hold_period~5日) */
+var SMA_SQ_TF = { 'USDJPY':'H4', 'EURUSD':'H4', 'EURJPY':'H4', 'GBPJPY':'H1', 'GBPUSD':'H1' };
+function _stratTf(strategy, symbol) {
+  if (strategy === 'stat_arb')   return 'H4';
+  if (strategy === 'SMA_SQ')     return SMA_SQ_TF[symbol] || 'H1';
+  return 'H1';
+}
+
+function openTradeChart(symbol, entryTs, exitTs, strategy, entryPrice, exitPrice, profit) {
+  var modal = document.getElementById('chart-modal');
+  modal.style.display = 'flex';
+
+  var holdSec = exitTs - entryTs;
+  var holdH   = Math.floor(holdSec / 3600);
+  var holdM   = Math.round((holdSec % 3600) / 60);
+  var holdStr = holdH > 0 ? holdH + 'h' + (holdM > 0 ? holdM + 'm' : '') : holdM + 'm';
+  var profStr = (profit >= 0 ? '+' : '') + profit.toFixed(2);
+  document.getElementById('chart-modal-title').textContent =
+    symbol + '　' + strategy + '　' + holdStr + '　' + profStr + '円';
+  document.getElementById('chart-modal-footer').textContent = '読み込み中...';
+  document.getElementById('lw-chart-container').innerHTML = '';
+  if (_lwChart) { _lwChart.remove(); _lwChart = null; _lwSeries = null; }
+
+  var tf  = _stratTf(strategy, symbol);
+  var url = '/api/chart?symbol=' + encodeURIComponent(symbol) +
+    '&entry_ts=' + entryTs + '&exit_ts=' + exitTs +
+    '&tf=' + tf + '&broker=' + encodeURIComponent(BROKER);
+
+  fetch(url)
+    .then(function(r) {
+      if (!r.ok) return r.json().then(function(d) { throw new Error(d.error || 'HTTP ' + r.status); });
+      return r.json();
+    })
+    .then(function(data) {
+      if (!data.candles || data.candles.length === 0) throw new Error('ローソク足データなし');
+      _renderLwChart(data.candles, entryTs, exitTs, entryPrice, exitPrice, profit);
+      document.getElementById('chart-modal-footer').textContent =
+        tf + '足 | ' + data.candles.length + '本 | UTC表示';
+    })
+    .catch(function(e) {
+      document.getElementById('lw-chart-container').innerHTML =
+        '<div style="color:#f85149;padding:40px;text-align:center">' + e.message +
+        '<br><span style="color:#8b949e;font-size:11px">dashboard_server.py経由でアクセスしてください</span></div>';
+      document.getElementById('chart-modal-footer').textContent = '';
+    });
+}
+
+function _nearestCandleTime(candles, targetTs) {
+  var best = candles[0].time, bestDiff = Math.abs(targetTs - best);
+  candles.forEach(function(c) {
+    var d = Math.abs(c.time - targetTs);
+    if (d < bestDiff) { bestDiff = d; best = c.time; }
+  });
+  return best;
+}
+
+function _renderLwChart(candles, entryTs, exitTs, entryPrice, exitPrice, profit) {
+  var container = document.getElementById('lw-chart-container');
+  _lwChart = LightweightCharts.createChart(container, {
+    width:  container.clientWidth,
+    height: 420,
+    layout: { background: { color: '#161b22' }, textColor: '#c9d1d9' },
+    grid:   { vertLines: { color: '#21262d' }, horzLines: { color: '#21262d' } },
+    timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#30363d' },
+    rightPriceScale: { borderColor: '#30363d' },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  });
+
+  _lwSeries = _lwChart.addCandlestickSeries({
+    upColor:       '#3fb950', downColor:       '#f85149',
+    borderUpColor: '#3fb950', borderDownColor: '#f85149',
+    wickUpColor:   '#3fb950', wickDownColor:   '#f85149',
+  });
+  _lwSeries.setData(candles);
+
+  _lwSeries.createPriceLine({ price: entryPrice, color: '#3fb950', lineWidth: 1,
+    lineStyle: LightweightCharts.LineStyle.Dashed, title: 'IN ' + entryPrice.toFixed(5) });
+  var outColor = profit >= 0 ? '#3fb950' : '#f85149';
+  _lwSeries.createPriceLine({ price: exitPrice, color: outColor, lineWidth: 1,
+    lineStyle: LightweightCharts.LineStyle.Dashed, title: 'OUT ' + exitPrice.toFixed(5) });
+
+  var tEntry = _nearestCandleTime(candles, entryTs);
+  var tExit  = _nearestCandleTime(candles, exitTs);
+  var markers = [
+    { time: tEntry, position: 'belowBar', color: '#3fb950', shape: 'arrowUp',   text: 'IN'  },
+    { time: tExit,  position: 'aboveBar', color: outColor,  shape: 'arrowDown', text: 'OUT' },
+  ];
+  if (tEntry === tExit) markers.pop();
+  _lwSeries.setMarkers(markers);
+  _lwChart.timeScale().fitContent();
+}
+
+function closeChartModal() {
+  document.getElementById('chart-modal').style.display = 'none';
+  if (_lwChart) { _lwChart.remove(); _lwChart = null; _lwSeries = null; }
+}
+
+document.addEventListener('keydown', function(e) { if (e.key === 'Escape') closeChartModal(); });
+document.getElementById('chart-modal').addEventListener('click', function(e) {
+  if (e.target === this) closeChartModal();
+});
 
 /* ── 初期描画 ──────────────────────────────────────────────── */
 setPeriod(Math.min(MAX_DAYS, 7));

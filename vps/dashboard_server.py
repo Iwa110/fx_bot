@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from flask import Flask, request, Response
+    from flask import Flask, request, Response, jsonify
 except ImportError:
     print('[ERROR] Flask not found: pip install flask')
     sys.exit(1)
@@ -93,6 +93,64 @@ def index():
     except Exception as exc:
         log.exception('unhandled error: %s', exc)
         return Response('[ERROR] {}'.format(exc), status=500, mimetype='text/plain')
+
+
+TF_STR_MAP = {
+    'M5':  mt5.TIMEFRAME_M5,
+    'M15': mt5.TIMEFRAME_M15,
+    'H1':  mt5.TIMEFRAME_H1,
+    'H4':  mt5.TIMEFRAME_H4,
+    'D1':  mt5.TIMEFRAME_D1,
+}
+
+
+@app.route('/api/chart')
+def api_chart():
+    symbol   = request.args.get('symbol', '').upper()
+    tf_str   = request.args.get('tf', 'H1').upper()
+    broker   = request.args.get('broker', 'axiory')
+    try:
+        entry_ts = int(request.args.get('entry_ts', 0))
+        exit_ts  = int(request.args.get('exit_ts', 0))
+    except ValueError:
+        return jsonify({'error': 'invalid timestamps'}), 400
+
+    if not symbol or entry_ts == 0 or exit_ts == 0:
+        return jsonify({'error': 'missing parameters'}), 400
+    if broker not in VALID_BROKERS:
+        broker = 'axiory'
+
+    tf = TF_STR_MAP.get(tf_str, mt5.TIMEFRAME_H1)
+    hold_sec   = max(exit_ts - entry_ts, 3600)
+    buffer_sec = max(hold_sec // 2, 7200)   # 最低2hバッファ
+    from_dt = datetime.fromtimestamp(entry_ts - buffer_sec, tz=timezone.utc)
+    to_dt   = datetime.fromtimestamp(exit_ts  + buffer_sec, tz=timezone.utc)
+
+    log.info('api/chart: symbol=%s tf=%s broker=%s entry=%d exit=%d', symbol, tf_str, broker, entry_ts, exit_ts)
+
+    try:
+        if not connect_mt5(broker):
+            return jsonify({'error': 'MT5 connection failed'}), 500
+
+        try:
+            rates = mt5.copy_rates_range(symbol, tf, from_dt, to_dt)
+        finally:
+            disconnect_mt5()
+
+        if rates is None or len(rates) == 0:
+            return jsonify({'error': 'No rate data (symbol={} tf={})'.format(symbol, tf_str)}), 404
+
+        candles = [
+            {'time': int(r['time']), 'open': float(r['open']),
+             'high': float(r['high']), 'low': float(r['low']), 'close': float(r['close'])}
+            for r in rates
+        ]
+        log.info('api/chart: %d candles returned', len(candles))
+        return jsonify({'candles': candles, 'entry_ts': entry_ts, 'exit_ts': exit_ts, 'tf_label': tf_str})
+
+    except Exception as exc:
+        log.exception('api/chart error: %s', exc)
+        return jsonify({'error': str(exc)}), 500
 
 
 if __name__ == '__main__':
