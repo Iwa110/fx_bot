@@ -35,6 +35,9 @@ C:\Users\Administrator\fx_bot\
 - htf4h_rsi_bwフィルター: GBPJPY/USDJPYに適用（4h EMA20方向 + RSI条件）
   - GBPJPY: Buy時RSI<60/Sell時RSI>55。GBP急騰局面ではRSI≥60で両方向ブロック注意
   - USDJPY: Buy時RSI<55/Sell時RSI>45。RSI中立ゾーン外でもブロック
+  - RSI閾値は現状維持（意図的設計）
+- rsi_ok未チェック: calc_bb_signal()内でrsi_filter()結果を参照しない実装は**意図的仕様**
+  - RSIはログ記録のみ、エントリー可否はhtf4h_rsi_bwフィルターで判断する設計
 - EURJPY: ALLOWED_HOURS_UTC=[9,17]（UTC9時台・17時台のみ）
 - RR問題あり(実RR=0.31 vs 設計1.50)、改善実施済み・データ蓄積中
 
@@ -130,8 +133,7 @@ C:\Users\Administrator\fx_bot\
 
 ### 翌日Chat確認事項
 - sma_squeeze_log_axiory.txtで「daily_slope=DN/UP vs 1h」ログが出ているか確認
-- BB戦略: GBPJPY/USDJPYのhtf4h_rsi_bwフィルター閾値の見直し検討（GBP急騰局面で両方向ブロック多発）
-- bb_monitor.py: rsi_ok 未チェックバグの修正（エントリー過多方向のバグ、優先度中）
+- BB戦略: htf4h_rsi_bwフィルターによるブロック頻度を実稼働ログで確認
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
 
@@ -201,8 +203,6 @@ C:\Users\Administrator\fx_bot\
 - [x] bb_monitor v21/v22: GBPJPY/USDJPY htf4h_rsi_bwフィルター追加・EURJPY改善（2026-05-14以降）
 - [ ] VPS: sma_squeeze_monitor.bat再起動確認（v3稼働中か確認）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
-- [ ] bb_monitor: rsi_ok 未チェックバグ修正（エントリー過多方向バグ）
-- [ ] BB htf4h_rsi_bw閾値見直し（GBPJPY RSI<60緩和検討）
 - [ ] USDCAD再評価(BT結果待ち)
 
 ## 作業スタイル
