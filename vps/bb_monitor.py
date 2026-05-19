@@ -1,5 +1,5 @@
 """
-bb_monitor.py  - BB逆張り戦略（5分毎実行）v23
+bb_monitor.py  - BB逆張り戦略（5分毎実行）v25
 v14:
   - ALLOWED_HOURS_UTC辞書を追加（ペア別UTC時間帯フィルター）
   - main()ループに時間帯チェックを追加（空リスト=停止、None=制限なし）
@@ -66,6 +66,16 @@ v24 GBPJPY/USDJPY sl_atr_mult調整（3.0→2.5）(2026-05-19)
     USDJPY sl=2.5 rr=1.5: PF=1.147 WR=41.9% n=422（sl=3.0時PF=1.139から改善）
     EURJPY sl=2.5 rr=1.5: PF=1.058 WR=41.3% n=889（sl=3.5で1.124だが過適合リスク→維持）
   trail_monitor v14 と組み合わせ（BB_GBPJPY/USDJPY/EURJPY Stage3無効化）で実稼働確認
+v25 GBPJPY/USDJPY max_pos 1→2（同一ペア複数ポジション解禁）(2026-05-19)
+  - GBPJPY: max_pos 1→2（is_dupをmax_pos>1時スキップに変更）
+  - USDJPY: max_pos 1→2
+  - EURJPY: max_pos=1 維持（BT全期間PF<1.0のため対象外）
+  - is_dup チェック: max_pos==1 の場合のみ有効（max_pos>1はcount_by_strategyで管理）
+  BT根拠 (bb_maxpos_bt.py + bb_maxpos_opt_bt.py, 2026-05-19):
+    GBPJPY max_pos=2 cd=3: PF=1.099 WR=43.3% n=478（max_pos=1 PF=1.048から+0.051）
+    USDJPY max_pos=2 cd=3: PF=1.157 WR=41.3% n=375（max_pos=1 PF=1.030から+0.127）
+    sl_atr_mult/tp_sl_ratio変更なし（グリッドサーチで2.5/1.5が最良と確認）
+    sigma_boost_2nd（2枚目厳格化）効果なし → 2枚目は1枚目と同条件
 """
 
 import sys, os, ssl, json, argparse
@@ -125,7 +135,7 @@ BB_PAIRS = {
         'sl_atr_mult': 1.5,  # 停止中・変更なし
     },
     'GBPJPY': {
-        'is_jpy': True, 'max_pos': 1, 'sigma': None,
+        'is_jpy': True, 'max_pos': 2, 'sigma': None,  # v25: 1→2
         'filter_type': None,  # v20: F1フィルター削除（htf4h後は追加効果ゼロのためシンプル化）
         'sl_atr_mult': 2.5,  # v24: 3.0→2.5（BT: PF=1.105 vs 3.0時PF=1.015）
         'fixed_tp_rr': 1.5,  # v21: Stage2廃止→固定TP(SL×1.5)
@@ -139,7 +149,7 @@ BB_PAIRS = {
         'fixed_tp_rr': 1.5,    # v22: Stage2廃止→固定TP(SL×1.5)
     },
     'USDJPY': {
-        'is_jpy': True, 'max_pos': 1, 'sigma': 2.0,
+        'is_jpy': True, 'max_pos': 2, 'sigma': 2.0,  # v25: 1→2
         'filter_type': None,  # v20: F1フィルター削除（htf4h後は追加効果ゼロのためシンプル化）
         'sl_atr_mult': 2.5,  # v24: 3.0→2.5（BT: PF=1.147 vs 3.0時PF=1.139）
         'fixed_tp_rr': 1.5,  # v21: Stage2廃止→固定TP(SL×1.5)
@@ -857,7 +867,8 @@ def main():
         if count_by_strategy(strategy) >= cfg['max_pos']:
             skipped += 1
             continue
-        if is_dup(symbol, strategy, logf):
+        if cfg['max_pos'] == 1 and is_dup(symbol, strategy, logf):
+            # max_pos>1 は count_by_strategy で管理するため is_dup スキップ
             skipped += 1
             continue
         if count_total() >= MAX_TOTAL_POS:
