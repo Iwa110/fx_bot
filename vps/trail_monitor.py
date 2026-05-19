@@ -1,4 +1,4 @@
-# trail_monitor.py v14
+# trail_monitor.py v15
 # トレーリングストップ監視スクリプト
 #
 # 【対象戦略】
@@ -40,6 +40,15 @@
 #       → H1 ATR × 4.5のTP距離に対してStage3がTP前3-5%で発動し小利益刈り取り
 #       → 実稼働70件のうちTP到達はわずか2件、trail/SL勝ちの平均=687円（設計TP大幅未達）
 #       → trail無効化でTP一本勝負に変更（BT: GBPJPY PF=1.105/USDJPY 1.147/EURJPY 1.058）
+#   v15 Trail再設計BT確認（2026-05-19、optimizer/trail_redesign_bt.py）
+#       TP比率ベースtrail（選択肢C）のグリッドサーチ実施
+#         activate=[0.3-0.8] × distance=[0.05-0.20] 全96パターン × 3ペア
+#       結果: 全パラメータでtrail無効(v14 act=99)以下
+#         GBPJPY: 最良trail PF=1.028 < trail無効 PF=1.105
+#         USDJPY: 最良trail PF=1.079 < trail無効 PF=1.147
+#         EURJPY: 最良trail PF=1.014 < trail無効 PF=1.058
+#       → BB平均回帰エントリーはtrail発動が常に不利（activateを上げるほど改善し極限=無効）
+#       → BB_GBPJPY/USDJPY/EURJPY: stage3_activate=99 維持確定
 
 import MetaTrader5 as mt5
 import argparse, json, os, socket, time, urllib.request, sys
