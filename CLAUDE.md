@@ -79,7 +79,7 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-16 夜更新）
+## Top of mind（2026-05-19 夜更新）
 ### OANDA MT5接続問題・全ブローカー稼働化（2026-05-11完了）
 - **問題**: Axiory/Exnessに取引がなく、OANDAはterminal.trade_allowed=False
 - **根本原因1（OANDA IPC失敗）**: OANDAのMT5ログで `IPC failed to initialize IPC` / `IPC dispatcher not started` + ヒストリーファイルのERROR_SHARING_VIOLATION[32]を確認。Axiory/ExnessがIPCを先に確保するため
@@ -131,9 +131,27 @@ C:\Users\Administrator\fx_bot\
 - GBPUSD: enabled=True（BT PF=1.372で継続稼働）
 - 変更ファイル: vps/sma_squeeze.py (v3) / optimizer/sma_squeeze_daily_filter_bt.py (新規)
 
+### BB戦略 実RR問題改善（2026-05-19完了）
+- **根本原因**: trail_monitor(5m ATR) vs bb_monitor(H1 ATR)のATRミスマッチ
+  - Stage3発動 = 5m_ATR×1.2 ≈ H1_ATRベースTP前3-5%地点で早期発動
+  - 実稼働70件: TP到達わずか2件(2.9%)、trail/SL勝ちの平均=+687円（設計TP大幅未達）
+  - 実RR=0.276 vs 設計1.5 → 81.6%未達
+- **対策1 (主)**: trail_monitor v14: BB_GBPJPY/USDJPY/EURJPY の stage3_activate=1.2→99（実質無効化）
+  - TP一本勝負に変更。BT(trail無効): GBPJPY PF=1.105 / USDJPY 1.147 / EURJPY 1.058
+- **対策2 (副)**: bb_monitor v24: GBPJPY/USDJPY sl_atr_mult=3.0→2.5
+  - BT: GBPJPY PF=1.105 / USDJPY 1.147（sl=3.0時比 +0.09/+0.008 改善）
+  - RR引き上げ(案B)はWR低下でPF悪化→採用せず
+- **変更ファイル**:
+  - vps/trail_monitor.py (v14): BB_GBPJPY/USDJPY/EURJPY stage3_activate=99
+  - vps/bb_monitor.py (v24): GBPJPY/USDJPY sl_atr_mult=3.0→2.5
+  - optimizer/backtest.py: BB_PAIRS_CFG GBPJPY/USDJPY sl_atr_mult=2.5
+  - optimizer/bb_rr_analysis.py / bb_rr_bt.py（新規）
+  - strategy_spec.md: §1テーブル・§11テーブル更新
+
 ### 翌日Chat確認事項
 - sma_squeeze_log_axiory.txtで「daily_slope=DN/UP vs 1h」ログが出ているか確認
-- BB戦略: htf4h_rsi_bwフィルターによるブロック頻度を実稼働ログで確認
+- BB戦略: v24適用後、trail_logに Stage3 ログが出なくなっているか確認（VPS git pull + trail_monitor再起動必要）
+- BB戦略: TP到達件数が増えているか history.csv で確認（目安1〜2週間後）
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
 
@@ -197,6 +215,8 @@ C:\Users\Administrator\fx_bot\
 - [x] SMA Squeeze v3 日足フィルター実装・BT・push（2026-05-16完了）
 - [x] bb_monitor v20: EURUSD/GBPUSD停止（2026-05-14完了）
 - [x] bb_monitor v21/v22: GBPJPY/USDJPY htf4h_rsi_bwフィルター追加・EURJPY改善（2026-05-14以降）
+- [x] BB戦略 実RR改善: trail_monitor v14(Stage3無効化) + bb_monitor v24(sl縮小)（2026-05-19完了）
+- [ ] VPS: git pull + trail_monitorを再起動（bb_monitor v24/trail_monitor v14 反映）
 - [ ] VPS: sma_squeeze_monitor.bat再起動確認（v3稼働中か確認）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
 - [ ] USDCAD再評価(BT結果待ち)

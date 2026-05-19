@@ -57,6 +57,15 @@ v23 EURUSD RSI閾値厳格化パラメータ追記 (2026-05-19)
   - EURUSD: rsi_buy_max=35, rsi_sell_min=65 追加（BT推奨値）
     BT根拠 (eurusd_bb_bt.py, 2026-05-19, 5mデータ3.5ヶ月): rsi=35/65 PF=2.906 n=12
     ※ rsi_okはcalc_bb_signal内で未チェック（意図的仕様）= BT/ログ反映のみ。enabled=False継続
+v24 GBPJPY/USDJPY sl_atr_mult調整（3.0→2.5）(2026-05-19)
+  - GBPJPY: sl_atr_mult 3.0→2.5
+  - USDJPY: sl_atr_mult 3.0→2.5
+  - EURJPY: sl_atr_mult 2.5 変更なし
+  BT根拠 (bb_rr_bt.py, 2026-05-19, trail無効化=TP一本勝負):
+    GBPJPY sl=2.5 rr=1.5: PF=1.105 WR=42.6% n=850（sl=3.0時PF=1.015から改善）
+    USDJPY sl=2.5 rr=1.5: PF=1.147 WR=41.9% n=422（sl=3.0時PF=1.139から改善）
+    EURJPY sl=2.5 rr=1.5: PF=1.058 WR=41.3% n=889（sl=3.5で1.124だが過適合リスク→維持）
+  trail_monitor v14 と組み合わせ（BB_GBPJPY/USDJPY/EURJPY Stage3無効化）で実稼働確認
 """
 
 import sys, os, ssl, json, argparse
@@ -118,7 +127,7 @@ BB_PAIRS = {
     'GBPJPY': {
         'is_jpy': True, 'max_pos': 1, 'sigma': None,
         'filter_type': None,  # v20: F1フィルター削除（htf4h後は追加効果ゼロのためシンプル化）
-        'sl_atr_mult': 3.0,  # BT採用値
+        'sl_atr_mult': 2.5,  # v24: 3.0→2.5（BT: PF=1.105 vs 3.0時PF=1.015）
         'fixed_tp_rr': 1.5,  # v21: Stage2廃止→固定TP(SL×1.5)
         'bw_ratio':    1.2,  # v21 GBPJPY filter added: BBwidth > 20bar_avg × 1.2
         'bw_lookback': 20,   # v21 GBPJPY filter added
@@ -132,7 +141,7 @@ BB_PAIRS = {
     'USDJPY': {
         'is_jpy': True, 'max_pos': 1, 'sigma': 2.0,
         'filter_type': None,  # v20: F1フィルター削除（htf4h後は追加効果ゼロのためシンプル化）
-        'sl_atr_mult': 3.0,  # BT採用値
+        'sl_atr_mult': 2.5,  # v24: 3.0→2.5（BT: PF=1.147 vs 3.0時PF=1.139）
         'fixed_tp_rr': 1.5,  # v21: Stage2廃止→固定TP(SL×1.5)
         'bw_ratio':    0.8,  # v21 USDJPY BBwidth filter added: BBwidth > 30bar_avg × 0.8
         'bw_lookback': 30,   # v21 USDJPY BBwidth filter added (GBPJPYはratio=1.2,lb=20で別管理)
