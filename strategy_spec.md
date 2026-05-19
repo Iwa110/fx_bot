@@ -7,7 +7,7 @@
 
 ## 目次
 
-1. [BB逆張り戦略](#1-bb逆張り戦略-bb_monitorpy-v19)
+1. [BB逆張り戦略](#1-bb逆張り戦略-bb_monitorpy-v23)
 2. [MOM モメンタム順張り](#2-mom-モメンタム順張り-daily_tradepy)
 3. [CORR 平均回帰](#3-corr-平均回帰-daily_tradepy)
 4. [STR 通貨強弱](#4-str-通貨強弱-daily_tradepy)
@@ -22,7 +22,7 @@
 
 ---
 
-## 1. BB逆張り戦略 (bb_monitor.py v20)
+## 1. BB逆張り戦略 (bb_monitor.py v23)
 
 ### 概要
 ボリンジャーバンドの逆張り戦略。5分足でBBタッチを検出し、上位足フィルターを適用。
@@ -37,18 +37,23 @@
 
 ### 対象通貨ペア・設定
 
-| ペア | 有効 | JPY系 | σ値 | SL倍率(ATR) | ペア別フィルター | 時間帯制限(UTC) |
-|------|------|-------|-----|-------------|-----------------|----------------|
-| GBPJPY | ✅ | ✓ | 1.5 | 3.0 | なし (v20: F1削除) | 制限なし |
-| USDJPY | ✅ | ✓ | 2.0 | 3.0 | なし (v20: F1削除) | 制限なし |
-| EURUSD | 停止中 | - | 1.5 | 1.2 | なし | 全停止 (v20) |
-| GBPUSD | 停止中 | - | 1.5 | 1.2 | なし | 全停止 (v20) |
-| EURJPY | 停止中 | ✓ | 1.5 | 2.5 | F1andF2 (mom=5, div=10p) | 9h,17h |
-| USDCAD | 停止中 | - | 1.5 | 1.5 | なし | 全停止 |
+| ペア | 有効 | JPY系 | σ値 | SL倍率(ATR) | TP倍率 | ペア別フィルター | 時間帯制限(UTC) |
+|------|------|-------|-----|-------------|--------|-----------------|----------------|
+| GBPJPY | ✅ | ✓ | 1.5 | 3.0 | SL×1.5 | htf4h_rsi_bw (Buy RSI<60/Sell RSI>55, BBwidth>20avg×1.2) | 制限なし |
+| USDJPY | ✅ | ✓ | 2.0 | 3.0 | SL×1.5 | htf4h_rsi_bw (Buy RSI<55/Sell RSI>45, BBwidth>30avg×0.8) | 制限なし |
+| EURJPY | ✅ | ✓ | 1.5 | 2.5 | SL×1.5 | htf4h_only (4h EMA20方向一致のみ) | 9h,17h |
+| EURUSD | 停止中 | - | 1.5 | 1.2 | - | なし (データ蓄積中) | 全停止 (v20) |
+| GBPUSD | 停止中 | - | 1.5 | 1.2 | - | なし | 全停止 (v20) |
+| USDCAD | 停止中 | - | 1.5 | 1.5 | - | なし | 全停止 |
 
-**v20停止理由:**
-- EURUSD: BT全組合せ最高PF=0.681 (N=132)、BB戦略との相性不良
-- GBPUSD: 実稼働PF=0.397、BT最高PF=0.854 (N=153)、目標未達
+**停止理由:**
+- EURUSD (v20停止): BT全組合せ最高PF=0.681 (N=132)、BB戦略との相性不良
+- GBPUSD (v20停止): 実稼働PF=0.397、BT最高PF=0.854 (N=153)、目標未達
+
+**EURUSDパラメータ (v23 BT推奨値・稼働再開時参照用):**
+- `sl_atr_mult=1.2`, `bb_width_th=0.002`, `rsi_buy_max=35`, `rsi_sell_min=65`
+- BT根拠 (eurusd_bb_bt.py, 2026-05-19, 5mデータ3.5ヶ月): rsi=35/65 PF=2.906 n=12
+- 注意: rsi_ok は calc_bb_signal 内で未チェック（意図的仕様）→ RSI値はログのみ反映
 
 ### エントリー条件（フィルター適用順）
 
@@ -62,25 +67,32 @@
 - 終値 <= lower → BUY方向
 
 **Step 3: RSIフィルター (RSI14)**
-- BUY方向: RSI ≤ 40
-- SELL方向: RSI ≥ 60
+- BUY方向: RSI ≤ 40 (グローバルデフォルト)
+- SELL方向: RSI ≥ 60 (グローバルデフォルト)
+- **注意**: rsi_ok は `calc_bb_signal()` 内で**チェックされない**（意図的仕様）
+  - RSI値はログ記録のみ。ペア別 rsi_buy_max/rsi_sell_min を設定しても live 動作には影響しない
+  - エントリー可否は Step 5 の htf4h_rsi_bw フィルターで管理
 
-**Step 4: ペア別追加フィルター**
-- v20: GBPJPY/USDJPY ともに filter_type=None（htf4h後はF1追加効果ゼロのためシンプル化）
+**Step 4: ペア別追加フィルター（参照のみ・現行未使用）**
+- v20以降: GBPJPY/USDJPY/EURJPY ともに filter_type=None
 
 | フィルター | 内容 |
 |-----------|------|
 | F1 Momentum | 直近N本の終値モメンタム（BUY→下落中、SELL→上昇中） |
 | F2 Divergence | 合成レートとの乖離確認（JPYペアのみ: EURJPY=EURUSD×USDJPY、GBPJPY=GBPUSD×USDJPY） |
-| F1andF2 / F2andF1 | 両フィルターAND結合（評価順が異なる） |
 
-**Step 5: 4時間足EMA20フィルター（GBPJPY/USDJPY）**
-- 4h終値 > EMA20 → BUYのみ許可
-- 4h終値 < EMA20 → SELLのみ許可
+**Step 5: 4時間足フィルター（ペア別）**
+
+| ペア | フィルター種別 | Buy条件 | Sell条件 |
+|------|--------------|---------|---------|
+| GBPJPY | htf4h_rsi_bw | 4h EMA20上方 + RSI<60 + BBwidth>20avg×1.2 | EMA20下方 + RSI>55 + BBwidth |
+| USDJPY | htf4h_rsi_bw | 4h EMA20上方 + RSI<55 + BBwidth>30avg×0.8 | EMA20下方 + RSI>45 + BBwidth |
+| EURJPY | htf4h_only   | 4h終値 > EMA20 | 4h終値 < EMA20 |
 
 ### 決済条件
-- **TP**: ATR(H1 14本)×3.0 → trail_monitorがStage2/Stage3でSLを移動
-- **SL**: ATR(H1 14本)×sl_atr_mult（ペア別、上表参照）
+- **TP**: SL × fixed_tp_rr (ペア別・上表参照)
+  - v21以降: Stage2トレーリングSL廃止 → 固定TP採用
+- **SL**: ATR(H1 14本) × sl_atr_mult（ペア別、上表参照）
 - trail_monitorによるトレーリングストップ管理（→ §11参照）
 
 ### ロット計算
