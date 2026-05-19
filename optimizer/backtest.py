@@ -48,7 +48,7 @@ BB_PAIRS_CFG = {
     'EURJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5},
     'AUDJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
     'USDJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 2.0, 'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5, 'use_htf4h': True},
-    'EURUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.2, 'tp_sl_ratio': 1.5, 'use_htf4h': True, 'bb_width_th': 0.002},
+    'EURUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.2, 'tp_sl_ratio': 1.5, 'use_htf4h': True, 'bb_width_th': 0.002, 'rsi_buy_max': 35, 'rsi_sell_min': 65},  # v23 RSI厳格化
     'GBPUSD': {'is_jpy': False, 'pip_unit': 0.0001, 'bb_sigma': 1.5, 'sl_atr_mult': 1.2, 'tp_sl_ratio': 1.5, 'use_htf4h': False},
 }
 

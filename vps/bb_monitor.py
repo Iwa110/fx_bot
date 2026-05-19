@@ -1,5 +1,5 @@
 """
-bb_monitor.py  - BB逆張り戦略（5分毎実行）v22
+bb_monitor.py  - BB逆張り戦略（5分毎実行）v23
 v14:
   - ALLOWED_HOURS_UTC辞書を追加（ペア別UTC時間帯フィルター）
   - main()ループに時間帯チェックを追加（空リスト=停止、None=制限なし）
@@ -53,6 +53,10 @@ v22 EURJPY F1andF2廃止→htf4h_only + 固定TP (2026-05-14)
     ベースライン(htf4h_only) → PF=1.645 WR=50.0% N=30（全データ）
     期間分割検証(A/B/C): PF=2.903/1.078/1.543 全期間>1.0 → STABLE
     フィルター追加(rsi+bw)はPeriod_C PF=0.610で過適合 → htf4h_onlyを採用
+v23 EURUSD RSI閾値厳格化パラメータ追記 (2026-05-19)
+  - EURUSD: rsi_buy_max=35, rsi_sell_min=65 追加（BT推奨値）
+    BT根拠 (eurusd_bb_bt.py, 2026-05-19, 5mデータ3.5ヶ月): rsi=35/65 PF=2.906 n=12
+    ※ rsi_okはcalc_bb_signal内で未チェック（意図的仕様）= BT/ログ反映のみ。enabled=False継続
 """
 
 import sys, os, ssl, json, argparse
@@ -139,6 +143,8 @@ BB_PAIRS = {
         'filter_type': None,
         'sl_atr_mult': 1.2,      # v19 BT採用値 (旧3.0)
         'bb_width_th': 0.0020,   # v19 低ボラ除外（BB幅<0.0020 pipsスキップ）
+        'rsi_buy_max':  35,      # v23 BT推奨値（旧デフォルト45）※rsi_okは未チェック=ログのみ
+        'rsi_sell_min': 65,      # v23 BT推奨値（旧デフォルト55）
     },
     'GBPUSD': {
         'enabled': False,        # 実稼働PF=0.397, BT最高0.854で目標未達のため停止 (v20)
