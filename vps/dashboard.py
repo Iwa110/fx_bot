@@ -744,8 +744,8 @@ function fmtDt(date, time) {
 
 function calcDuration(openDate, openTime, closeDate, closeTime) {
   try {
-    var o = new Date((openDate + 'T' + openTime + ':00').replace(/-/g, '/'));
-    var c = new Date((closeDate + 'T' + closeTime + ':00').replace(/-/g, '/'));
+    var o = new Date(openDate.replace(/-/g, '/') + ' ' + openTime + ':00');
+    var c = new Date(closeDate.replace(/-/g, '/') + ' ' + closeTime + ':00');
     var diffMin = Math.round((c - o) / 60000);
     if (isNaN(diffMin) || diffMin < 0) return '-';
     var h = Math.floor(diffMin / 60);
