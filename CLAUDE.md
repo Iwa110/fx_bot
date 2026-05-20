@@ -8,12 +8,14 @@ FX自動売買システム。VPS(Windows Server 2022)で複数戦略を並行稼
 ```
 C:\Users\Administrator\fx_bot\
 ├── vps\          # 稼働中ボット
-│   ├── bb_monitor.py         # v22 magic=20250001
-│   ├── trail_monitor.py      # v10
+│   ├── bb_monitor.py         # v24 magic=20250001
+│   ├── trail_monitor.py      # v14
 │   ├── smc_gbpaud.py         # v4 magic=20260002
 │   ├── stat_arb.py           # magic=20260001
 │   ├── sma_squeeze.py        # v3 magic=20260010 (daily filter + COOLDOWN=180)
-│   └── sma_squeeze_monitor.bat
+│   ├── sma_squeeze_monitor.bat
+│   ├── cot_monitor.py        # v1 magic=20260020 ★新規
+│   └── cot_monitor.bat       # ★新規
 ├── optimizer\    # バックテスト・最適化
 │   ├── loop_runner.py
 │   ├── backtest.py
@@ -22,7 +24,10 @@ C:\Users\Administrator\fx_bot\
 │   ├── make_4h_from_1h.py                  # 1h→4hリサンプル
 │   ├── sma_squeeze_bt.py                   # グリッドサーチBT（エントリーパラメータ）
 │   ├── sma_squeeze_exit_bt.py              # 決済パラメータ最適化BT
-│   └── sma_squeeze_daily_filter_bt.py      # 日足フィルターBT ★新規
+│   ├── sma_squeeze_daily_filter_bt.py      # 日足フィルターBT
+│   ├── cot_extreme_bt.py                   # COT戦略BT ★新規
+│   ├── vix_riskoff_jpy_bt.py               # VIX Risk-Off BT ★新規
+│   └── event_squeeze_bt.py                 # Pre-Event Squeeze BT ★新規
 └── data\         # 14ペア 1h/5m足（*_1h.csvはgit管理）
 ```
 
@@ -70,6 +75,23 @@ C:\Users\Administrator\fx_bot\
   + COOLDOWN_MIN 60→180 / GBPUSD enabled=False
 - **注意**: VPS側でgit pull後、sma_squeeze_monitor.batを手動再起動すること
 
+### COT極値×日足トレンド v1（新規追加・2026-05-20）
+- magic=20260020、STRATEGY_TAG='COT'
+- PAIRS: EURUSD/GBPUSD/USDJPY（各1ポジション、最大3）
+- データ源: CFTC Socrata API（毎週金曜20:30 UTC更新、`cot_cache.json`で7日キャッシュ）
+- ロジック: COT Index(156週ローリング) >90 → 逆張りSHORT / <10 → 逆張りLONG
+  + D1 EMA50フィルター（トレンド方向一致のみ）
+  + 最大保有14日でmax_hold強制決済
+- BT結果（cot_extreme_bt.py, 2023-07-14〜2026-02-27）:
+  | ペア | n | 勝率 | PF |
+  |------|---|------|----|
+  | EURUSD | 16 | 75% | 1.940 |
+  | GBPUSD | 17 | 94% | 9.739 |
+  | USDJPY | 17 | 71% | 1.958 |
+  | 全体 | 50 | 80% | 1.968 |
+- **注意**: LONG方向PF=5.888 vs SHORT方向PF=0.983（相場環境依存）。SHORT実稼働を重点監視
+- **VPS起動**: cot_monitor.bat を手動実行 or Task Schedulerに追加
+
 ## GitHub運用
 - Repo: https://github.com/Iwa110/fx_bot (Public)
 - VPS更新フロー: commit/push → VPS側でgit pull
@@ -79,7 +101,7 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-19 夜更新）
+## Top of mind（2026-05-20 夜更新）
 ### OANDA MT5接続問題・全ブローカー稼働化（2026-05-11完了）
 - **問題**: Axiory/Exnessに取引がなく、OANDAはterminal.trade_allowed=False
 - **根本原因1（OANDA IPC失敗）**: OANDAのMT5ログで `IPC failed to initialize IPC` / `IPC dispatcher not started` + ヒストリーファイルのERROR_SHARING_VIOLATION[32]を確認。Axiory/ExnessがIPCを先に確保するため
@@ -148,12 +170,21 @@ C:\Users\Administrator\fx_bot\
   - optimizer/bb_rr_analysis.py / bb_rr_bt.py（新規）
   - strategy_spec.md: §1テーブル・§11テーブル更新
 
+### COT極値×日足トレンド v1 実装完了（2026-05-20）
+- **BT結果**: n=50, WR=80%, PF=1.968（cot_extreme_bt.py, 2023-07-14〜2026-02-27）
+  - GBPUSD: WR=94% PF=9.739 / EURUSD: WR=75% PF=1.940 / USDJPY: WR=71% PF=1.958
+- **データ**: CFTC Socrata API（dataset gpe5-46if, TFF FutOnly Leveraged Funds）
+- **Magic**: 20260020、BROKER: oanda、ループ1時間
+- **懸念**: LONG方向PF=5.888 vs SHORT方向PF=0.983（2023-2026 USD強含みバイアス）
+- **変更ファイル**: vps/cot_monitor.py (v1) / vps/cot_monitor.bat / strategy_spec.md §13追加
+
 ### 翌日Chat確認事項
 - sma_squeeze_log_axiory.txtで「daily_slope=DN/UP vs 1h」ログが出ているか確認
 - BB戦略: v24適用後、trail_logに Stage3 ログが出なくなっているか確認（VPS git pull + trail_monitor再起動必要）
 - BB戦略: TP到達件数が増えているか history.csv で確認（目安1〜2週間後）
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
+- **COT**: VPS git pull後、cot_monitor.bat実行。cot_monitor_log_oanda.txtでCOT Index値確認
 
 ## 最新パフォーマンス統計（自動更新）
 <!-- AUTO_STATS_BEGIN -->
@@ -213,9 +244,12 @@ C:\Users\Administrator\fx_bot\
 - [x] bb_monitor v20: EURUSD/GBPUSD停止（2026-05-14完了）
 - [x] bb_monitor v21/v22: GBPJPY/USDJPY htf4h_rsi_bwフィルター追加・EURJPY改善（2026-05-14以降）
 - [x] BB戦略 実RR改善: trail_monitor v14(Stage3無効化) + bb_monitor v24(sl縮小)（2026-05-19完了）
+- [x] COT極値戦略 BT実施・cot_monitor.py v1 実装（2026-05-20完了）
 - [ ] VPS: git pull + trail_monitorを再起動（bb_monitor v24/trail_monitor v14 反映）
 - [ ] VPS: sma_squeeze_monitor.bat再起動確認（v3稼働中か確認）
+- [ ] VPS: cot_monitor.bat 初回起動（git pull後）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
+- [ ] COT: 2〜3ヶ月後にSHORT方向実稼働PFを確認（BT=0.983と乖離あれば停止検討）
 - [ ] USDCAD再評価(BT結果待ち)
 
 ## 作業スタイル

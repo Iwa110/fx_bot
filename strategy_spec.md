@@ -12,13 +12,14 @@
 3. [CORR 平均回帰](#3-corr-平均回帰-daily_tradepy)
 4. [STR 通貨強弱](#4-str-通貨強弱-daily_tradepy)
 5. [TRI 三角裁定](#5-tri-三角裁定-daily_tradepy)
-6. [SMA Squeeze Play](#6-sma-squeeze-play-sma_squeezepy-v2)
+6. [SMA Squeeze Play](#6-sma-squeeze-play-sma_squeezepy-v3)
 7. [stat_arb 統計的裁定](#7-stat_arb-統計的裁定-stat_arb_monitorpy)
 8. [TOD 時間帯別平均回帰](#8-tod-時間帯別平均回帰-tod_monitorpy)
 9. [200MA Pinbar](#9-200ma-pinbar-ma200_pin_barpy)
 10. [SMC_GBPAUD](#10-smc_gbpaud-trail_monitorpy-管理)
 11. [トレーリングストップ共通仕様](#11-トレーリングストップ共通仕様-trail_monitorpy)
 12. [共通リスク管理](#12-共通リスク管理-risk_managerpy)
+13. [COT極値×日足トレンド](#13-cot極値日足トレンド-cot_monitorpy-v1)
 
 ---
 
@@ -675,3 +676,86 @@ lot = clamp(lot, MIN=0.01, MAX=0.2)
 | SMC_GBPAUD | 20260002 | `SMC_GBPAUD` | smc_gbpaud.py (別管理) |
 | 200MA Pinbar | 20260003 | `ma200_pinbar` | ma200_pin_bar.py |
 | SMA Squeeze | 20260010 | `SMA_SQ_{PAIR}` | sma_squeeze.py |
+| COT極値 | 20260020 | `COT_{PAIR}` | cot_monitor.py |
+
+---
+
+## 13. COT極値×日足トレンド (cot_monitor.py v1)
+
+### 概要
+CFTC TFF（Traders in Financial Futures）レポートのLeveraged Funds COT Index（156週ローリング）が極値（>90 or <10）に達したペアで、D1 EMA50トレンドと一致する方向にスイングエントリー。週次ファンダメンタル×テクニカルの複合戦略。
+
+### 基本情報
+| 項目 | 値 |
+|------|-----|
+| Magic番号 | **20260020** |
+| 注文コメント | `COT_{PAIR}` |
+| ループ間隔 | 3600秒（1時間） |
+| 最大総ポジション | 3（1ペアにつき1） |
+| 最大保有日数 | 14日（max_hold_days強制決済） |
+| 稼働ブローカー | oanda（週次シグナルのため1ブローカーで十分） |
+
+### COTデータ仕様
+| 項目 | 値 |
+|------|-----|
+| データ源 | CFTC Socrata API (`publicreporting.cftc.gov/resource/gpe5-46if.json`) |
+| レポート種別 | TFF FutOnly（Leveraged Funds Net）|
+| COT Index計算 | 156週ローリング (s - min) / (max - min) × 100 |
+| 更新タイミング | 毎週金曜 20:30 UTC（火曜引け・3日ラグ） |
+| キャッシュ | `cot_cache.json`（7日間有効・金曜夜に自動更新） |
+| 強制更新 | `--refresh-cot` フラグ |
+
+### 対象ペア・設定
+| ペア | CFTC コード | Sign | COT High閾値 | COT Low閾値 | 有効 |
+|------|------------|------|------------|-----------|------|
+| EURUSD | 099741 | +1 | >90 → SHORT | <10 → LONG | ✅ |
+| GBPUSD | 096742 | +1 | >90 → SHORT | <10 → LONG | ✅ |
+| USDJPY | 097741 | -1 | >90 → LONG | <10 → SHORT | ✅ |
+
+**Signの意味:**
+- +1: 先物ロングネット増加 = 通貨高 = 価格上昇方向
+- -1: JPY先物は USD/JPY と逆向き（JPY先物Long = USDJPY下落）→ 符号反転
+
+### エントリー条件（順番）
+1. **COT Index極値確認**: >90（ロング偏り過剰→逆張りSHORT）または <10（ショート偏り過剰→逆張りLONG）
+2. **D1 EMA50フィルター**: 終値がEMA50より上 → LONGのみ許可 / EMA50より下 → SHORTのみ許可
+3. **ポジション確認**: 同一ペアにポジションなし、総ポジション < 3
+
+### 決済条件
+| 条件 | 詳細 |
+|------|------|
+| TP | エントリーから 3.0×ATR(14, D1) |
+| SL | エントリーから 1.5×ATR(14, D1) |
+| 強制決済 | 14日経過 → `check_max_hold()` でクローズ |
+
+### バックテスト結果（cot_extreme_bt.py、2023-07-14〜2026-02-27）
+| ペア | n | 勝率 | PF | 備考 |
+|------|---|------|----|------|
+| EURUSD | 16 | 75% | 1.940 | |
+| GBPUSD | 17 | 94% | 9.739 | LONG方向特に強い |
+| USDJPY | 17 | 71% | 1.958 | |
+| **全体** | **50** | **80%** | **1.968** | |
+
+**感度分析（COT閾値）:**
+| 閾値 | n | 勝率 | PF |
+|-----|---|------|----|
+| >90/<10 | 21 | 81% | 6.344 |
+| >80/<20 | 50 | 80% | 1.968 |
+
+**注意事項:**
+- LONG方向PF=5.888 vs SHORT方向PF=0.983（2023-2026のUSD強含み相場影響）
+- SHORT方向の実稼働パフォーマンスを重点監視すること
+- 週1〜2回程度のエントリー頻度（低頻度・高期待値型）
+
+### 起動方法
+```bat
+REM VPS上で実行
+C:\Users\Administrator\fx_bot\vps\cot_monitor.bat
+
+REM COTデータ強制更新して起動する場合
+pythonw.exe cot_monitor.py --broker oanda --refresh-cot
+```
+
+### ログファイル
+- `cot_monitor_log_oanda.txt`（メインログ）
+- `cot_cache.json`（COTデータキャッシュ）
