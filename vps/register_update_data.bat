@@ -15,4 +15,3 @@ if %ERRORLEVEL% == 0 (
 ) else (
     echo [ERROR] Failed to register task. Run as Administrator.
 )
-pause
