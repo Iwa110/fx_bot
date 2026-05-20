@@ -286,7 +286,7 @@
 <!-- §1 BB -->
 <div class="section" id="s1">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>1. BB逆張り戦略 <small style="font-size:11px;color:var(--muted)">bb_monitor.py v24</small></h2>
+    <h2>1. BB逆張り戦略 <small style="font-size:11px;color:var(--muted)">bb_monitor.py v26</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
@@ -304,14 +304,14 @@
     <h3>対象通貨ペア</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>状態</th><th>σ値</th><th>max_pos</th><th>SL(ATR×)</th><th>TP</th><th>フィルター</th></tr></thead>
+        <thead><tr><th>ペア</th><th>状態</th><th>σ値</th><th>max_pos</th><th>SL(ATR×)</th><th>TP</th><th>動的決済</th><th>フィルター</th></tr></thead>
         <tbody>
-          <tr><td><strong>GBPJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>1.5</td><td>2</td><td>2.5</td><td>SL×1.5</td><td>htf4h_rsi_bw<br><small>Buy RSI&lt;60 / Sell RSI&gt;55, BBwidth&gt;20avg×1.2</small></td></tr>
-          <tr><td><strong>USDJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>2.0</td><td>2</td><td>2.5</td><td>SL×1.5</td><td>htf4h_rsi_bw<br><small>Buy RSI&lt;55 / Sell RSI&gt;45, BBwidth&gt;30avg×0.8</small></td></tr>
-          <tr><td><strong>EURJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>1.5</td><td>1</td><td>2.5</td><td>SL×1.5</td><td>htf4h_only (EMA20方向一致)<br><small style="color:var(--muted)">時間帯: UTC 9h,17h のみ</small></td></tr>
-          <tr><td>EURUSD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.2</td><td>-</td><td>-</td></tr>
-          <tr><td>GBPUSD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.2</td><td>-</td><td>-</td></tr>
-          <tr><td>USDCAD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.5</td><td>-</td><td>-</td></tr>
+          <tr><td><strong>GBPJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>1.5</td><td>2</td><td>2.5</td><td>SL×1.5</td><td>なし</td><td>htf4h_rsi_bw<br><small>Buy RSI&lt;60 / Sell RSI&gt;55, BBwidth&gt;20avg×1.2</small></td></tr>
+          <tr><td><strong>USDJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>2.0</td><td>2</td><td>2.5</td><td>SL×1.5</td><td><strong>T_max=8h + exp TP Decay(τ=8h)</strong></td><td>htf4h_rsi_bw<br><small>Buy RSI&lt;55 / Sell RSI&gt;45, BBwidth&gt;30avg×0.8</small></td></tr>
+          <tr><td><strong>EURJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>1.5</td><td>1</td><td>2.5</td><td>SL×1.5</td><td><strong>T_max=6h 強制決済</strong></td><td>htf4h_only (EMA20方向一致)<br><small style="color:var(--muted)">時間帯: UTC 9h,17h のみ</small></td></tr>
+          <tr><td>EURUSD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.2</td><td>-</td><td>-</td><td>-</td></tr>
+          <tr><td>GBPUSD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.2</td><td>-</td><td>-</td><td>-</td></tr>
+          <tr><td>USDCAD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.5</td><td>-</td><td>-</td><td>-</td></tr>
         </tbody>
       </table>
     </div>
@@ -320,6 +320,18 @@
       <strong>停止理由:</strong><br>
       EURUSD: BT全組合せ最高PF=0.681 (N=132)、BB戦略との相性不良<br>
       GBPUSD: 実稼働PF=0.397、BT最高PF=0.854 (N=153)、目標未達
+    </div>
+
+    <h3>動的決済（v26）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>T_max</th><th>TP Decay</th><th>BT根拠 (OOS PF)</th></tr></thead>
+        <tbody>
+          <tr><td>USDJPY</td><td>8時間超過で強制決済</td><td>指数減衰 τ=8h<br><small>TP(t) = init × (1/3.75 + 2.75/3.75 × exp(-t/8))</small></td><td>1.137 → <strong>1.211</strong> (+6.5%)</td></tr>
+          <tr><td>EURJPY</td><td>6時間超過で強制決済</td><td>なし（TP固定）</td><td>1.047 → <strong>1.137</strong> (+8.7%)</td></tr>
+          <tr><td>GBPJPY</td><td>なし</td><td>なし</td><td>T_max追加で 1.130→1.079 に劣化のため対象外</td></tr>
+        </tbody>
+      </table>
     </div>
 
     <h3>エントリー条件（フィルター適用順）</h3>

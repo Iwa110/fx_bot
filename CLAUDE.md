@@ -178,9 +178,20 @@ C:\Users\Administrator\fx_bot\
 - **懸念**: LONG方向PF=5.888 vs SHORT方向PF=0.983（2023-2026 USD強含みバイアス）
 - **変更ファイル**: vps/cot_monitor.py (v1) / vps/cot_monitor.bat / strategy_spec.md §13追加
 
+### BB戦略 動的決済 v26 実装完了（2026-05-20）
+- **USDJPY**: T_max=8h 強制決済 + 指数TP Decay(τ=8h)
+  - TP(t) = initial_tp_dist × (1/3.75 + 2.75/3.75 × exp(-t/8)) → 8h後に強制決済
+  - BT: Baseline OOS PF=1.137 → exp_tau8 OOS PF=1.211 (+6.5%)
+- **EURJPY**: T_max=6h 強制決済のみ（TP変更なし）
+  - BT: Baseline OOS PF=1.047 → T_max=6h OOS PF=1.137 (+8.7%)
+- **GBPJPY**: 変更なし（T_max追加でOOS PF=1.130→1.079 に劣化）
+- **変更ファイル**: vps/bb_monitor.py (v26) / strategy_spec.md §1 / strategy_spec.html §1
+- **ログ確認**: `[DynTP]` / `[TimeStop]` ログが bb_log_oanda.txt に出ること
+
 ### 翌日Chat確認事項
 - sma_squeeze_log_axiory.txtで「daily_slope=DN/UP vs 1h」ログが出ているか確認
 - BB戦略: v24適用後、trail_logに Stage3 ログが出なくなっているか確認（VPS git pull + trail_monitor再起動必要）
+- **BB v26**: git pull後、bb_log_oanda.txtで `[DynTP]` / `[TimeStop]` ログ確認（USDJPY 8h超・EURJPY 6h超のポジションがあれば）
 - BB戦略: TP到達件数が増えているか history.csv で確認（目安1〜2週間後）
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
@@ -245,7 +256,8 @@ C:\Users\Administrator\fx_bot\
 - [x] bb_monitor v21/v22: GBPJPY/USDJPY htf4h_rsi_bwフィルター追加・EURJPY改善（2026-05-14以降）
 - [x] BB戦略 実RR改善: trail_monitor v14(Stage3無効化) + bb_monitor v24(sl縮小)（2026-05-19完了）
 - [x] COT極値戦略 BT実施・cot_monitor.py v1 実装（2026-05-20完了）
-- [ ] VPS: git pull + trail_monitorを再起動（bb_monitor v24/trail_monitor v14 反映）
+- [x] BB戦略 動的決済 v26 実装: USDJPY T_max=8h+exp TP Decay / EURJPY T_max=6h（2026-05-20完了）
+- [ ] VPS: git pull + trail_monitorを再起動（bb_monitor v26/trail_monitor v14 反映）
 - [ ] VPS: sma_squeeze_monitor.bat再起動確認（v3稼働中か確認）
 - [ ] VPS: cot_monitor.bat 初回起動（git pull後）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録

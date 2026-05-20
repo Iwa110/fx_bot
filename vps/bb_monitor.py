@@ -1,5 +1,5 @@
 """
-bb_monitor.py  - BB逆張り戦略（5分毎実行）v25
+bb_monitor.py  - BB逆張り戦略（5分毎実行）v26
 v14:
   - ALLOWED_HOURS_UTC辞書を追加（ペア別UTC時間帯フィルター）
   - main()ループに時間帯チェックを追加（空リスト=停止、None=制限なし）
@@ -76,9 +76,18 @@ v25 GBPJPY/USDJPY max_pos 1→2（同一ペア複数ポジション解禁）(202
     USDJPY max_pos=2 cd=3: PF=1.157 WR=41.3% n=375（max_pos=1 PF=1.030から+0.127）
     sl_atr_mult/tp_sl_ratio変更なし（グリッドサーチで2.5/1.5が最良と確認）
     sigma_boost_2nd（2枚目厳格化）効果なし → 2枚目は1枚目と同条件
+v26 USDJPY T_max=8h+exp TP Decay / EURJPY T_max=6h 強制決済追加 (2026-05-20)
+  - USDJPY: 8時間超過で強制決済 + TP指数減衰(τ=8h)
+    TP(t) = initial_tp_dist × (1/3.75 + 2.75/3.75 × exp(-t/8)) ※ floor=ATR×1.0相当
+  - EURJPY: 6時間超過で強制決済（TP変更なし）
+  - GBPJPY: 変更なし（BTでT_max追加→OOS PF劣化 1.130→1.079のため対象外）
+  BT根拠 (optimizer/bb_dynamic_exit_bt.py, IS=60%/OOS=40%, 5m足):
+    USDJPY: Baseline OOS PF=1.137 → exp_tau8 OOS PF=1.211 (+6.5%)
+    EURJPY: Baseline OOS PF=1.047 → T_max=6h OOS PF=1.137 (+8.7%)
+    GBPJPY: T_max追加でOOS PF劣化(1.130→1.079)のため変更なし
 """
 
-import sys, os, ssl, json, argparse
+import sys, os, ssl, json, argparse, math
 from datetime import datetime, timedelta, timezone
 import MetaTrader5 as mt5
 import pandas as pd
@@ -147,6 +156,8 @@ BB_PAIRS = {
         'filter_type': None,   # v22: F1andF2廃止（htf4h_only + 固定TPに移行）
         'sl_atr_mult': 2.5,    # BT採用値（変更なし）
         'fixed_tp_rr': 1.5,    # v22: Stage2廃止→固定TP(SL×1.5)
+        't_max_h':     6,      # v26: 6時間超過で強制決済（TP変更なし）
+        'tp_decay':    None,   # v26: TP減衰なし（強制決済のみ）
     },
     'USDJPY': {
         'is_jpy': True, 'max_pos': 2, 'sigma': 2.0,  # v25: 1→2
@@ -155,6 +166,9 @@ BB_PAIRS = {
         'fixed_tp_rr': 1.5,  # v21: Stage2廃止→固定TP(SL×1.5)
         'bw_ratio':    0.8,  # v21 USDJPY BBwidth filter added: BBwidth > 30bar_avg × 0.8
         'bw_lookback': 30,   # v21 USDJPY BBwidth filter added (GBPJPYはratio=1.2,lb=20で別管理)
+        't_max_h':     8,    # v26: 8時間超過で強制決済
+        'tp_decay':    'exp',  # v26: 指数TP減衰
+        'tp_decay_tau': 8.0,   # v26: τ=8時間
     },
     'EURUSD': {
         'enabled': False,        # BT PF<0.7, BB戦略との相性不良により停止 (v20)
@@ -809,6 +823,120 @@ def place_order(symbol, base_sym, sig, logf, webhook):
     return True
 
 # ══════════════════════════════════════════
+# 動的決済管理（v26）
+# ══════════════════════════════════════════
+def manage_dynamic_exit(logf, webhook):
+    """
+    BB戦略 動的決済管理（v26）
+    - USDJPY: T_max=8h 強制決済 + 指数TP decay (τ=8h)
+    - EURJPY: T_max=6h 強制決済のみ
+    5分毎に main() から呼び出す。
+    """
+    positions = mt5.positions_get()
+    if not positions:
+        return
+
+    now_ts = datetime.now(timezone.utc).timestamp()
+
+    for p in positions:
+        if p.magic != 20250001:
+            continue
+
+        # comment から ベースペア名を取得（'BB_USDJPY' → 'USDJPY'）
+        comment = p.comment
+        if not comment.startswith('BB_'):
+            continue
+        base_sym = comment[3:]
+
+        cfg = BB_PAIRS.get(base_sym)
+        if cfg is None:
+            continue
+
+        t_max_h      = cfg.get('t_max_h')
+        tp_decay     = cfg.get('tp_decay')
+        tp_decay_tau = cfg.get('tp_decay_tau', 8.0)
+
+        if t_max_h is None:
+            continue  # GBPJPY: 管理対象外
+
+        elapsed_h = (now_ts - p.time) / 3600.0
+        direction = 1 if p.type == mt5.ORDER_TYPE_BUY else -1
+
+        # ── TP Decay 更新（USDJPY: exp decay）──────────────────────
+        if tp_decay == 'exp' and p.tp != 0:
+            initial_tp_dist = abs(p.tp - p.price_open)
+            if initial_tp_dist > 0:
+                ratio        = (1.0 / 3.75) + (2.75 / 3.75) * math.exp(-elapsed_h / tp_decay_tau)
+                new_tp_dist  = initial_tp_dist * ratio
+                new_tp_price = p.price_open + direction * new_tp_dist
+
+                info = mt5.symbol_info(p.symbol)
+                if info is None:
+                    continue
+                new_tp_rounded = round(new_tp_price, info.digits)
+                cur_tp_rounded = round(p.tp, info.digits)
+
+                # TP を建値方向（利確距離縮小）にのみ動かす
+                tp_moved = direction * (new_tp_rounded - cur_tp_rounded)
+                if tp_moved < -info.point * 0.5:
+                    req = {
+                        'action':   mt5.TRADE_ACTION_SLTP,
+                        'position': p.ticket,
+                        'tp':       new_tp_rounded,
+                        'sl':       p.sl,
+                    }
+                    res = mt5.order_send(req)
+                    if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                        log('[DynTP] ' + base_sym + ' ticket=' + str(p.ticket) +
+                            ' elapsed=' + f'{elapsed_h:.1f}' + 'h' +
+                            ' TP ' + str(cur_tp_rounded) + '->' + str(new_tp_rounded), logf)
+                    else:
+                        code = res.retcode if res else 'None'
+                        log('[DynTP] order_modify失敗 ' + base_sym + ' code=' + str(code), logf)
+
+        # ── T_max 強制決済 ─────────────────────────────────────────
+        if elapsed_h >= t_max_h:
+            tick = mt5.symbol_info_tick(p.symbol)
+            if tick is None:
+                log('[TimeStop] tick取得失敗 ' + base_sym, logf)
+                continue
+
+            close_type  = mt5.ORDER_TYPE_SELL if direction == 1 else mt5.ORDER_TYPE_BUY
+            close_price = tick.bid if direction == 1 else tick.ask
+
+            info = mt5.symbol_info(p.symbol)
+            if info is None:
+                continue
+
+            req = {
+                'action':       mt5.TRADE_ACTION_DEAL,
+                'symbol':       p.symbol,
+                'volume':       p.volume,
+                'type':         close_type,
+                'price':        close_price,
+                'deviation':    20,
+                'magic':        20250001,
+                'comment':      'BB_time_stop',
+                'type_time':    mt5.ORDER_TIME_GTC,
+                'type_filling': mt5.ORDER_FILLING_IOC,
+            }
+            res = mt5.order_send(req)
+            if res and res.retcode == mt5.TRADE_RETCODE_DONE:
+                pnl = round((close_price - p.price_open) * direction
+                            * p.volume * info.trade_contract_size)
+                msg = ('[TimeStop] ' + base_sym + ' ticket=' + str(p.ticket) +
+                       ' elapsed=' + f'{elapsed_h:.1f}' + 'h' +
+                       ' >= ' + str(t_max_h) + 'h → 強制決済' +
+                       ' PnL≈' + ('+' if pnl >= 0 else '') + str(pnl) + '円')
+                log(msg, logf)
+                send_discord(msg, webhook)
+            else:
+                code = res.retcode if res else 'None'
+                log('[TimeStop] 強制決済失敗 ' + base_sym +
+                    ' ticket=' + str(p.ticket) + ' code=' + str(code), logf)
+
+
+# ══════════════════════════════════════════
 # メイン
 # ══════════════════════════════════════════
 def main():
@@ -854,6 +982,9 @@ def main():
     if not check_daily_loss(logf, webhook):
         disconnect_mt5()
         return
+
+    # 動的決済管理（T_max / TP Decay）v26
+    manage_dynamic_exit(logf, webhook)
 
     executed = 0
     skipped  = 0
@@ -952,7 +1083,7 @@ def main():
             executed += 1
 
     now = datetime.now().strftime('%H:%M')
-    log('[' + now + '] BB v21完了: 発注' + str(executed) + '件 ' +
+    log('[' + now + '] BB v26完了: 発注' + str(executed) + '件 ' +
         'スキップ' + str(skipped) + '件 ' +
         'ポジション' + str(count_total()) + '/' + str(MAX_TOTAL_POS) +
         ' broker=' + BROKER_KEY)
