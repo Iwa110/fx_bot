@@ -1,0 +1,1030 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FX Bot 戦略仕様書</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg2: #1a1d27;
+    --bg3: #22263a;
+    --border: #2e3350;
+    --text: #e0e4f0;
+    --muted: #7a809a;
+    --accent: #5b8fff;
+    --accent2: #7c5bff;
+    --green: #3dd68c;
+    --red: #ff5b5b;
+    --yellow: #f5c518;
+    --orange: #ff9d4d;
+    --radius: 10px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Hiragino Sans', 'Yu Gothic', sans-serif;
+    font-size: 14px;
+    line-height: 1.7;
+    padding-bottom: 60px;
+  }
+
+  /* Header */
+  header {
+    background: linear-gradient(135deg, #1a1d27 0%, #0f1117 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 16px;
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header h1 {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.5px;
+  }
+  header p {
+    font-size: 11px;
+    color: var(--muted);
+    margin-top: 2px;
+  }
+
+  /* TOC */
+  .toc {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    margin: 12px;
+    overflow: hidden;
+  }
+  .toc-title {
+    background: var(--bg3);
+    padding: 10px 14px;
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+  }
+  .toc-title::after { content: '▾'; transition: transform 0.2s; }
+  .toc-title.collapsed::after { transform: rotate(-90deg); }
+  .toc-body { padding: 8px 0; }
+  .toc-body.hidden { display: none; }
+  .toc-body a {
+    display: block;
+    padding: 6px 14px;
+    color: var(--text);
+    text-decoration: none;
+    font-size: 13px;
+    border-left: 3px solid transparent;
+  }
+  .toc-body a:hover { background: var(--bg3); border-left-color: var(--accent); color: var(--accent); }
+  .toc-badge {
+    display: inline-block;
+    background: var(--bg3);
+    color: var(--muted);
+    font-size: 10px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    margin-right: 6px;
+    font-weight: 700;
+  }
+
+  /* Sections */
+  .section {
+    margin: 12px;
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+  }
+  .section-header {
+    background: var(--bg3);
+    padding: 12px 14px;
+    cursor: pointer;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+  }
+  .section-header h2 {
+    font-size: 14px;
+    font-weight: 700;
+    color: var(--accent);
+    flex: 1;
+  }
+  .section-header .toggle { color: var(--muted); font-size: 16px; transition: transform 0.2s; }
+  .section-header.collapsed .toggle { transform: rotate(-90deg); }
+  .section-body { padding: 14px; }
+  .section-body.hidden { display: none; }
+
+  /* Subsections */
+  h3 {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.8px;
+    margin: 18px 0 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  h3:first-child { margin-top: 0; }
+
+  /* Tables */
+  .table-wrap { overflow-x: auto; margin: 8px 0; -webkit-overflow-scrolling: touch; }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+    min-width: 400px;
+  }
+  th {
+    background: var(--bg3);
+    color: var(--muted);
+    font-weight: 600;
+    text-align: left;
+    padding: 7px 10px;
+    white-space: nowrap;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  td {
+    padding: 7px 10px;
+    border-top: 1px solid var(--border);
+    vertical-align: top;
+  }
+  tr:hover td { background: rgba(91,143,255,0.05); }
+  td code, th code {
+    background: var(--bg3);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 11px;
+    color: var(--orange);
+  }
+
+  /* Code blocks */
+  pre {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 12px;
+    overflow-x: auto;
+    font-size: 11px;
+    font-family: 'SF Mono', Menlo, monospace;
+    color: #b0c4ff;
+    margin: 8px 0;
+    line-height: 1.6;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* Info rows */
+  .info-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 6px;
+    margin: 8px 0;
+  }
+  .info-item {
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 8px 10px;
+  }
+  .info-label {
+    font-size: 10px;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 2px;
+  }
+  .info-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  /* Badges */
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 20px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .badge-green { background: rgba(61,214,140,0.15); color: var(--green); border: 1px solid rgba(61,214,140,0.3); }
+  .badge-red { background: rgba(255,91,91,0.15); color: var(--red); border: 1px solid rgba(255,91,91,0.3); }
+  .badge-yellow { background: rgba(245,197,24,0.15); color: var(--yellow); border: 1px solid rgba(245,197,24,0.3); }
+  .badge-blue { background: rgba(91,143,255,0.15); color: var(--accent); border: 1px solid rgba(91,143,255,0.3); }
+  .badge-orange { background: rgba(255,157,77,0.15); color: var(--orange); border: 1px solid rgba(255,157,77,0.3); }
+
+  /* Alerts */
+  .alert {
+    border-radius: 8px;
+    padding: 10px 12px;
+    margin: 8px 0;
+    font-size: 12px;
+    border-left: 3px solid;
+  }
+  .alert-warn { background: rgba(245,197,24,0.08); border-color: var(--yellow); color: #e0d080; }
+  .alert-info { background: rgba(91,143,255,0.08); border-color: var(--accent); color: #a0b8ff; }
+  .alert-success { background: rgba(61,214,140,0.08); border-color: var(--green); color: #80e0b0; }
+  .alert-danger { background: rgba(255,91,91,0.08); border-color: var(--red); color: #ffaaaa; }
+
+  p { margin: 6px 0; font-size: 13px; }
+  ul, ol { padding-left: 18px; margin: 6px 0; }
+  li { margin: 3px 0; font-size: 13px; }
+  strong { color: #c0cbff; }
+
+  /* Magic table highlight */
+  .magic-num { font-family: 'SF Mono', Menlo, monospace; color: var(--orange); font-weight: 700; }
+
+  /* PF value coloring */
+  .pf-good { color: var(--green); font-weight: 700; }
+  .pf-ok { color: var(--yellow); font-weight: 700; }
+  .pf-bad { color: var(--red); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>FX Bot 戦略仕様書</h1>
+  <p>生成日: 2026-05-13 &nbsp;|&nbsp; VPS: C:\Users\Administrator\fx_bot\vps\</p>
+</header>
+
+<!-- TOC -->
+<div class="toc">
+  <div class="toc-title" onclick="toggleToc(this)">目次</div>
+  <div class="toc-body" id="toc-body">
+    <a href="#s1"><span class="toc-badge">1</span>BB逆張り戦略</a>
+    <a href="#s2"><span class="toc-badge">2</span>MOM モメンタム順張り</a>
+    <a href="#s3"><span class="toc-badge">3</span>CORR 平均回帰</a>
+    <a href="#s4"><span class="toc-badge">4</span>STR 通貨強弱</a>
+    <a href="#s5"><span class="toc-badge">5</span>TRI 三角裁定</a>
+    <a href="#s6"><span class="toc-badge">6</span>SMA Squeeze Play</a>
+    <a href="#s7"><span class="toc-badge">7</span>stat_arb 統計的裁定</a>
+    <a href="#s8"><span class="toc-badge">8</span>TOD 時間帯別平均回帰</a>
+    <a href="#s9"><span class="toc-badge">9</span>200MA Pinbar</a>
+    <a href="#s10"><span class="toc-badge">10</span>SMC_GBPAUD</a>
+    <a href="#s11"><span class="toc-badge">11</span>トレーリングストップ共通仕様</a>
+    <a href="#s12"><span class="toc-badge">12</span>共通リスク管理</a>
+    <a href="#s13"><span class="toc-badge">13</span>COT極値×日足トレンド</a>
+    <a href="#magic"><span class="toc-badge">★</span>Magic番号早見表</a>
+  </div>
+</div>
+
+<!-- §1 BB -->
+<div class="section" id="s1">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>1. BB逆張り戦略 <small style="font-size:11px;color:var(--muted)">bb_monitor.py v24</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>ボリンジャーバンドの逆張り戦略。5分足でBBタッチを検出し、上位足フィルターを適用。</p>
+
+    <h3>基本情報</h3>
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic番号</div><div class="info-value magic-num">20250001</div></div>
+      <div class="info-item"><div class="info-label">実行間隔</div><div class="info-value">5分毎（Task Scheduler）</div></div>
+      <div class="info-item"><div class="info-label">注文コメント</div><div class="info-value"><code>BB_{PAIR}</code></div></div>
+      <div class="info-item"><div class="info-label">最大総ポジション</div><div class="info-value">13</div></div>
+    </div>
+
+    <h3>対象通貨ペア</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>状態</th><th>σ値</th><th>max_pos</th><th>SL(ATR×)</th><th>TP</th><th>フィルター</th></tr></thead>
+        <tbody>
+          <tr><td><strong>GBPJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>1.5</td><td>2</td><td>2.5</td><td>SL×1.5</td><td>htf4h_rsi_bw<br><small>Buy RSI&lt;60 / Sell RSI&gt;55, BBwidth&gt;20avg×1.2</small></td></tr>
+          <tr><td><strong>USDJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>2.0</td><td>2</td><td>2.5</td><td>SL×1.5</td><td>htf4h_rsi_bw<br><small>Buy RSI&lt;55 / Sell RSI&gt;45, BBwidth&gt;30avg×0.8</small></td></tr>
+          <tr><td><strong>EURJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>1.5</td><td>1</td><td>2.5</td><td>SL×1.5</td><td>htf4h_only (EMA20方向一致)<br><small style="color:var(--muted)">時間帯: UTC 9h,17h のみ</small></td></tr>
+          <tr><td>EURUSD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.2</td><td>-</td><td>-</td></tr>
+          <tr><td>GBPUSD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.2</td><td>-</td><td>-</td></tr>
+          <tr><td>USDCAD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.5</td><td>-</td><td>-</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="alert alert-warn">
+      <strong>停止理由:</strong><br>
+      EURUSD: BT全組合せ最高PF=0.681 (N=132)、BB戦略との相性不良<br>
+      GBPUSD: 実稼働PF=0.397、BT最高PF=0.854 (N=153)、目標未達
+    </div>
+
+    <h3>エントリー条件（フィルター適用順）</h3>
+    <p><strong>Step 1: 1h足レンジフィルター</strong><br>BB(period=20, σ=1.5) の|σ| &gt; 1.0 → トレンド判定でスキップ</p>
+    <p><strong>Step 2: 5m足BBタッチ確認</strong><br>終値 ≥ upper → SELL / 終値 ≤ lower → BUY</p>
+    <p><strong>Step 3: RSIフィルター (RSI14)</strong><br>BUY: RSI≤40 / SELL: RSI≥60</p>
+    <div class="alert alert-info">
+      <strong>注意:</strong> rsi_ok は <code>calc_bb_signal()</code> 内でチェックされない（意図的仕様）。RSI値はログ記録のみ。エントリー可否はStep5の htf4h_rsi_bw で管理。
+    </div>
+    <p><strong>Step 5: 4h足フィルター（ペア別）</strong></p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>種別</th><th>Buy条件</th><th>Sell条件</th></tr></thead>
+        <tbody>
+          <tr><td>GBPJPY</td><td>htf4h_rsi_bw</td><td>4h EMA20上方 + RSI&lt;60 + BBwidth&gt;20avg×1.2</td><td>EMA20下方 + RSI&gt;55 + BBwidth</td></tr>
+          <tr><td>USDJPY</td><td>htf4h_rsi_bw</td><td>4h EMA20上方 + RSI&lt;55 + BBwidth&gt;30avg×0.8</td><td>EMA20下方 + RSI&gt;45 + BBwidth</td></tr>
+          <tr><td>EURJPY</td><td>htf4h_only</td><td>4h終値 &gt; EMA20</td><td>4h終値 &lt; EMA20</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>リスク管理</h3>
+    <ul>
+      <li>ロット: 残高×1.5% ÷ (SL価格差 × 100,000 × レート) → 0.01単位切り捨て</li>
+      <li>上限 0.2lot / 下限 0.01lot / JPYペア MAX_JPY_LOT=0.4</li>
+      <li>クールダウン: SL後15分（COOLDOWN_MINUTES=15）</li>
+      <li>GBPJPY/USDJPY: max_pos=2（BT: GBPJPY +0.051, USDJPY +0.127 PF改善確認）</li>
+      <li>日次損失上限: -50,000円 → 超過で当日停止</li>
+    </ul>
+  </div>
+</div>
+
+<!-- §2 MOM -->
+<div class="section" id="s2">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>2. MOM モメンタム順張り <small style="font-size:11px;color:var(--muted)">daily_trade.py</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>日足のモメンタムを測定し、メインペアとフィルターペアが同方向に動いていればエントリー。実行タイミング: 毎朝7時 + 夕方19時</p>
+
+    <h3>戦略一覧・パラメータ</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>戦略</th><th>Magic</th><th>メイン</th><th>フィルター</th><th>period</th><th>mom_th</th><th>filter_th</th><th>EMA200</th><th>BT PF</th></tr></thead>
+        <tbody>
+          <tr><td>MOM_JPY</td><td class="magic-num">20240101</td><td>USDJPY</td><td>EURJPY</td><td>10</td><td>0.015</td><td>0.005</td><td>なし</td><td class="pf-good">1.571</td></tr>
+          <tr><td>MOM_GBJ</td><td class="magic-num">20240102</td><td>GBPJPY</td><td>USDJPY</td><td>7</td><td>0.015</td><td>0.002</td><td>なし</td><td class="pf-ok">1.446</td></tr>
+          <tr><td>MOM_ENZ</td><td class="magic-num">20240105</td><td>EURNZD</td><td>EURUSD</td><td>14</td><td>0.007</td><td>0.005</td><td>なし</td><td class="pf-ok">1.150</td></tr>
+          <tr><td>MOM_ECA</td><td class="magic-num">20240106</td><td>EURCAD</td><td>USDCAD</td><td>7</td><td>0.015</td><td>0.002</td><td>あり</td><td class="pf-good">4.109</td></tr>
+          <tr><td>MOM_GBU</td><td class="magic-num">20240107</td><td>GBPUSD</td><td>EURUSD</td><td>10</td><td>0.007</td><td>0.002</td><td>あり</td><td class="pf-ok">1.427</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>エントリー条件</h3>
+    <pre>mom  = (現在終値 - period日前終値) / period日前終値  [メインペア]
+fmom = (現在終値 - period日前終値) / period日前終値  [フィルターペア]
+
+BUY:  mom > mom_th AND fmom > filter_th
+SELL: mom < -mom_th AND fmom < -filter_th
+
+月曜日: mom_th *= monday_th_mult (×1.5)
+EMA200フィルター(use_ema200_filter=True):
+  BUY:  現在値 > EMA200(D1, 200本) のみ
+  SELL: 現在値 < EMA200(D1, 200本) のみ</pre>
+
+    <h3>決済条件</h3>
+    <p>TP/SL: ATR(D1 14本)ベース、tp=2.0×ATR, sl=1.5×ATR<br>trail_monitorによるStage2/Stage3 SL管理（→ §11参照）</p>
+  </div>
+</div>
+
+<!-- §3 CORR -->
+<div class="section" id="s3">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>3. CORR 平均回帰 <small style="font-size:11px;color:var(--muted)">daily_trade.py</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>AUDNZDのローリングZスコアが±2.0を超えたら平均回帰方向にエントリー。</p>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20240103</div></div>
+      <div class="info-item"><div class="info-label">対象ペア</div><div class="info-value">AUDNZD</div></div>
+      <div class="info-item"><div class="info-label">時間足</div><div class="info-value">D1</div></div>
+      <div class="info-item"><div class="info-label">実行</div><div class="info-value">7時 + 19時</div></div>
+    </div>
+
+    <h3>パラメータ</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>パラメータ</th><th>値</th></tr></thead>
+        <tbody>
+          <tr><td>corr_window</td><td>60本</td></tr>
+          <tr><td>z_entry</td><td>2.0</td></tr>
+          <tr><td>z_exit</td><td>0.0</td></tr>
+          <tr><td>hold_period</td><td>5日</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>エントリー条件</h3>
+    <pre>closes = 直近60本の終値
+z = (closes[-1] - mean(closes)) / std(closes)
+
+BUY:  z &lt;= -2.0  (過剰下落 → 平均回帰)
+SELL: z >= +2.0  (過剰上昇 → 平均回帰)</pre>
+
+    <h3>決済条件</h3>
+    <p>以下のいずれか早い方:</p>
+    <ol>
+      <li>Zスコア回帰: |z| &lt;= 0.0 になったとき</li>
+      <li>hold_period: エントリーから5日経過</li>
+    </ol>
+    <p>TP: ATR×1.5 / SL: ATR×2.0</p>
+  </div>
+</div>
+
+<!-- §4 STR -->
+<div class="section" id="s4">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>4. STR 通貨強弱 <small style="font-size:11px;color:var(--muted)">daily_trade.py</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>10通貨ペアのリターンから最強・最弱通貨を特定し、最適ペアでエントリー。</p>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20240104</div></div>
+      <div class="info-item"><div class="info-label">BT PF</div><div class="info-value pf-ok">1.749 (lb=10)</div></div>
+      <div class="info-item"><div class="info-label">hold_period</div><div class="info-value">5日</div></div>
+      <div class="info-item"><div class="info-label">min_spread</div><div class="info-value">0.015</div></div>
+    </div>
+
+    <h3>対象通貨（スコア計算用）</h3>
+    <p>EURUSD, GBPUSD, AUDUSD, USDJPY, EURGBP, USDCAD, USDCHF, NZDUSD, EURJPY, GBPJPY</p>
+
+    <h3>エントリー条件</h3>
+    <pre>各通貨スコア = 直近10日間リターン合計
+  Base通貨 → +ret / Quote通貨 → -ret
+
+strongest = 最高スコア通貨
+weakest   = 最低スコア通貨
+spread    = strongest - weakest スコア差 >= 0.015
+
+EMA200(D1)フィルター:
+  BUY:  現在値 > EMA200
+  SELL: 現在値 < EMA200</pre>
+
+    <h3>決済条件</h3>
+    <p>hold_period 5日経過で強制クローズ / TP: ATR×2.5 / SL: ATR×1.5</p>
+  </div>
+</div>
+
+<!-- §5 TRI -->
+<div class="section" id="s5">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>5. TRI 三角裁定 <small style="font-size:11px;color:var(--muted)">daily_trade.py</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>EURUSD/GBPUSDの理論値からEURGBPの乖離を検出し、収束方向にエントリー。</p>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20240108</div></div>
+      <div class="info-item"><div class="info-label">対象ペア</div><div class="info-value">EURGBP</div></div>
+      <div class="info-item"><div class="info-label">BT PF</div><div class="info-value pf-good">3.272</div></div>
+      <div class="info-item"><div class="info-label">n</div><div class="info-value">113</div></div>
+    </div>
+
+    <h3>パラメータ</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>パラメータ</th><th>値</th></tr></thead>
+        <tbody>
+          <tr><td>entry_th</td><td>0.0007</td></tr>
+          <tr><td>tp_ratio</td><td>0.7</td></tr>
+          <tr><td>sl_th</td><td>0.002</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>エントリー条件</h3>
+    <pre>theory = EURUSD_mid / GBPUSD_mid
+actual = EURGBP_mid
+diff   = actual - theory
+
+BUY:  diff &lt;= -0.0007
+SELL: diff >= +0.0007</pre>
+
+    <h3>決済条件</h3>
+    <p>TP: |diff| × 0.7（乖離幅の70%収束）/ SL: 固定 0.002</p>
+  </div>
+</div>
+
+<!-- §6 SMA Squeeze -->
+<div class="section" id="s6">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>6. SMA Squeeze Play <small style="font-size:11px;color:var(--muted)">sma_squeeze.py v3</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>SMA200スロープフィルター + SMAスクイーズ解放でトレンドフォロー。v3で日足SMAスロープフィルター追加・COOLDOWN 60→180分。</p>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20260010</div></div>
+      <div class="info-item"><div class="info-label">クールダウン</div><div class="info-value">180分/ペア</div></div>
+      <div class="info-item"><div class="info-label">最大総Pos</div><div class="info-value">5</div></div>
+      <div class="info-item"><div class="info-label">実行間隔</div><div class="info-value">60秒ループ</div></div>
+    </div>
+
+    <h3>対象通貨ペア・パラメータ</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>TF</th><th>SMA短</th><th>SMA長</th><th>squeeze_th</th><th>RR</th><th>SL倍率</th><th>daily_sma</th><th>BT PF</th></tr></thead>
+        <tbody>
+          <tr><td><strong>USDJPY</strong></td><td>4h</td><td>25</td><td>150</td><td>2.0%</td><td>2.5</td><td>1.5</td><td>20(sp=3)</td><td class="pf-good">1.928</td></tr>
+          <tr><td><strong>GBPJPY</strong></td><td>1h</td><td>25</td><td>250</td><td>0.5%</td><td>2.0</td><td>1.5</td><td>20(sp=3)</td><td class="pf-ok">1.522</td></tr>
+          <tr><td><strong>EURUSD</strong></td><td>4h</td><td>25</td><td>200</td><td>2.0%</td><td>2.5</td><td>1.0</td><td>50(sp=3)</td><td class="pf-good">2.831</td></tr>
+          <tr><td><strong>GBPUSD</strong></td><td>1h</td><td>15</td><td>250</td><td>1.5%</td><td>2.0</td><td>1.0</td><td>20(sp=5)</td><td class="pf-ok">1.372</td></tr>
+          <tr><td><strong>EURJPY</strong></td><td>4h</td><td>15</td><td>150</td><td>2.0%</td><td>2.5</td><td>1.5</td><td>20(sp=5)</td><td class="pf-good">3.748</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>エントリー条件（確定足 iloc[-2] で判定）</h3>
+    <pre>1. ADX14 > 20  (トレンド強度)
+
+2. スクイーズ:
+   divergence_rate = |SMA短 - SMA長| / SMA長 × 100
+   divergence_rate &lt;= squeeze_th
+
+3. スロープ (1h/4h):
+   SMA長 直近N本が厳密単調増加 → UP
+   厳密単調減少 → DN / どちらでもない → スキップ
+
+4. 日足SMAスロープ (v3):
+   日足rolling(daily_sma)SMAの傾き
+   1h UP かつ 日足DN → スキップ
+   1h DN かつ 日足UP → スキップ
+   日足不定 → 通過
+
+5. 方向別:
+   LONG:  終値>SMA長, 前足<SMA短, 現在>SMA短, 陽線
+   SHORT: 終値&lt;SMA長, 前足>SMA短, 現在&lt;SMA短, 陰線</pre>
+
+    <h3>決済条件</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>条件</th><th>内容</th><th>優先度</th></tr></thead>
+        <tbody>
+          <tr><td>TP</td><td>エントリー ± ATR×sl_mult×rr</td><td>自動</td></tr>
+          <tr><td>SL</td><td>エントリー ± ATR×sl_mult</td><td>自動</td></tr>
+          <tr><td>強制決済</td><td>SMA長逆ブレイク (LONG→終値&lt;SMA長)</td><td><strong>最優先</strong></td></tr>
+          <tr><td>slope-exit (A-1)</td><td>SMA長傾き反転 (slope_exit=3本)</td><td>次優先</td></tr>
+          <tr><td>BE move (B-1)</td><td>利益 ≥ 0.5×SL距離でSLを建値移動</td><td>常時監視</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- §7 stat_arb -->
+<div class="section" id="s7">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>7. stat_arb 統計的裁定 <small style="font-size:11px;color:var(--muted)">stat_arb_monitor.py</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>ペア間のローリングOLSによるスプレッドZスコアで統計的裁定取引を行う。</p>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20260001</div></div>
+      <div class="info-item"><div class="info-label">時間足</div><div class="info-value">H1</div></div>
+      <div class="info-item"><div class="info-label">実行間隔</div><div class="info-value">10秒ループ</div></div>
+      <div class="info-item"><div class="info-label">最大ペア数</div><div class="info-value">2</div></div>
+    </div>
+
+    <h3>対象ペア</h3>
+    <p>GBPJPY / USDJPY &nbsp;&nbsp;|&nbsp;&nbsp; EURUSD / GBPUSD</p>
+
+    <h3>モデルパラメータ</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>パラメータ</th><th>値</th></tr></thead>
+        <tbody>
+          <tr><td>OLS_WINDOW</td><td>500本</td></tr>
+          <tr><td>ZSCORE_WINDOW</td><td>100本</td></tr>
+          <tr><td>ENTRY_Z</td><td>2.0</td></tr>
+          <tr><td>TP_Z</td><td>0.5</td></tr>
+          <tr><td>SL_Z</td><td>3.5</td></tr>
+          <tr><td>COOLDOWN</td><td>15分</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>エントリー・決済条件</h3>
+    <pre>β = ローリングOLS回帰係数 (window=500)
+spread = close_A - β × close_B
+z = (spread - mean(spread,100)) / std(spread,100)
+
+BUY_A/SELL_B:  z >= +2.0
+SELL_A/BUY_B:  z &lt;= -2.0
+前提: 月次共和分チェック (Engle-Granger ADF, p &lt; 0.05)
+
+TP: z &lt;= 0.5 または >= -0.5
+SL: z >= 3.5 または &lt;= -3.5</pre>
+
+    <h3>ロット計算</h3>
+    <p>Leg-A: 0.01固定 / Leg-B: round(|β| × 0.01, 0.01)<br>JPYペア上限0.4lot / 非JPY上限1.0lot</p>
+  </div>
+</div>
+
+<!-- §8 TOD -->
+<div class="section" id="s8">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>8. TOD 時間帯別平均回帰 <small style="font-size:11px;color:var(--muted)">tod_monitor.py</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>過去730日間の時間帯別リターン統計からZスコアが閾値超えで逆張りエントリー。</p>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20250002</div></div>
+      <div class="info-item"><div class="info-label">時間足</div><div class="info-value">H1</div></div>
+      <div class="info-item"><div class="info-label">実行</div><div class="info-value">毎時0分</div></div>
+      <div class="info-item"><div class="info-label">日次損失上限</div><div class="info-value">-30,000円</div></div>
+    </div>
+
+    <h3>対象通貨ペア</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>entry_sigma</th><th>tp_atr_mult</th><th>sl_atr_mult</th><th>BT PF</th><th>BT WR</th></tr></thead>
+        <tbody>
+          <tr><td>EURUSD</td><td>2.5</td><td>1.0</td><td>1.5</td><td class="pf-ok">1.232</td><td>62.8%</td></tr>
+          <tr><td>GBPUSD</td><td>2.5</td><td>1.0</td><td>2.0</td><td class="pf-ok">1.201</td><td>70.3%</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>エントリー条件</h3>
+    <pre>1. weekday別・JST時間別のリターン統計（mean, std）
+   統計期間: 過去730日間 / 平日のみ（23hキャッシュ）
+
+2. ret = (bars[-2].close - bars[-3].close) / bars[-3].close
+3. z = (ret - mean[hour_jst]) / std[hour_jst]
+
+BUY:  z &lt;= -entry_sigma
+SELL: z >= +entry_sigma
+
+市場クローズフィルター:
+  金曜22:00UTC以降 / 土日 / 月曜06:00UTC以前はスキップ</pre>
+  </div>
+</div>
+
+<!-- §9 200MA Pinbar -->
+<div class="section" id="s9">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>9. 200MA Pinbar <small style="font-size:11px;color:var(--muted)">ma200_pin_bar.py</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <div class="alert alert-yellow" style="background:rgba(245,197,24,0.08);border-left:3px solid var(--yellow);border-radius:8px;padding:10px 12px;color:#e0d080;font-size:12px;margin-bottom:12px;">
+      未稼働（評価中）
+    </div>
+
+    <h3>概要</h3>
+    <p>200MAへのプルバック + ピンバーパターンで指値エントリー。</p>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20260003</div></div>
+      <div class="info-item"><div class="info-label">対象ペア</div><div class="info-value">USDJPY</div></div>
+      <div class="info-item"><div class="info-label">時間足</div><div class="info-value">H1</div></div>
+      <div class="info-item"><div class="info-label">RR</div><div class="info-value">1.5</div></div>
+    </div>
+
+    <h3>インジケーター</h3>
+    <ul>
+      <li>MA: (SMA200 + EMA200) / 2</li>
+      <li>タッチバンド: MA ± 0.03% (TOUCH_BAND=0.0003)</li>
+      <li>スロープ閾値: ±0.0001</li>
+    </ul>
+
+    <h3>エントリー条件</h3>
+    <pre>LONG:
+  close > MA / |low - MA| &lt;= MA × 0.0003
+  MA slope >= +0.0001 / 下ヒゲ>=レンジ60% / ボディ&lt;=30%
+  → BUY指値: sig.high + 1pip
+  → SL: 直近20本スウィング安値 - spread
+  → TP: entry + SL距離 × 1.5
+
+SHORT: 対称条件 (上ヒゲ>=60%, ボディ&lt;=30%)
+  → SELL指値: sig.low - 1pip</pre>
+  </div>
+</div>
+
+<!-- §10 SMC -->
+<div class="section" id="s10">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>10. SMC_GBPAUD <small style="font-size:11px;color:var(--muted)">trail_monitor.py 管理</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>GBPAUD対象のスマートマネーコンセプト戦略。Sell専用。エントリーは smc_gbpaud.py v4 が担当、SL管理は trail_monitor が行う。</p>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20260002</div></div>
+      <div class="info-item"><div class="info-label">方向</div><div class="info-value">Sell専用</div></div>
+      <div class="info-item"><div class="info-label">稼働時間帯</div><div class="info-value">8-20 UTC</div></div>
+      <div class="info-item"><div class="info-label">MAX_POS</div><div class="info-value">1</div></div>
+    </div>
+
+    <h3>トレーリング設定</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>パラメータ</th><th>値</th></tr></thead>
+        <tbody>
+          <tr><td>stage2</td><td>なし（非適用）</td></tr>
+          <tr><td>stage3_activate</td><td>ATR×1.0以上でトレーリング開始</td></tr>
+          <tr><td>stage3_distance</td><td>ATR×0.7（トレーリング幅）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- §11 Trail -->
+<div class="section" id="s11">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>11. トレーリングストップ共通仕様 <small style="font-size:11px;color:var(--muted)">trail_monitor.py v14</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>基本設定</h3>
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">更新間隔</div><div class="info-value">30秒</div></div>
+      <div class="info-item"><div class="info-label">ATR計算</div><div class="info-value">5m足 EMA14</div></div>
+      <div class="info-item"><div class="info-label">最小更新幅</div><div class="info-value">ATR×0.05</div></div>
+      <div class="info-item"><div class="info-label">Stage2発動</div><div class="info-value">利益≥ATR×0.7+コスト</div></div>
+    </div>
+
+    <h3>Stage2/Stage3 設定（戦略別）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>戦略</th><th>Stage2</th><th>s2_dist</th><th>Stage3 activate</th><th>s3_dist</th></tr></thead>
+        <tbody>
+          <tr><td>BB（共通）</td><td>✅</td><td>ATR×0.3</td><td>ATR×1.2</td><td>ATR×0.8</td></tr>
+          <tr><td><strong>BB_GBPJPY</strong></td><td>❌</td><td>-</td><td><span class="badge badge-orange">ATR×99（無効）</span></td><td>ATR×0.8</td></tr>
+          <tr><td><strong>BB_USDJPY</strong></td><td>❌</td><td>-</td><td><span class="badge badge-orange">ATR×99（無効）</span></td><td>ATR×0.8</td></tr>
+          <tr><td><strong>BB_EURJPY</strong></td><td>❌</td><td>-</td><td><span class="badge badge-orange">ATR×99（無効）</span></td><td>ATR×0.8</td></tr>
+          <tr><td>BB_EURUSD</td><td>✅</td><td>ATR×0.1</td><td>ATR×1.2</td><td>ATR×0.8</td></tr>
+          <tr><td>BB_GBPUSD</td><td>✅</td><td>ATR×1.0</td><td>ATR×1.2</td><td>ATR×0.8</td></tr>
+          <tr><td>MOM_JPY</td><td>✅</td><td>ATR×1.0</td><td>ATR×0.7</td><td>ATR×0.3</td></tr>
+          <tr><td>MOM_GBJ</td><td>✅</td><td>ATR×1.0</td><td>ATR×0.5</td><td>ATR×0.8</td></tr>
+          <tr><td>MOM_ENZ</td><td>✅</td><td>ATR×1.0</td><td>ATR×0.7</td><td>ATR×0.3</td></tr>
+          <tr><td>MOM_ECA</td><td>✅</td><td>ATR×1.0</td><td>ATR×0.5</td><td>ATR×0.3</td></tr>
+          <tr><td>MOM_GBU</td><td>✅</td><td>ATR×1.0</td><td>ATR×0.5</td><td>ATR×0.3</td></tr>
+          <tr><td>STR（全ペア）</td><td>✅</td><td>ATR×0.2</td><td>ATR×0.8</td><td>ATR×0.6</td></tr>
+          <tr><td>SMC_GBPAUD</td><td>❌</td><td>-</td><td>ATR×1.0</td><td>ATR×0.7</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>Stage定義</h3>
+    <ul>
+      <li><strong>Stage2</strong>: 利益 ≥ ATR×0.7+コスト → SLを entry + ATR×stage2_distance に移動</li>
+      <li><strong>Stage3</strong>: 利益 ≥ ATR×stage3_activate → SLを現在値 - ATR×stage3_distance に移動（トレーリング）</li>
+      <li>優先度: Stage3 &gt; Stage2</li>
+    </ul>
+
+    <h3>BB_GBPJPY/USDJPY/EURJPY Stage3無効化の根拠</h3>
+    <div class="alert alert-info">
+      <strong>根本原因:</strong> bb_monitor は H1 ATR でTP設定、trail_monitor は 5m ATR でStage3判定。<br>
+      H1 ATR ≈ 5〜8倍 × 5m ATR → Stage3発動 ≈ TP前3-5%地点で早期確定。<br>
+      実稼働70件: TP到達2件(2.9%)、trail/SL勝ち平均=+687円（設計TP大幅未達）<br>
+      → stage3_activate=99 で trail事実上無効化
+    </div>
+
+    <h3>BT再確認（trail_redesign_bt.py、2026-05-19）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>trail無効 (baseline)</th><th>最良trail設定</th><th>判定</th></tr></thead>
+        <tbody>
+          <tr><td>GBPJPY</td><td class="pf-ok">PF=1.105 WR=42.6% n=850</td><td>act=0.80,dist=0.20 PF=1.028</td><td><span class="badge badge-green">trail無効がベスト</span></td></tr>
+          <tr><td>USDJPY</td><td class="pf-ok">PF=1.147 WR=41.9% n=422</td><td>act=0.80,dist=0.20 PF=1.079</td><td><span class="badge badge-green">trail無効がベスト</span></td></tr>
+          <tr><td>EURJPY</td><td class="pf-ok">PF=1.058 WR=41.3% n=889</td><td>act=0.80,dist=0.20 PF=1.014</td><td><span class="badge badge-green">trail無効がベスト</span></td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- §12 Risk -->
+<div class="section" id="s12">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>12. 共通リスク管理 <small style="font-size:11px;color:var(--muted)">risk_manager.py v2</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>ロット計算方式</h3>
+    <pre>risk_amount  = balance × 0.015          # 残高の1.5%
+loss_per_lot = sl_dist × 100,000 × rate # JPY: rate=1.0, 非JPY: rate=150.0
+lot = risk_amount / loss_per_lot
+lot = round(lot / 0.01) × 0.01          # 0.01単位
+lot = clamp(lot, MIN=0.01, MAX=0.2)</pre>
+
+    <h3>ATR計算</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>戦略</th><th>時間足</th><th>本数</th></tr></thead>
+        <tbody>
+          <tr><td>BB系</td><td>H1</td><td>14本 EWM</td></tr>
+          <tr><td>その他</td><td>M5</td><td>20本 EWM</td></tr>
+          <tr><td>D1戦略 (MOM/CORR/STR/TRI)</td><td>D1</td><td>14本 単純平均</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>ATR下限値 (Floor)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ケース</th><th>値</th></tr></thead>
+        <tbody>
+          <tr><td>JPYペア 5分足</td><td>0.005</td></tr>
+          <tr><td>非JPYペア 5分足</td><td>0.00002</td></tr>
+          <tr><td>TRI</td><td>0.0003</td></tr>
+          <tr><td>MOM_JPY</td><td>0.30</td></tr>
+          <tr><td>MOM_GBJ</td><td>0.50</td></tr>
+          <tr><td>CORR / STR</td><td>0.0003</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>TP/SL乗数</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>戦略</th><th>TP乗数</th><th>SL乗数</th></tr></thead>
+        <tbody>
+          <tr><td>BB</td><td>3.0</td><td>2.0 (ペア別sl_atr_multで上書き)</td></tr>
+          <tr><td>TRI</td><td>1.5</td><td>4.0</td></tr>
+          <tr><td>MOM_JPY</td><td>3.0</td><td>1.0</td></tr>
+          <tr><td>MOM_GBJ</td><td>1.0</td><td>0.5</td></tr>
+          <tr><td>CORR</td><td>1.5</td><td>2.0</td></tr>
+          <tr><td>STR</td><td>2.5</td><td>1.5</td></tr>
+          <tr><td>デフォルト</td><td>2.0</td><td>1.5</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- §13 COT -->
+<div class="section" id="s13">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>13. COT極値×日足トレンド <small style="font-size:11px;color:var(--muted)">cot_monitor.py v1</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>CFTC TFF Leveraged Funds COT Index（156週ローリング）が極値に達したペアで、D1 EMA50トレンドと一致する方向にスイングエントリー。</p>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20260020</div></div>
+      <div class="info-item"><div class="info-label">ループ間隔</div><div class="info-value">3600秒（1時間）</div></div>
+      <div class="info-item"><div class="info-label">最大総Pos</div><div class="info-value">3（1ペアにつき1）</div></div>
+      <div class="info-item"><div class="info-label">最大保有</div><div class="info-value">14日</div></div>
+      <div class="info-item"><div class="info-label">稼働ブローカー</div><div class="info-value">oanda</div></div>
+      <div class="info-item"><div class="info-label">コメント</div><div class="info-value"><code>COT_{PAIR}</code></div></div>
+    </div>
+
+    <h3>COTデータ仕様</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>項目</th><th>値</th></tr></thead>
+        <tbody>
+          <tr><td>データ源</td><td>CFTC Socrata API (<code>gpe5-46if.json</code>)</td></tr>
+          <tr><td>レポート種別</td><td>TFF FutOnly（Leveraged Funds Net）</td></tr>
+          <tr><td>COT Index計算</td><td>156週ローリング (s-min)/(max-min)×100</td></tr>
+          <tr><td>更新タイミング</td><td>毎週金曜 20:30 UTC（3日ラグ）</td></tr>
+          <tr><td>キャッシュ</td><td>cot_cache.json（7日間有効）</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>対象ペア</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>CFTCコード</th><th>Sign</th><th>High(>90)</th><th>Low(&lt;10)</th></tr></thead>
+        <tbody>
+          <tr><td>EURUSD</td><td>099741</td><td>+1</td><td>→ SHORT</td><td>→ LONG</td></tr>
+          <tr><td>GBPUSD</td><td>096742</td><td>+1</td><td>→ SHORT</td><td>→ LONG</td></tr>
+          <tr><td>USDJPY</td><td>097741</td><td>-1</td><td>→ LONG</td><td>→ SHORT</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:12px;color:var(--muted)">Sign=-1: JPY先物LongはUSDJPY下落 → 符号反転</p>
+
+    <h3>エントリー条件</h3>
+    <ol>
+      <li>COT Index &gt;90（ロング偏り過剰→逆張りSHORT）または &lt;10（ショート偏り過剰→逆張りLONG）</li>
+      <li>D1 EMA50フィルター: 終値 &gt; EMA50 → LONGのみ / EMA50より下 → SHORTのみ</li>
+      <li>同一ペアにポジションなし、総ポジション &lt; 3</li>
+    </ol>
+
+    <h3>決済条件</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>条件</th><th>詳細</th></tr></thead>
+        <tbody>
+          <tr><td>TP</td><td>エントリーから 3.0×ATR(14, D1)</td></tr>
+          <tr><td>SL</td><td>エントリーから 1.5×ATR(14, D1)</td></tr>
+          <tr><td>強制決済</td><td>14日経過 → check_max_hold() でクローズ</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>バックテスト結果（2023-07-14〜2026-02-27）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>n</th><th>勝率</th><th>PF</th><th>備考</th></tr></thead>
+        <tbody>
+          <tr><td>EURUSD</td><td>16</td><td>75%</td><td class="pf-good">1.940</td><td></td></tr>
+          <tr><td>GBPUSD</td><td>17</td><td>94%</td><td class="pf-good">9.739</td><td>LONG方向特に強い</td></tr>
+          <tr><td>USDJPY</td><td>17</td><td>71%</td><td class="pf-good">1.958</td><td></td></tr>
+          <tr><td><strong>全体</strong></td><td><strong>50</strong></td><td><strong>80%</strong></td><td class="pf-good"><strong>1.968</strong></td><td></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>感度分析（COT閾値）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>閾値</th><th>n</th><th>勝率</th><th>PF</th></tr></thead>
+        <tbody>
+          <tr><td>&gt;90/&lt;10</td><td>21</td><td>81%</td><td class="pf-good">6.344</td></tr>
+          <tr><td>&gt;80/&lt;20</td><td>50</td><td>80%</td><td class="pf-good">1.968</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="alert alert-warn">
+      <strong>要監視:</strong> LONG方向PF=5.888 vs SHORT方向PF=0.983（2023-2026のUSD強含み相場影響）<br>
+      SHORT方向の実稼働パフォーマンスを重点監視すること。週1〜2回程度のエントリー頻度。
+    </div>
+
+    <h3>起動方法</h3>
+    <pre>REM VPS上で実行
+C:\Users\Administrator\fx_bot\vps\cot_monitor.bat
+
+REM COTデータ強制更新
+pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
+
+    <p>ログ: <code>cot_monitor_log_oanda.txt</code> / <code>cot_cache.json</code></p>
+  </div>
+</div>
+
+<!-- Magic番号早見表 -->
+<div class="section" id="magic">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>★ Magic番号・コメント早見表</h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>戦略</th><th>Magic</th><th>コメント形式</th><th>スクリプト</th></tr></thead>
+        <tbody>
+          <tr><td>BB逆張り</td><td class="magic-num">20250001</td><td><code>BB_{PAIR}</code></td><td>bb_monitor.py</td></tr>
+          <tr><td>TOD時間帯</td><td class="magic-num">20250002</td><td><code>TOD_{SYMBOL}</code></td><td>tod_monitor.py</td></tr>
+          <tr><td>MOM_JPY</td><td class="magic-num">20240101</td><td><code>FXBot_MOM_JPY</code></td><td>daily_trade.py</td></tr>
+          <tr><td>MOM_GBJ</td><td class="magic-num">20240102</td><td><code>FXBot_MOM_GBJ</code></td><td>daily_trade.py</td></tr>
+          <tr><td>CORR</td><td class="magic-num">20240103</td><td><code>FXBot_CORR</code></td><td>daily_trade.py</td></tr>
+          <tr><td>STR</td><td class="magic-num">20240104</td><td><code>FXBot_STR</code></td><td>daily_trade.py</td></tr>
+          <tr><td>MOM_ENZ</td><td class="magic-num">20240105</td><td><code>FXBot_MOM_ENZ</code></td><td>daily_trade.py</td></tr>
+          <tr><td>MOM_ECA</td><td class="magic-num">20240106</td><td><code>FXBot_MOM_ECA</code></td><td>daily_trade.py</td></tr>
+          <tr><td>MOM_GBU</td><td class="magic-num">20240107</td><td><code>FXBot_MOM_GBU</code></td><td>daily_trade.py</td></tr>
+          <tr><td>TRI</td><td class="magic-num">20240108</td><td><code>FXBot_TRI</code></td><td>daily_trade.py</td></tr>
+          <tr><td>stat_arb</td><td class="magic-num">20260001</td><td><code>stat_arb</code></td><td>stat_arb_monitor.py</td></tr>
+          <tr><td>SMC_GBPAUD</td><td class="magic-num">20260002</td><td><code>SMC_GBPAUD</code></td><td>smc_gbpaud.py</td></tr>
+          <tr><td>200MA Pinbar</td><td class="magic-num">20260003</td><td><code>ma200_pinbar</code></td><td>ma200_pin_bar.py</td></tr>
+          <tr><td>SMA Squeeze</td><td class="magic-num">20260010</td><td><code>SMA_SQ_{PAIR}</code></td><td>sma_squeeze.py</td></tr>
+          <tr><td>COT極値</td><td class="magic-num">20260020</td><td><code>COT_{PAIR}</code></td><td>cot_monitor.py</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+  function toggleToc(el) {
+    el.classList.toggle('collapsed');
+    document.getElementById('toc-body').classList.toggle('hidden');
+  }
+  function toggleSection(header) {
+    header.classList.toggle('collapsed');
+    header.nextElementSibling.classList.toggle('hidden');
+  }
+</script>
+</body>
+</html>

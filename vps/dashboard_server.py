@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 try:
-    from flask import Flask, request, Response, jsonify
+    from flask import Flask, request, Response, jsonify, send_file
 except ImportError:
     print('[ERROR] Flask not found: pip install flask')
     sys.exit(1)
@@ -47,6 +47,11 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+
+@app.route('/strategy')
+def strategy():
+    return send_file(os.path.join(BASE_DIR, 'strategy_spec.html'))
 
 
 @app.route('/')
