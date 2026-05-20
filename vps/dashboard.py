@@ -237,12 +237,12 @@ tr:hover td { background: #1c2128; }
 <div class="header">
   <div>
     <h1>FX Dashboard</h1>
-    <div class="header-meta">__BROKER__ &nbsp;|&nbsp; Generated: __GENERATED_AT__ &nbsp;|&nbsp; Max: __DAYS__d</div>
+    <div class="header-meta">__BROKER__ &nbsp;|&nbsp; Generated: __GENERATED_AT__</div>
   </div>
   <div class="period-btns">
     <button id="btn7"  onclick="setPeriod(7)">7日</button>
     <button id="btn30" onclick="setPeriod(30)">30日</button>
-    <button id="btn90" onclick="setPeriod(90)">90日</button>
+    <button id="btn0"  onclick="setPeriod(0)">全期間</button>
   </div>
 </div>
 
@@ -903,12 +903,11 @@ function buildOpenPositions() {
 
 /* ── 期間切替 ───────────────────────────────────────────────── */
 function setPeriod(days) {
-  var effective = Math.min(days, MAX_DAYS);
-  [7, 30, 90].forEach(function(d) {
+  [7, 30, 0].forEach(function(d) {
     var btn = document.getElementById('btn' + d);
     if (btn) btn.className = (d === days) ? 'active' : '';
   });
-  var trades = filterTrades(effective);
+  var trades = (days === 0) ? ALL_TRADES.slice() : filterTrades(days);
   updateSummaryCards(trades);
   updateEquityChart(trades);
   updatePairChart(trades);
@@ -919,16 +918,15 @@ function setPeriod(days) {
 var _lwChart  = null;
 var _lwSeries = null;
 
-/* 戦略×ペアで推奨時間足を決定
-   BB:         H1  (1hBBシグナル + 4hフィルター)
-   SMA_SQ:     ペア別 (USDJPY/EURUSD/EURJPY=4h, GBPJPY/GBPUSD=1h)
-   SMC_GBPAUD: H1  (TF=1h)
-   stat_arb:   H4  (Z決済・hold_period~5日) */
-var SMA_SQ_TF = { 'USDJPY':'H4', 'EURUSD':'H4', 'EURJPY':'H4', 'GBPJPY':'H1', 'GBPUSD':'H1' };
-function _stratTf(strategy, symbol) {
-  if (strategy === 'stat_arb')   return 'H4';
-  if (strategy === 'SMA_SQ')     return SMA_SQ_TF[symbol] || 'H1';
-  return 'H1';
+/* 保有時間から時間足を自動選択（保有期間を約5本のローソク足で表現） */
+function _holdToTf(holdSec) {
+  var m = holdSec / 60;
+  if (m < 25)   return 'M5';
+  if (m < 150)  return 'M30';
+  if (m < 600)  return 'H2';
+  if (m < 1500) return 'H4';
+  if (m < 7200) return 'D1';
+  return 'W1';
 }
 
 function openTradeChart(symbol, entryTs, exitTs, strategy, entryPrice, exitPrice, profit) {
@@ -946,7 +944,7 @@ function openTradeChart(symbol, entryTs, exitTs, strategy, entryPrice, exitPrice
   document.getElementById('lw-chart-container').innerHTML = '';
   if (_lwChart) { _lwChart.remove(); _lwChart = null; _lwSeries = null; }
 
-  var tf  = _stratTf(strategy, symbol);
+  var tf  = _holdToTf(Math.max(exitTs - entryTs, 0));
   var url = '/api/chart?symbol=' + encodeURIComponent(symbol) +
     '&entry_ts=' + entryTs + '&exit_ts=' + exitTs +
     '&tf=' + tf + '&broker=' + encodeURIComponent(BROKER);
@@ -1032,7 +1030,7 @@ document.addEventListener('click', function(e) {
 });
 
 /* ── 初期描画 ──────────────────────────────────────────────── */
-setPeriod(Math.min(MAX_DAYS, 7));
+setPeriod(7);
 buildPhase1Panel();
 initDailyNav();
 buildAllTradesSection();
@@ -1066,8 +1064,8 @@ def main():
                         choices=['axiory', 'oanda', 'exness'],
                         help='Broker key (default: axiory)')
     parser.add_argument('--days', type=int, default=7,
-                        choices=[7, 30, 90],
-                        help='History period in days (default: 7)')
+                        choices=[7, 30],
+                        help='Initial period filter in dashboard (default: 7). Data always fetches 365 days.')
     args = parser.parse_args()
 
     print('[INFO] Connecting to MT5: broker={}'.format(args.broker))
@@ -1078,7 +1076,7 @@ def main():
     try:
         now_jst  = datetime.now(tz=JST)
         to_utc   = now_jst.astimezone(timezone.utc)
-        from_utc = (now_jst - timedelta(days=args.days)).astimezone(timezone.utc)
+        from_utc = (now_jst - timedelta(days=365)).astimezone(timezone.utc)
         yesterday = (now_jst - timedelta(days=1)).strftime('%Y-%m-%d')
 
         print('[INFO] Fetching {} days of history ({} -> {})'.format(

@@ -33,7 +33,7 @@ LOG_DIR  = os.path.join(BASE_DIR, 'logs')
 JST      = timezone(timedelta(hours=9))
 
 VALID_BROKERS = {'axiory', 'oanda', 'exness'}
-VALID_DAYS    = {7, 30, 90}
+VALID_DAYS    = {7, 30, 0}
 
 os.makedirs(LOG_DIR, exist_ok=True)
 logging.basicConfig(
@@ -74,7 +74,7 @@ def index():
         try:
             now_jst   = datetime.now(tz=JST)
             to_utc    = now_jst.astimezone(timezone.utc)
-            from_utc  = (now_jst - timedelta(days=days)).astimezone(timezone.utc)
+            from_utc  = (now_jst - timedelta(days=365)).astimezone(timezone.utc)
             yesterday = (now_jst - timedelta(days=1)).strftime('%Y-%m-%d')
 
             trades         = fetch_deals_range(from_utc, to_utc)
@@ -98,9 +98,18 @@ def index():
 TF_STR_MAP = {
     'M5':  mt5.TIMEFRAME_M5,
     'M15': mt5.TIMEFRAME_M15,
+    'M30': mt5.TIMEFRAME_M30,
     'H1':  mt5.TIMEFRAME_H1,
+    'H2':  mt5.TIMEFRAME_H2,
     'H4':  mt5.TIMEFRAME_H4,
     'D1':  mt5.TIMEFRAME_D1,
+    'W1':  mt5.TIMEFRAME_W1,
+}
+
+TF_SECONDS = {
+    'M5': 300, 'M15': 900, 'M30': 1800,
+    'H1': 3600, 'H2': 7200, 'H4': 14400,
+    'D1': 86400, 'W1': 604800,
 }
 
 
@@ -121,8 +130,7 @@ def api_chart():
         broker = 'axiory'
 
     tf = TF_STR_MAP.get(tf_str, mt5.TIMEFRAME_H1)
-    hold_sec   = max(exit_ts - entry_ts, 3600)
-    buffer_sec = max(hold_sec // 2, 7200)   # 最低2hバッファ
+    buffer_sec = 5 * TF_SECONDS.get(tf_str, 3600)
     from_dt = datetime.fromtimestamp(entry_ts - buffer_sec, tz=timezone.utc)
     to_dt   = datetime.fromtimestamp(exit_ts  + buffer_sec, tz=timezone.utc)
 
