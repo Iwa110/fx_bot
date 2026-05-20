@@ -36,7 +36,7 @@ from broker_utils import connect_mt5, disconnect_mt5, build_symbol_map, is_live_
 # ══════════════════════════════════════════
 MAGIC         = 20260020
 STRATEGY_TAG  = 'COT'
-BROKER_KEY    = 'oanda'
+BROKER_KEY    = 'axiory'
 LOOP_INTERVAL = 3600   # 1h (weekly signal, no need for tight loop)
 
 # COT extreme thresholds (BT sensitivity: >90/<10 gives PF=6.344 n=21)

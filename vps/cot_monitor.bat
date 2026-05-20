@@ -15,7 +15,9 @@ powershell -NoProfile -Command ^
   "Get-WmiObject Win32_Process | Where-Object {$_.CommandLine -like '*cot_monitor.py*'} | ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Host ('Killed PID ' + $_.ProcessId) }"
 timeout /T 2 /NOBREAK >nul
 
-REM ── Launch daemon (oanda only - COT is weekly, one broker sufficient) ───────
-start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda --debug
+REM ── Launch daemons (axiory + exness) ────────────────────────────────────────
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker axiory --debug
 
-echo cot_monitor started (oanda).
+start /B "" "%PYTHONW%" "%SCRIPT%" --broker exness --debug
+
+echo cot_monitor started (axiory, exness).
