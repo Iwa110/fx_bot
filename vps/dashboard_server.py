@@ -51,7 +51,10 @@ app = Flask(__name__)
 
 @app.route('/strategy')
 def strategy():
-    return send_file(os.path.join(BASE_DIR, 'strategy_spec.html'))
+    resp = send_file(os.path.join(BASE_DIR, 'strategy_spec.html'))
+    resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+    resp.headers['Pragma'] = 'no-cache'
+    return resp
 
 
 @app.route('/')
