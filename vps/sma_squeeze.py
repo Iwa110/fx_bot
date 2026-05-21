@@ -12,6 +12,7 @@ v4 2026-05-21: replace B-1 breakeven with ATR-adaptive trailing stop
   USDJPY/GBPJPY/EURUSD: 0.5 / GBPUSD: 1.5 / EURJPY: 0.0 (baseline wins)
   Trail: trail_dist = ATR14 * atr_trail_mult; SL only moves in trade direction
   Log: [ATR_TRAIL] symbol LONG/SHORT SL old->new locked=X ticket=Y
+v4.1 2026-05-21: heartbeat log every 30 min (30 cycles) for monitoring
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -508,12 +509,6 @@ def manage_atr_trail(broker):
       For long:  new_sl = bid - trail_dist; update if new_sl > current_sl
       For short: new_sl = ask + trail_dist; update if new_sl < current_sl
 
-    Effect (example USDJPY, atr_trail_mult=0.5, sl_atr_mult=1.5):
-      Initial SL = entry - ATR*1.5
-      After price moves up: new_sl = bid - ATR*0.5 starts ratcheting up
-      When bid = entry + ATR*0.5: SL reaches entry level (break-even)
-      Thereafter: SL locks in profit at ATR*0.5 below current price
-
     Log format: [ATR_TRAIL] USDJPY LONG SL 149.50->149.80 locked=+0.30 ticket=12345
     """
     pos = mt5.positions_get()
@@ -667,8 +662,11 @@ def main_loop(webhook):
     log_print('sma_squeeze v4 started  broker=' + BROKER_KEY +
               '  interval=' + str(LOOP_INTERVAL) + 's')
 
+    _cycle = 0
     while True:
         try:
+            _cycle += 1
+
             # ATR trailing: update SLs first (tick-level check)
             manage_atr_trail(BROKER_KEY)
 
@@ -730,6 +728,12 @@ def main_loop(webhook):
 
             log_print('cycle done  pos=' + str(count_total_strategy()) +
                       '/' + str(MAX_TOTAL_POS), debug=True)
+
+            # Heartbeat every 30 cycles (~30 min) to confirm the bot is alive
+            if _cycle % 30 == 0:
+                log_print('heartbeat  alive  pos=' + str(count_total_strategy()) +
+                          '/' + str(MAX_TOTAL_POS) +
+                          '  cycle=' + str(_cycle))
 
         except Exception as e:
             log_print('loop error: ' + str(e))
