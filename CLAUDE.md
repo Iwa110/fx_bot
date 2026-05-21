@@ -11,12 +11,16 @@ C:\Users\Administrator\fx_bot\
 │   ├── bb_monitor.py      # v17 magic=20250001
 │   ├── trail_monitor.py   # v10
 │   ├── smc_gbpaud.py      # v4 magic=20260002
-│   └── stat_arb.py        # magic=20260001
+│   ├── stat_arb.py        # magic=20260001
+│   └── sma_squeeze.py     # v4 magic=20260010 (ATR-adaptive trailing)
 ├── optimizer\    # バックテスト・最適化
 │   ├── loop_runner.py
 │   ├── backtest.py
 │   ├── evaluate.py
-│   └── phase2_ai_analysis.py
+│   ├── phase2_ai_analysis.py
+│   ├── sma_squeeze_bt.py             # エントリーパラメータ最適化BT
+│   ├── sma_squeeze_exit_bt.py        # 決済パラメータ最適化BT ★新規
+│   └── sma_squeeze_daily_filter_bt.py
 └── data\         # 14ペア 1h/5m足
 ```
 
@@ -38,6 +42,15 @@ C:\Users\Administrator\fx_bot\
 ### stat_arb
 - GBPJPY/USDJPY・EURUSD/GBPUSD、MAX_POS=2ペア
 
+### SMA Squeeze Play v4（稼働中）
+- magic=20260010、STRATEGY_TAG='SMA_SQ'
+- PAIRS: USDJPY/GBPJPY/EURUSD/EURJPY（GBPUSD enabled=False）
+- ロジック: SMA200スロープフィルタ + SMAスクイーズ解放エントリー + 日足フィルター
+  - エントリー条件: ADX14>20、divergence_rate≤squeeze_th、SMAスロープ単調 + 日足SMA方向一致
+  - 決済: ATR×sl_atr_mult でSL、SL×rr でTP、SMA長期ブレイク強制決済 / slope-exit=3
+  - ATR-adaptive trailing: trail_dist = ATR14 × atr_trail_mult（ペア毎設定）
+  - クールダウン: 180分/ペア、MAX_TOTAL_POS=3、MAX_JPY_LOT=0.4
+
 ## GitHub運用
 - Repo: https://github.com/Iwa110/fx_bot (Public)
 - VPS更新フロー: commit/push → VPS側でgit pull
@@ -47,7 +60,7 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-11更新）
+## Top of mind（2026-05-21更新）
 ### OANDA MT5接続問題・全ブローカー稼働化（2026-05-11完了）
 - **問題**: Axiory/Exnessに取引がなく、OANDAはterminal.trade_allowed=False
 - **根本原因1（OANDA IPC失敗）**: OANDAのMT5ログで `IPC failed to initialize IPC` / `IPC dispatcher not started` + ヒストリーファイルのERROR_SHARING_VIOLATION[32]を確認。Axiory/ExnessがIPCを先に確保するため
@@ -84,11 +97,33 @@ C:\Users\Administrator\fx_bot\
 - **MULTIPLIERS**: tp=1.5, sl=2.0 → PF=1.924 / WR=52.9% / n=34
 - z_exit=0.0（Z回帰決済は無効、hold_period=5日で管理）
 
+### SMA Squeeze v4 ATR-adaptive trailing stop（2026-05-21完了）
+- **課題**: 単純なSLトレーリングでは早期利確・ノイズ損切りが発生
+- **解決**: 移動平均・チャート傾き・ボラティリティを加味した複数決済手法をBTで比較
+- **BT**: sma_squeeze_exit_bt.py 275runs（6手法: baseline/fixed_trail/atr_trail/slope_exit/div_tighten/combined）
+- **BT結果**（vs baseline固定SL/TP）:
+  | ペア | 最優手法 | PF(baseline) | PF(best) | 改善幅 |
+  |------|---------|------------|---------|--------|
+  | USDJPY | atr_trail mult=0.5 | 1.815 | 4.441 | +2.63 |
+  | EURUSD | atr_trail mult=0.5 | 2.670 | 7.447 | +4.78 |
+  | GBPUSD | atr_trail mult=1.5 | 0.713 | 1.418 | +0.71 |
+  | EURJPY | baseline（trailなし） | 3.673 | 3.673 | ±0 |
+  | GBPJPY | atr_trail mult=0.5 | - | - | (1h BT未実施) |
+- **実装 (sma_squeeze.py v4)**:
+  - `manage_atr_trail(broker)`: trail_dist = ATR14 × atr_trail_mult（ペア毎設定）
+  - SLは有利方向にしかラチェットしない。ボラ高時は自動的に広がる
+  - EURJPY: atr_trail_mult=0.0（無効）、固定TP維持
+  - BreakEven(`be_r`)廃止→ATR trailに統一
+  - v3機能（daily SMA filter、COOLDOWN=180、slope_exit=3）は維持
+  - Log: `[ATR_TRAIL] USDJPY LONG SL 149.50->149.80 locked=+0.30 atr=... ticket=...`
+- **変更ファイル**: vps/sma_squeeze.py (v4) / optimizer/sma_squeeze_exit_bt.py (新規)
+- **注意**: VPS git pull後、sma_squeeze_monitor.batを手動再起動すること
+
 ### 翌日Chat確認事項
 - VPS再起動後: OANDA→(60s)Axiory/Exness の起動順でIPC確保。trail_watcher.logで3ブローカーのHBを確認
 - OANDAのIPC問題が起動順制御で本当に解消されたか、次回VPS再起動後に trail_log_oanda.txtで確認
-- GBPUSDのPF=0.397は特に低い。Stage2 distanceやTP設定を再確認すべきか？
-- EURUSDは41件でPF=0.748。RR改善（Stage2 distance=0.1）が効いていない可能性
+- **SMA Squeeze v4**: sma_squeeze_log_oanda.txtで `[ATR_TRAIL]` ログが出ているか確認
+- GBPJPY: atr_trail_mult=0.5はUSDJPYから流用。1h BT data取得後に再検証推奨
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
 
@@ -98,9 +133,11 @@ C:\Users\Administrator\fx_bot\
 - [x] 動的ロットサイジング実装: dynamic_lot.py新規 / phase1_judgment.py新判定基準 / daily_report.py統合（2026-05-08完了）
 - [x] VPS Task Schedulerウィンドウ非表示化・trail_monitor多重起動修正（2026-05-10完了）
 - [x] OANDA MT5接続問題解消・全ブローカー稼働化（2026-05-11完了）
+- [x] SMA Squeeze v4 ATR-adaptive trailing BT+実装（2026-05-21完了）
+- [ ] VPS: git pull + sma_squeeze_monitor.bat再起動（v4反映）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
 - [ ] USDCAD再評価(BT結果待ち)
-- [ ] RR問題の深掘り（GBPUSD/EURUSD優先）
+- [ ] GBPJPY: 1h BT data取得後にatr_trail_mult再検証
 
 ## 作業スタイル
 - 作業時間: 夜まとめて1〜2時間
