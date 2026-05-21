@@ -22,3 +22,6 @@ desktop.ini
 # Pythonパッケージ
 venv/
 .venv/
+
+# バックテスト中間結果（大容量・自動生成）
+optimizer/sma_squeeze_bt_result.csv
