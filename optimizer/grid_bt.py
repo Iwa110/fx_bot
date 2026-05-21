@@ -1,9 +1,9 @@
 """
-grid_bt.py  --  AUDNZD Grid Strategy Backtest  (Magic: 20260030)
+grid_bt.py  --  Grid Strategy Backtest  (Magic: 20260030)
 
-AUDNZD is synthesized from AUDUSD_1h and NZDUSD_1h.
-Weekly EMA20 slope determines trade direction.
-Grid width = ATR(H1, 14) x grid_mult.
+Multi-pair grid strategy backtest.
+AUDNZD is synthesized from AUDUSD_1h / NZDUSD_1h.
+Quote-currency-to-JPY conversion applied per pair.
 
 Output: optimizer/grid_bt_result.csv
         optimizer/grid_bt_equity_top5.png
@@ -28,17 +28,37 @@ OUTPUT_CSV = str(OUTPUT_DIR / 'grid_bt_result.csv')
 CHART_PATH = str(OUTPUT_DIR / 'grid_bt_equity_top5.png')
 
 # ---------------------------------------------------------------
-# Constants
+# Target pairs  (EURCAD / GBPCAD skipped: only ~1,500 rows)
 # ---------------------------------------------------------------
-LOT_UNITS      = 1000      # 0.01 lot = 1000 units (base = AUD)
-DD_DAILY_JPY   = 5_000.0   # realized daily DD stop
-DD_WEEKLY_JPY  = 15_000.0  # realized weekly DD stop
-ACCOUNT_SIZE   = 100_000.0 # for DD% calc
-MIN_TRADES     = 30
-EMA_SLOPE_TH   = 0.0005    # 0.05%/week threshold for up/down vs flat
+PAIRS = [
+    'AUDCAD', 'AUDJPY', 'AUDUSD', 'AUDNZD',
+    'CHFJPY', 'EURGBP', 'EURJPY', 'EURUSD',
+    'GBPAUD', 'GBPJPY', 'GBPUSD',
+    'NZDJPY', 'NZDUSD',
+    'USDCAD', 'USDCHF', 'USDJPY',
+]
+
+# Quote currency for each pair (determines JPY conversion)
+QUOTE_CCY = {
+    'AUDCAD': 'CAD', 'AUDJPY': 'JPY', 'AUDUSD': 'USD', 'AUDNZD': 'NZD',
+    'CHFJPY': 'JPY', 'EURGBP': 'GBP', 'EURJPY': 'JPY', 'EURUSD': 'USD',
+    'GBPAUD': 'AUD', 'GBPJPY': 'JPY', 'GBPUSD': 'USD',
+    'NZDJPY': 'JPY', 'NZDUSD': 'USD',
+    'USDCAD': 'CAD', 'USDCHF': 'CHF', 'USDJPY': 'JPY',
+}
 
 # ---------------------------------------------------------------
-# Grid search
+# Constants
+# ---------------------------------------------------------------
+LOT_UNITS      = 1000      # 0.01 lot = 1,000 base currency units
+DD_DAILY_JPY   = 5_000.0
+DD_WEEKLY_JPY  = 15_000.0
+ACCOUNT_SIZE   = 100_000.0
+MIN_TRADES     = 30
+EMA_SLOPE_TH   = 0.0005    # 0.05%/week for up/down vs flat
+
+# ---------------------------------------------------------------
+# Grid search parameters
 # ---------------------------------------------------------------
 GRID_PARAMS = {
     'grid_mult':  [0.2, 0.3, 0.4, 0.5],
@@ -47,7 +67,6 @@ GRID_PARAMS = {
     'ema_filter': [True, False],
 }
 
-# Adoption criteria
 ADOPT_PF      = 1.3
 ADOPT_DD_PCT  = 10.0
 ADOPT_MIN_N   = 30
@@ -64,7 +83,6 @@ def _load_csv(fname):
         return None
     df = pd.read_csv(path, index_col=0)
     df.index = pd.to_datetime(df.index)
-    # Strip timezone if present
     try:
         df.index = df.index.tz_convert(None)
     except Exception:
@@ -73,7 +91,6 @@ def _load_csv(fname):
         except Exception:
             pass
     df.columns = [c.lower() for c in df.columns]
-    # Remove duplicate column names (e.g. open/Open pair)
     df = df.loc[:, ~df.columns.duplicated(keep='first')]
     keep = [c for c in ['open', 'high', 'low', 'close'] if c in df.columns]
     df = df[keep].dropna(subset=['close']).sort_index()
@@ -81,48 +98,83 @@ def _load_csv(fname):
     return df
 
 
-def load_data():
+def load_ref_rates():
     """
-    Synthesize AUDNZD 1h from AUDUSD / NZDUSD.
-    Also load NZDJPY for JPY PnL conversion.
+    Load reference JPY rates for quote-currency conversion.
+    Returns dict: {'USD': Series, 'NZD': Series, 'GBP': Series,
+                   'AUD': Series, 'CHF': Series, 'CAD': Series, 'JPY': None}
+    CAD is synthesized as USDJPY / USDCAD.
+    """
+    refs = {}
+    for ccy, fname in [
+        ('USD', 'USDJPY_1h.csv'),
+        ('NZD', 'NZDJPY_1h.csv'),
+        ('GBP', 'GBPJPY_1h.csv'),
+        ('AUD', 'AUDJPY_1h.csv'),
+        ('CHF', 'CHFJPY_1h.csv'),
+    ]:
+        df = _load_csv(fname)
+        refs[ccy] = df['close'] if df is not None else None
+
+    # CAD: CADJPY = USDJPY / USDCAD
+    usdjpy = refs.get('USD')
+    usdcad = _load_csv('USDCAD_1h.csv')
+    if usdjpy is not None and usdcad is not None:
+        common = usdjpy.index.intersection(usdcad.index)
+        cadjpy = (usdjpy.loc[common] / usdcad.loc[common, 'close']).replace(
+            [np.inf, -np.inf], np.nan).ffill().bfill()
+        refs['CAD'] = cadjpy
+    else:
+        refs['CAD'] = None
+
+    refs['JPY'] = None  # no conversion needed
+    return refs
+
+
+def load_pair_data(pair, ref_rates):
+    """
+    Load OHLC data for a pair and the corresponding JPY conversion array.
 
     Returns:
-        df_audnzd : DataFrame with DatetimeIndex, columns open/high/low/close
-        nzdjpy_arr: np.ndarray aligned to df_audnzd.index
+        df          : DataFrame with DatetimeIndex (open/high/low/close)
+        conv_arr    : np.ndarray of JPY/quote_ccy rates, aligned to df.index
     """
-    aud = _load_csv('AUDUSD_1h.csv')
-    nzd = _load_csv('NZDUSD_1h.csv')
-    jpy = _load_csv('NZDJPY_1h.csv')
+    quote = QUOTE_CCY[pair]
 
-    if aud is None or nzd is None:
-        raise FileNotFoundError('AUDUSD_1h.csv or NZDUSD_1h.csv not found in data/')
-
-    # Intersect on common timestamps
-    common = aud.index.intersection(nzd.index)
-    if len(common) == 0:
-        raise ValueError('No overlapping timestamps between AUDUSD and NZDUSD')
-
-    au = aud.loc[common]
-    nz = nzd.loc[common]
-
-    # Synthesize AUDNZD = AUDUSD / NZDUSD
-    # Conservative H/L: buying AUDNZD high requires AUDUSD high and NZDUSD low
-    audnzd = pd.DataFrame({
-        'open':  au['open']  / nz['open'],
-        'high':  au['high']  / nz['low'],
-        'low':   au['low']   / nz['high'],
-        'close': au['close'] / nz['close'],
-    }, index=common)
-    audnzd = audnzd.replace([np.inf, -np.inf], np.nan).dropna()
-
-    # NZDJPY for conversion; fall back to fixed 86 if unavailable
-    if jpy is not None:
-        nzdjpy = jpy['close'].reindex(audnzd.index, method='ffill').bfill()
+    if pair == 'AUDNZD':
+        # Synthesize AUDNZD = AUDUSD / NZDUSD
+        aud = _load_csv('AUDUSD_1h.csv')
+        nzd = _load_csv('NZDUSD_1h.csv')
+        if aud is None or nzd is None:
+            return None, None
+        common = aud.index.intersection(nzd.index)
+        df = pd.DataFrame({
+            'open':  aud.loc[common, 'open']  / nzd.loc[common, 'open'],
+            'high':  aud.loc[common, 'high']  / nzd.loc[common, 'low'],
+            'low':   aud.loc[common, 'low']   / nzd.loc[common, 'high'],
+            'close': aud.loc[common, 'close'] / nzd.loc[common, 'close'],
+        }, index=common)
+        df = df.replace([np.inf, -np.inf], np.nan).dropna()
     else:
-        nzdjpy = pd.Series(86.0, index=audnzd.index)
-    nzdjpy = nzdjpy.fillna(86.0)
+        df = _load_csv(f'{pair}_1h.csv')
+        if df is None:
+            return None, None
 
-    return audnzd, nzdjpy.values
+    if len(df) < 500:
+        return None, None  # skip if data is too short
+
+    # Build JPY conversion array
+    if quote == 'JPY':
+        conv_arr = np.ones(len(df))
+    else:
+        rate_series = ref_rates.get(quote)
+        if rate_series is None:
+            return None, None
+        conv = rate_series.reindex(df.index, method='ffill').bfill()
+        conv = conv.fillna(1.0).values
+        conv_arr = conv
+
+    return df, conv_arr
 
 
 # ---------------------------------------------------------------
@@ -140,7 +192,7 @@ def calc_atr14_h1(df):
 
 def calc_atr14_d1(df):
     """
-    ATR14 on D1 (resampled from 1h), plus 90-day rolling mean.
+    ATR14 on D1 (resampled from 1h) + 90-day rolling mean.
     Returns (atr_d1_arr, avg90_arr) aligned to df.index.
     """
     daily = df.resample('D').agg(
@@ -153,7 +205,6 @@ def calc_atr14_d1(df):
     tr_d  = pd.concat([hl, hc, lc], axis=1).max(axis=1)
     atr_d = tr_d.ewm(alpha=1.0/14, min_periods=14, adjust=False).mean()
     avg90 = atr_d.rolling(90, min_periods=90).mean()
-    # Map back to 1h; ffill so each hourly bar uses that day's D1 ATR
     s_d   = atr_d.reindex(df.index, method='ffill')
     s_avg = avg90.reindex(df.index, method='ffill')
     return s_d.values, s_avg.values
@@ -161,15 +212,15 @@ def calc_atr14_d1(df):
 
 def calc_weekly_ema20_direction(df):
     """
-    Weekly EMA20 slope direction mapped to 1h index.
-    Uses previous week's slope to avoid lookahead.
+    Weekly EMA20 slope direction mapped back to 1h index.
+    Previous week's slope used to avoid lookahead.
 
-    Returns np.ndarray of int:  1 = up,  -1 = down,  0 = flat
+    Returns np.ndarray of int:  1=up,  -1=down,  0=flat
     """
     weekly    = df['close'].resample('W').last().dropna()
     ema_w     = weekly.ewm(span=20, min_periods=5, adjust=False).mean()
-    slope_pct = ema_w.diff() / ema_w            # fractional change per week
-    slope_lag = slope_pct.shift(1)              # use prev week (no lookahead)
+    slope_pct = ema_w.diff() / ema_w
+    slope_lag = slope_pct.shift(1)
 
     direction = pd.Series(0, index=slope_lag.index, dtype=int)
     direction[slope_lag >  EMA_SLOPE_TH] = 1
@@ -183,31 +234,19 @@ def calc_weekly_ema20_direction(df):
 # Backtest core
 # ---------------------------------------------------------------
 
-def run_backtest(df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
+def run_backtest(df, conv_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
                  grid_mult, max_levels, atr_th, ema_filter):
     """
-    Simulate AUDNZD grid strategy.
-
-    Grid logic:
-      - Long:  add when close drops >= grid_width below lowest current long entry
-      - Short: add when close rises >= grid_width above highest current short entry
-      - First position (when empty) opens immediately
-      - TP = entry +/- grid_width  (no SL; capped at max_levels)
-
-    Stops (new order only):
-      - ATR(D1) > avg90 * atr_th  --> volatility stop
-      - Realized daily DD > 5,000 JPY
-      - Realized weekly DD > 15,000 JPY
+    Simulate grid strategy for a single parameter set.
 
     Returns (metrics_dict, equity_list) or (None, None) if n < MIN_TRADES.
     """
     n       = len(df)
     close_a = df['close'].values
-    warmup  = 50  # H1 ATR14 warm-up; NaN checks handle D1/weekly
+    warmup  = 50
 
-    # --- State ---
-    open_longs  = []    # list of (entry_price, tp_price)
-    open_shorts = []    # list of (entry_price, tp_price)
+    open_longs  = []   # (entry_price, tp_price)
+    open_shorts = []   # (entry_price, tp_price)
 
     equity            = 0.0
     equity_list       = [0.0]
@@ -222,18 +261,18 @@ def run_backtest(df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
 
     for i in range(warmup, n):
         c   = close_a[i]
-        nzj = nzdjpy_arr[i]
+        cnv = conv_arr[i]           # JPY per quote currency unit
         gw  = atr_h1[i] * grid_mult
 
         if np.isnan(c) or np.isnan(gw) or gw <= 0:
             continue
 
-        # Day / week boundary
         ts        = df.index[i]
         curr_day  = ts.date()
         iso       = ts.isocalendar()
         curr_week = (iso[0], iso[1])
 
+        # Day / week boundary reset
         if curr_day != prev_day:
             day_equity_start = equity
             day_stop         = False
@@ -247,7 +286,7 @@ def run_backtest(df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
         rem_l = []
         for entry, tp in open_longs:
             if c >= tp:
-                pnl = (tp - entry) * LOT_UNITS * nzj
+                pnl = (tp - entry) * LOT_UNITS * cnv
                 trades.append(pnl)
                 equity += pnl
             else:
@@ -257,7 +296,7 @@ def run_backtest(df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
         rem_s = []
         for entry, tp in open_shorts:
             if c <= tp:
-                pnl = (entry - tp) * LOT_UNITS * nzj
+                pnl = (entry - tp) * LOT_UNITS * cnv
                 trades.append(pnl)
                 equity += pnl
             else:
@@ -272,25 +311,24 @@ def run_backtest(df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
         if equity - week_equity_start < -DD_WEEKLY_JPY:
             week_stop = True
 
-        # ---- New order gating ----
         if day_stop or week_stop:
             continue
 
-        # Volatility filter
+        # ---- Volatility filter ----
         if not (np.isnan(atr_d1[i]) or np.isnan(atr_d1_avg90[i])):
             if atr_d1[i] > atr_d1_avg90[i] * atr_th:
                 continue
 
-        # Direction
+        # ---- Direction ----
         dir_val   = direction_h[i]
         if ema_filter:
-            can_long  = (dir_val >= 0)   # up or flat
-            can_short = (dir_val <= 0)   # down or flat
+            can_long  = (dir_val >= 0)
+            can_short = (dir_val <= 0)
         else:
             can_long  = True
             can_short = True
 
-        # ---- Grid entry: Long ----
+        # ---- Grid entries ----
         if can_long:
             if len(open_longs) == 0:
                 open_longs.append((c, c + gw))
@@ -299,7 +337,6 @@ def run_backtest(df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
                 if c <= lowest - gw:
                     open_longs.append((c, c + gw))
 
-        # ---- Grid entry: Short ----
         if can_short:
             if len(open_shorts) == 0:
                 open_shorts.append((c, c - gw))
@@ -308,15 +345,15 @@ def run_backtest(df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
                 if c >= highest + gw:
                     open_shorts.append((c, c - gw))
 
-    # Close remaining positions at final bar price (reflected in equity)
-    c_last   = close_a[-1]
-    nzj_last = nzdjpy_arr[-1]
+    # Force-close remaining positions at final bar price
+    c_last  = close_a[-1]
+    cnv_last = conv_arr[-1]
     for entry, tp in open_longs:
-        pnl = (c_last - entry) * LOT_UNITS * nzj_last
+        pnl = (c_last - entry) * LOT_UNITS * cnv_last
         trades.append(pnl)
         equity += pnl
     for entry, tp in open_shorts:
-        pnl = (entry - c_last) * LOT_UNITS * nzj_last
+        pnl = (entry - c_last) * LOT_UNITS * cnv_last
         trades.append(pnl)
         equity += pnl
     equity_list.append(equity)
@@ -331,26 +368,22 @@ def run_backtest(df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
     gl   = float(abs(loss.sum())) if len(loss) > 0 else 0.0
     pf   = gp / gl if gl > 0 else (9.99 if gp > 0 else 0.0)
 
-    # Max drawdown (peak-to-trough, % of account)
     eq_arr = np.array(equity_list)
     peak   = np.maximum.accumulate(eq_arr)
-    dd_abs = float((eq_arr - peak).min())   # <= 0
+    dd_abs = float((eq_arr - peak).min())
     dd_pct = abs(dd_abs) / ACCOUNT_SIZE * 100.0
 
-    # Annualised Sharpe (daily PnL to avoid zero-inflation from hourly)
-    eq_s = pd.Series(equity_list)
-    # Use roughly 24-bar windows as "daily" proxy
-    daily_pnl = eq_s.diff(24).dropna()
-    mean_d = daily_pnl.mean()
-    std_d  = daily_pnl.std()
-    sharpe = (mean_d / std_d * np.sqrt(365)) if std_d > 0 else 0.0
+    # Sharpe: annualised from daily-window PnL (24h proxy)
+    eq_s  = pd.Series(equity_list)
+    dp    = eq_s.diff(24).dropna()
+    sharpe = (dp.mean() / dp.std() * np.sqrt(365)) if dp.std() > 0 else 0.0
 
     metrics = {
         'PF':         round(pf, 3),
         'WR':         round(len(wins) / len(arr), 3),
         'n_trades':   int(len(arr)),
         'max_dd_pct': round(dd_pct, 2),
-        'sharpe':     round(sharpe, 3),
+        'sharpe':     round(float(sharpe), 3),
     }
     return metrics, equity_list
 
@@ -360,20 +393,13 @@ def run_backtest(df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
 # ---------------------------------------------------------------
 
 def main():
-    print('[INFO] Loading AUDNZD (synthesized from AUDUSD/NZDUSD)...')
-    df, nzdjpy_arr = load_data()
-    print(f'[INFO] AUDNZD: {len(df)} bars  '
-          f'{df.index[0].date()} -> {df.index[-1].date()}')
-    print(f'[INFO] AUDNZD close range: '
-          f'{df["close"].min():.5f} - {df["close"].max():.5f}')
-    print(f'[INFO] NZDJPY avg: {nzdjpy_arr.mean():.2f}')
-
-    print('[INFO] Computing indicators...')
-    atr_h1              = calc_atr14_h1(df)
-    atr_d1, atr_d1_avg90 = calc_atr14_d1(df)
-    direction_h         = calc_weekly_ema20_direction(df)
-    print(f'[INFO] Weekly direction dist  up={( direction_h==1).sum()}  '
-          f'flat={(direction_h==0).sum()}  down={(direction_h==-1).sum()}')
+    print('[INFO] Loading reference JPY rates...')
+    ref_rates = load_ref_rates()
+    for ccy, s in ref_rates.items():
+        if s is not None:
+            print(f'  {ccy}/JPY  avg={s.mean():.2f}  n={len(s)}')
+        else:
+            print(f'  JPY  (no conversion)')
 
     combos = list(itertools.product(
         GRID_PARAMS['grid_mult'],
@@ -381,35 +407,56 @@ def main():
         GRID_PARAMS['atr_th'],
         GRID_PARAMS['ema_filter'],
     ))
-    total = len(combos)
-    print(f'[INFO] {total} parameter combinations\n')
+    total_runs = len(PAIRS) * len(combos)
+    print(f'\n[INFO] {len(PAIRS)} pairs x {len(combos)} combos = {total_runs} runs\n')
 
     all_results  = []
-    equity_cache = {}
+    equity_cache = {}   # (pair, gm, ml, at, ef) -> equity_list
+    done         = 0
 
-    for idx, (gm, ml, at, ef) in enumerate(combos):
-        if (idx + 1) % 12 == 0 or idx == 0:
-            print(f'  progress: {idx + 1}/{total}')
-
-        m, eq_list = run_backtest(
-            df, nzdjpy_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
-            grid_mult=gm, max_levels=int(ml), atr_th=at, ema_filter=ef,
-        )
-        if m is None:
+    for pair in PAIRS:
+        df, conv_arr = load_pair_data(pair, ref_rates)
+        if df is None:
+            print(f'[SKIP] {pair}: data unavailable')
+            done += len(combos)
             continue
 
-        row = {
-            'grid_mult':  gm,
-            'max_levels': int(ml),
-            'atr_th':     at,
-            'ema_filter': ef,
-            **m,
-        }
-        all_results.append(row)
-        equity_cache[(gm, int(ml), at, ef)] = eq_list
+        atr_h1              = calc_atr14_h1(df)
+        atr_d1, atr_d1_avg90 = calc_atr14_d1(df)
+        direction_h         = calc_weekly_ema20_direction(df)
+
+        up   = int((direction_h == 1).sum())
+        flat = int((direction_h == 0).sum())
+        down = int((direction_h == -1).sum())
+        print(f'[{pair:8s}] bars={len(df)}  '
+              f'close={df["close"].iloc[-1]:.5f}  '
+              f'dir: up={up} flat={flat} dn={down}')
+
+        for gm, ml, at, ef in combos:
+            done += 1
+            if done % 200 == 0:
+                print(f'  ... {done}/{total_runs}')
+
+            m, eq_list = run_backtest(
+                df, conv_arr, atr_h1, atr_d1, atr_d1_avg90, direction_h,
+                grid_mult=gm, max_levels=int(ml), atr_th=at, ema_filter=ef,
+            )
+            if m is None:
+                continue
+
+            row = {
+                'pair':       pair,
+                'grid_mult':  gm,
+                'max_levels': int(ml),
+                'atr_th':     at,
+                'ema_filter': ef,
+                **m,
+            }
+            all_results.append(row)
+            equity_cache[(pair, gm, int(ml), at, ef)] = eq_list
 
     if not all_results:
-        print('[WARN] No results produced. Check data availability.')
+        print('[WARN] No results produced.')
         return
 
     result_df = pd.DataFrame(all_results)
@@ -417,7 +464,17 @@ def main():
     result_df.to_csv(OUTPUT_CSV, index=False)
     print(f'\n[INFO] Results saved: {OUTPUT_CSV}  ({len(result_df)} rows)')
 
-    # ---- Print qualifying runs ----
+    # ---- Per-pair best summary ----
+    print('\n=== Best PF per pair ===')
+    best = result_df.groupby('pair').first().reset_index()[
+        ['pair', 'grid_mult', 'max_levels', 'atr_th', 'ema_filter',
+         'PF', 'WR', 'n_trades', 'max_dd_pct', 'sharpe']
+    ]
+    pd.set_option('display.width', 140)
+    pd.set_option('display.max_columns', 20)
+    print(best.to_string(index=False))
+
+    # ---- Qualifying runs ----
     qual = result_df[
         (result_df['PF']         >= ADOPT_PF) &
         (result_df['max_dd_pct'] <= ADOPT_DD_PCT) &
@@ -427,32 +484,27 @@ def main():
     if qual.empty:
         print('  (none)')
     else:
-        pd.set_option('display.width', 120)
-        pd.set_option('display.max_columns', 20)
         print(qual.to_string(index=False))
 
-    # ---- Top-5 summary ----
-    print('\n=== Top 5 by PF ===')
-    print(result_df.head(5).to_string(index=False))
-
-    # ---- Equity curves (top 5) ----
-    top5 = result_df.head(5)
+    # ---- Top-5 equity curves (across all pairs) ----
+    top5    = result_df.head(5)
     n_plots = min(5, len(top5))
     fig, axes = plt.subplots(n_plots, 1, figsize=(13, 3.5 * n_plots))
     if n_plots == 1:
         axes = [axes]
 
     for ax, (_, row) in zip(axes, top5.iterrows()):
-        key = (row['grid_mult'], int(row['max_levels']), row['atr_th'], row['ema_filter'])
+        key = (row['pair'], row['grid_mult'], int(row['max_levels']),
+               row['atr_th'], row['ema_filter'])
         eq  = equity_cache.get(key)
         if eq is None:
             continue
         ax.plot(eq, linewidth=0.8)
         ax.set_title(
-            f'grid_mult={row["grid_mult"]}  max_levels={int(row["max_levels"])}  '
-            f'atr_th={row["atr_th"]}  ema_filter={row["ema_filter"]}  |  '
-            f'PF={row["PF"]}  WR={row["WR"]}  n={int(row["n_trades"])}  '
-            f'DD={row["max_dd_pct"]}%  Sharpe={row["sharpe"]}',
+            f"{row['pair']}  gm={row['grid_mult']} lv={int(row['max_levels'])} "
+            f"atr={row['atr_th']} ema={row['ema_filter']}  |  "
+            f"PF={row['PF']}  WR={row['WR']}  n={int(row['n_trades'])}  "
+            f"DD={row['max_dd_pct']}%  Sharpe={row['sharpe']}",
             fontsize=8,
         )
         ax.set_ylabel('Equity (JPY)')
