@@ -94,6 +94,28 @@ C:\Users\Administrator\fx_bot\
 - trail_dist = ATR14 × atr_trail_mult、SLは有利方向のみラチェット
 - EURJPY: atr_trail_mult=0.0（無効）、固定TP維持
 
+### sma_squeeze v4.2 trail_start_mult + BTバグ修正（2026-05-21完了）
+- **問題**: 「途中でプラスに転じたのに損切りになった」件の根本原因を特定
+  - ATR trail(mult=0.5)はエントリー直後から動作するため、含み益がATR×0.5未満の段階では
+    SLがまだエントリー価格(BE)未満のまま。その時点で反転するとマイナス決済になる
+  - 例: USDJPY ATR=1.0、entry=150.00、SL初期=148.50
+    → 価格が150.30に上昇（含み益=+0.30 < ATR×0.5=0.50）
+    → trail SL = 150.30 - 0.50 = 149.80（まだ含み損ゾーン）
+    → 価格が149.80に戻る → SL執行 → -0.20円の損切り
+- **解決: trail_start_mult**（Option 2を実装）
+  - trail開始条件: 含み益 >= ATR × trail_start_mult
+  - trail_start_mult = atr_trail_mult = 0.5 に設定
+  - → 初回trail更新時に SL = (entry + ATR×0.5) - ATR×0.5 = entry（BE保証）
+- **実装**:
+  - USDJPY/GBPJPY/EURUSD: trail_start_mult=0.5（= atr_trail_mult、BE保証）
+  - EURJPY: trail_start_mult=0.0（trail無効のため不要）
+  - debug log追加: `[ATR_TRAIL] trail-wait profit=X threshold=Y` / `no-update new_sl=X`
+- **BT修正**（optimizer/sma_squeeze_exit_bt.py）:
+  - Critical bug fix: `adv_v` → `adx_v`（NameErrorで全BT無効化されていた）
+  - trail_start_mult=0.0 / trail_start_multで検証できるようグリッド拡張
+  - VPSでBT再実行推奨: trail_start_mult有無でPF比較（BT実行はVPSのみ可）
+- **ログ確認**: `[ATR_TRAIL] USDJPY LONG trail-wait` が出ていれば正常動作中
+
 ### .bat kill-before-restart 対応（2026-05-21完了）
 - 全batファイルに`wmic process where ... delete`を追加（kill→wait→start）
 - 対象: sma_squeeze_monitor.bat / trail_monitor_all.bat / bb_monitor_all.bat / daily_trade_all.bat / daily_report_all.bat
@@ -117,9 +139,13 @@ C:\Users\Administrator\fx_bot\
 - PF=1.924 / WR=52.9% / n=34
 
 ### 翌日確認事項
-- VPS: `git pull origin main` → `sma_squeeze_monitor.bat` 再起動（axiory/exnessのみ）
-- `sma_squeeze_log_axiory.txt` で `heartbeat alive` が30分おきに出ているか確認
-- `[ATR_TRAIL]` ログが出ているか（ポジション保有中のみ）
+- **【要対応】VPS**: `git pull origin main` → `sma_squeeze_monitor.bat` 再起動（v4.2反映）
+- v4.2動作確認: `sma_squeeze_log_axiory.txt` で `[ATR_TRAIL] trail-wait` が出ているか
+  - trail-wait中 = 含み益がATR×0.5未満 → 正常（BE保証前はtrailしない）
+  - trail-wait→SL更新 の順で出ていれば完璧
+- **任意: VPS BTで trail_start_mult 効果検証**
+  - VPS上で `python sma_squeeze_exit_bt.py` を再実行（adv_v typoも修正済み）
+  - trail_start_mult=0.0 vs trail_start_mult=0.5 のPF比較をRECOMMENDED
 - GBPJPY: atr_trail_mult=0.5はUSDJPYから流用。1h BT data取得後に再検証推奨
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 
@@ -134,7 +160,8 @@ C:\Users\Administrator\fx_bot\
 - [x] 全batファイル kill-before-restart 追加（2026-05-21完了）
 - [x] sma_squeeze.py エンコーディング破損修正 + heartbeat追加 v4.1（2026-05-21完了）
 - [x] main branch push完了（`dda8e36`）
-- [ ] **VPS**: `git pull origin main` → `sma_squeeze_monitor.bat` 再起動（v4.1反映）
+- [x] SMA Squeeze v4.2 trail_start_mult + BT adv_v typo修正（2026-05-21完了）
+- [ ] **VPS**: `git pull origin main` → `sma_squeeze_monitor.bat` 再起動（v4.2反映）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
 - [ ] USDCAD再評価(BT結果待ち)
 - [ ] GBPJPY: 1h BT data取得後にatr_trail_mult再検証
