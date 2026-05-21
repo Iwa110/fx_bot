@@ -1,6 +1,7 @@
 @echo off
 REM daily_trade_all.bat
 REM Run daily_trade.py for all enabled brokers sequentially (for Task Scheduler).
+REM Kills any lingering daily_trade.py processes before starting fresh.
 REM Sequential (no start /B) to avoid MT5 IPC conflicts between brokers.
 REM
 REM 前提: axiory / exness / oanda の MT5 ターミナルは常時起動・ログイン済みであること。
@@ -11,13 +12,16 @@ REM   Set enabled=False in broker_config.py, then REM-out the corresponding line
 set PYTHON=C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe
 set SCRIPT=C:\Users\Administrator\fx_bot\vps\daily_trade.py
 
-REM axiory (enabled=True, demo)
+REM Kill any lingering daily_trade.py processes
+wmic process where "name='pythonw.exe' and commandline like '%%daily_trade.py%%'" delete >nul 2>&1
+
+REM axiory (enabled=True)
 "%PYTHON%" "%SCRIPT%" --broker axiory
 
-REM exness (enabled=True, demo)
+REM exness (enabled=True)
 "%PYTHON%" "%SCRIPT%" --broker exness
 
-REM oanda (enabled=True, demo)
+REM oanda (enabled=True)
 "%PYTHON%" "%SCRIPT%" --broker oanda
 
 REM oanda_demo (enabled=False - 実口座開設後に有効化)
