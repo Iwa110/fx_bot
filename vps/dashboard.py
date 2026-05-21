@@ -33,6 +33,10 @@ STRATEGY_COLORS = {
     'SMC_GBPAUD': '#4ecb71',
     'stat_arb':   '#f7a84e',
     'SMA_SQ':     '#c471f7',
+    'COT':        '#f7e24e',
+    'GRID_NZD':   '#4ef7d8',
+    'GRID_GBP':   '#f74e8e',
+    'GRID_CHF':   '#f7994e',
 }
 
 # Phase1判定基準
@@ -54,6 +58,9 @@ def _close_reason(d_reason: int, d_comment: str, strategy: str) -> str:
     elif strategy == 'stat_arb':
         if 'stat_arb_close' in c:
             return 'Z決済'
+    elif strategy in ('GRID_NZD', 'GRID_GBP', 'GRID_CHF'):
+        if '_B48' in c:
+            return 'B48強制'
     if d_reason == mt5.DEAL_REASON_TP:
         return 'TP'
     if d_reason == mt5.DEAL_REASON_SL:

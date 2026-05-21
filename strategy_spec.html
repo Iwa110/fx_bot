@@ -279,6 +279,7 @@
     <a href="#s11"><span class="toc-badge">11</span>トレーリングストップ共通仕様</a>
     <a href="#s12"><span class="toc-badge">12</span>共通リスク管理</a>
     <a href="#s13"><span class="toc-badge">13</span>COT極値×日足トレンド</a>
+    <a href="#s14"><span class="toc-badge">14</span>グリッド戦略</a>
     <a href="#magic"><span class="toc-badge">★</span>Magic番号早見表</a>
   </div>
 </div>
@@ -998,6 +999,102 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
   </div>
 </div>
 
+<!-- §14 Grid -->
+<div class="section" id="s14">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>14. グリッド戦略 <small style="font-size:11px;color:var(--muted)">grid_monitor.py v2</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が高い時のみエントリー。最大7レベル到達後 48時間タイマー（B48 Exit）で強制決済。</p>
+
+    <h3>対象ペアと確定パラメータ</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>Magic</th><th>atr_mult</th><th>max_levels</th><th>CI_th</th><th>Exit</th><th>BT PF</th><th>n</th></tr></thead>
+        <tbody>
+          <tr><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0</td><td>7</td><td>61.8</td><td>B48h</td><td>—</td><td>—</td></tr>
+          <tr><td>GBPJPY</td><td class="magic-num">20260031</td><td>1.5</td><td>7</td><td>61.8</td><td>B48h</td><td class="pf-good">3.857 (Full)</td><td>218</td></tr>
+          <tr><td>CHFJPY</td><td class="magic-num">20260032</td><td>2.0</td><td>7</td><td>61.8</td><td>B48h</td><td class="pf-good">OOS 1.521</td><td>38</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="info-grid">
+      <div class="info-item"><div class="info-label">TF</div><div class="info-value">H1(ATR) / D1 resample(CI)</div></div>
+      <div class="info-item"><div class="info-label">ロット</div><div class="info-value">0.01</div></div>
+      <div class="info-item"><div class="info-label">ループ間隔</div><div class="info-value">60秒</div></div>
+      <div class="info-item"><div class="info-label">稼働ブローカー</div><div class="info-value">axiory / exness</div></div>
+    </div>
+
+    <h3>グリッドロジック</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>項目</th><th>詳細</th></tr></thead>
+        <tbody>
+          <tr><td>grid_width</td><td>ATR(H1,14) × atr_mult</td></tr>
+          <tr><td>Long追加</td><td>最安エントリーから grid_width 下落時</td></tr>
+          <tr><td>Short追加</td><td>最高エントリーから grid_width 上昇時</td></tr>
+          <tr><td>TP</td><td>エントリー ± grid_width（1ステップ先）</td></tr>
+          <tr><td>SL</td><td>なし</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>エントリーフィルター（新規発注のみ）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>条件</th><th>詳細</th></tr></thead>
+        <tbody>
+          <tr><td>CI フィルター</td><td>CI(D1,14) &gt; 61.8（レンジ相場必須）</td></tr>
+          <tr><td>日次 DD</td><td>日次実現損益 ≥ −5,000 JPY</td></tr>
+          <tr><td>週次 DD</td><td>週次実現損益 ≥ −15,000 JPY</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>B48 Exit</h3>
+    <ul>
+      <li>Long / Short それぞれ独立タイマー</li>
+      <li>max_levels（7）到達時刻を記録</li>
+      <li>48時間経過 → その方向の全ポジションを成行決済</li>
+      <li>TP 発火でカウントが max_levels 未満に → タイマーリセット</li>
+    </ul>
+
+    <h3>バックテスト結果</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>期間</th><th>PF</th><th>n</th></tr></thead>
+        <tbody>
+          <tr><td>GBPJPY</td><td>Full</td><td class="pf-good">3.857</td><td>218</td></tr>
+          <tr><td>GBPJPY</td><td>IS</td><td class="pf-good">2.741</td><td>—</td></tr>
+          <tr><td>GBPJPY</td><td>OOS WF1</td><td class="pf-good">1.542</td><td>—</td></tr>
+          <tr><td>CHFJPY</td><td>IS</td><td>1.023</td><td>—</td></tr>
+          <tr><td>CHFJPY</td><td>OOS</td><td class="pf-good">1.521</td><td>38</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>起動方法</h3>
+    <pre>REM VPS上で実行（全ペア一括）
+C:\Users\Administrator\fx_bot\vps\grid_monitor.bat
+
+REM 個別起動例
+pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory
+pythonw.exe grid_monitor.py --pair CHFJPY --broker exness</pre>
+
+    <h3>ログ出力仕様</h3>
+    <pre>entry LONG lot=0.01 price=... grid_width=... level=X/7
+tp_close LONG price=... pnl=+XXXX JPY hold=Xh
+b48_close LONG positions=X total_pnl=+XXXX JPY
+filter_block ci=XX.X (threshold=61.8)
+heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X</pre>
+
+    <p>ログ: <code>grid_log_{PAIR}_{broker}.txt</code> / State: <code>grid_monitor_state_{PAIR}.json</code></p>
+  </div>
+</div>
+
 <!-- Magic番号早見表 -->
 <div class="section" id="magic">
   <div class="section-header" onclick="toggleSection(this)">
@@ -1024,6 +1121,9 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
           <tr><td>200MA Pinbar</td><td class="magic-num">20260003</td><td><code>ma200_pinbar</code></td><td>ma200_pin_bar.py</td></tr>
           <tr><td>SMA Squeeze</td><td class="magic-num">20260010</td><td><code>SMA_SQ_{PAIR}</code></td><td>sma_squeeze.py</td></tr>
           <tr><td>COT極値</td><td class="magic-num">20260020</td><td><code>COT_{PAIR}</code></td><td>cot_monitor.py</td></tr>
+          <tr><td>Grid NZDUSD</td><td class="magic-num">20260030</td><td><code>GRID_NZD</code></td><td>grid_monitor.py</td></tr>
+          <tr><td>Grid GBPJPY</td><td class="magic-num">20260031</td><td><code>GRID_GBP</code></td><td>grid_monitor.py</td></tr>
+          <tr><td>Grid CHFJPY</td><td class="magic-num">20260032</td><td><code>GRID_CHF</code></td><td>grid_monitor.py</td></tr>
         </tbody>
       </table>
     </div>

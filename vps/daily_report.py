@@ -65,6 +65,9 @@ MAGIC_MAP = {
     20260001: 'stat_arb',
     20260010: 'SMA_SQ',
     20260020: 'COT',
+    20260030: 'GRID_NZD',
+    20260031: 'GRID_GBP',
+    20260032: 'GRID_CHF',
 }
 
 

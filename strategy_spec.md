@@ -1,6 +1,6 @@
 # FX Bot 戦略仕様書
 
-生成日: 2026-05-21  
+生成日: 2026-05-22  
 対象: `C:\Users\Administrator\fx_bot\vps\` 以下のPythonスクリプト
 
 ---
@@ -20,6 +20,7 @@
 11. [トレーリングストップ共通仕様](#11-トレーリングストップ共通仕様-trail_monitorpy)
 12. [共通リスク管理](#12-共通リスク管理-risk_managerpy)
 13. [COT極値×日足トレンド](#13-cot極値日足トレンド-cot_monitorpy-v1)
+14. [グリッド戦略](#14-グリッド戦略-grid_monitorpy-v2)
 
 ---
 
@@ -704,6 +705,9 @@ lot = clamp(lot, MIN=0.01, MAX=0.2)
 | 200MA Pinbar | 20260003 | `ma200_pinbar` | ma200_pin_bar.py |
 | SMA Squeeze | 20260010 | `SMA_SQ_{PAIR}` | sma_squeeze.py |
 | COT極値 | 20260020 | `COT_{PAIR}` | cot_monitor.py |
+| Grid NZDUSD | 20260030 | `GRID_NZD` | grid_monitor.py |
+| Grid GBPJPY | 20260031 | `GRID_GBP` | grid_monitor.py |
+| Grid CHFJPY | 20260032 | `GRID_CHF` | grid_monitor.py |
 
 ---
 
@@ -786,3 +790,100 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 ### ログファイル
 - `cot_monitor_log_oanda.txt`（メインログ）
 - `cot_cache.json`（COTデータキャッシュ）
+
+---
+
+## 14. グリッド戦略 (grid_monitor.py v2)
+
+### 概要
+双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が高い時のみエントリー。最大7レベルに達した後48時間タイマーで強制決済する B48 Exit を採用。
+
+### 対象ペアと確定パラメータ
+
+| ペア | Magic | atr_mult | max_levels | CI_threshold | Exit | BT PF (Full) | BT n |
+|------|-------|----------|------------|--------------|------|--------------|------|
+| NZDUSD | 20260030 | 2.0 | 7 | 61.8 | B48h | — | — |
+| GBPJPY | 20260031 | 1.5 | 7 | 61.8 | B48h | 3.857 | 218 |
+| CHFJPY | 20260032 | 2.0 | 7 | 61.8 | B48h | IS:1.023/OOS:1.521 | 38 |
+
+### 基本情報
+
+| 項目 | 値 |
+|------|-----|
+| スクリプト | grid_monitor.py v2 |
+| TF | H1（ATR計算）/ D1 resample（CI計算）|
+| ロット | 0.01 |
+| ループ間隔 | 60秒 |
+| ハートビート | 30サイクル毎（約30分） |
+| 稼働ブローカー | axiory / exness |
+
+### グリッドロジック
+
+| 条件 | 詳細 |
+|------|------|
+| grid_width | ATR(H1, 14) × atr_mult |
+| Long追加 | 最安エントリーから grid_width 下落時 |
+| Short追加 | 最高エントリーから grid_width 上昇時 |
+| TP | エントリー ± grid_width（1ステップ先） |
+| SL | なし |
+
+### エントリーフィルター（新規発注のみ適用）
+
+| 条件 | 詳細 |
+|------|------|
+| CI フィルター | CI(D1, 14) > 61.8（レンジ相場必須） |
+| 日次 DD | 日次実現損益 ≥ −5,000 JPY |
+| 週次 DD | 週次実現損益 ≥ −15,000 JPY |
+
+### B48 Exit（最大レベル到達後タイマー決済）
+
+- Long / Short それぞれ独立したタイマー
+- max_levels（7）到達時刻を記録
+- 48時間経過 → その方向の全ポジションを成行決済
+- TP が発火してカウントが max_levels を下回ると → タイマーリセット
+
+### バックテスト結果詳細
+
+**GBPJPY（IS/OOS検証）**
+
+| 期間 | PF | n |
+|------|----|---|
+| Full | 3.857 | 218 |
+| IS（前半） | 2.741 | — |
+| OOS WF1 | 1.542 | — |
+
+**CHFJPY（IS/OOS検証）**
+
+| 期間 | PF | n |
+|------|----|---|
+| IS | 1.023 | — |
+| OOS | 1.521 | 38 |
+
+### 起動方法
+
+```bat
+REM VPS上で実行
+C:\Users\Administrator\fx_bot\vps\grid_monitor.bat
+
+REM 個別ペア・ブローカー起動例
+pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory
+pythonw.exe grid_monitor.py --pair CHFJPY --broker exness
+```
+
+### ログファイル / Stateファイル
+
+| ファイル名 | 説明 |
+|-----------|------|
+| `grid_log_{PAIR}_{broker}.txt` | 取引ログ（例: grid_log_GBPJPY_axiory.txt） |
+| `grid_monitor_state_{PAIR}.json` | B48タイマー・日次/週次PnL永続化 |
+
+### ログ出力仕様
+
+```
+entry LONG lot=0.01 price=... grid_width=... level=X/7
+tp_close LONG price=... pnl=+XXXX JPY hold=Xh
+b48_close LONG positions=X total_pnl=+XXXX JPY
+filter_block ci=XX.X (threshold=61.8)
+heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X
+loop_error ...
+```
