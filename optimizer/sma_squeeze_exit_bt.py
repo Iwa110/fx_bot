@@ -72,9 +72,15 @@ def build_exit_grid():
     # 2. ATR-adaptive trailing
     #    trail_dist = ATR14[current_bar] * atr_trail_mult
     #    Widens in volatile conditions, tightens in calm periods.
+    #    trail_start_mult: trail only activates when profit >= ATR * trail_start_mult.
+    #      0.0 = immediate (v4 behavior), same value as atr_trail_mult = BE-equivalent.
     for atm in [0.5, 0.75, 1.0, 1.5, 2.0]:
-        grid.append({'method': 'atr_trail', 'atr_trail_mult': atm, 'keep_tp': True})
-        grid.append({'method': 'atr_trail', 'atr_trail_mult': atm, 'keep_tp': False})
+        grid.append({'method': 'atr_trail', 'atr_trail_mult': atm, 'trail_start_mult': 0.0, 'keep_tp': True})
+        grid.append({'method': 'atr_trail', 'atr_trail_mult': atm, 'trail_start_mult': 0.0, 'keep_tp': False})
+    # trail_start_mult = atr_trail_mult -> first update at BE (v4.2 default)
+    for atm in [0.5, 0.75, 1.0, 1.5, 2.0]:
+        grid.append({'method': 'atr_trail', 'atr_trail_mult': atm, 'trail_start_mult': atm, 'keep_tp': True})
+        grid.append({'method': 'atr_trail', 'atr_trail_mult': atm, 'trail_start_mult': atm, 'keep_tp': False})
 
     # 3. Slope reversal exit
     #    Force-close when SMA_long direction reverses for N consecutive bars.
@@ -92,9 +98,13 @@ def build_exit_grid():
     # 5. Combined: ATR-adaptive trail AND slope reversal exit (dual trigger)
     for atm, seb in itertools.product([0.75, 1.0, 1.5], [2, 3, 5]):
         grid.append({'method': 'combined',
-                     'atr_trail_mult': atm, 'slope_exit_bars': seb, 'keep_tp': True})
+                     'atr_trail_mult': atm, 'trail_start_mult': 0.0, 'slope_exit_bars': seb, 'keep_tp': True})
         grid.append({'method': 'combined',
-                     'atr_trail_mult': atm, 'slope_exit_bars': seb, 'keep_tp': False})
+                     'atr_trail_mult': atm, 'trail_start_mult': 0.0, 'slope_exit_bars': seb, 'keep_tp': False})
+        grid.append({'method': 'combined',
+                     'atr_trail_mult': atm, 'trail_start_mult': atm, 'slope_exit_bars': seb, 'keep_tp': True})
+        grid.append({'method': 'combined',
+                     'atr_trail_mult': atm, 'trail_start_mult': atm, 'slope_exit_bars': seb, 'keep_tp': False})
 
     return grid
 
@@ -189,13 +199,14 @@ def run_backtest_exit(df, cfg, exit_params):
     cfg         : entry params dict (sma_short, sma_long, ...)
     exit_params : exit method dict, e.g. {'method': 'atr_trail', 'atr_trail_mult': 1.0, 'keep_tp': True}
     """
-    method          = exit_params.get('method', 'baseline')
-    trail_mult      = exit_params.get('trail_mult', 1.0)
-    atr_trail_mult  = exit_params.get('atr_trail_mult', 1.0)
-    keep_tp         = exit_params.get('keep_tp', True)
-    slope_exit_bars = exit_params.get('slope_exit_bars', 3)
-    div_exit_th     = exit_params.get('div_exit_th', 1.0)
-    tight_mult      = exit_params.get('tight_mult', 0.5)
+    method           = exit_params.get('method', 'baseline')
+    trail_mult       = exit_params.get('trail_mult', 1.0)
+    atr_trail_mult   = exit_params.get('atr_trail_mult', 1.0)
+    trail_start_mult = exit_params.get('trail_start_mult', 0.0)
+    keep_tp          = exit_params.get('keep_tp', True)
+    slope_exit_bars  = exit_params.get('slope_exit_bars', 3)
+    div_exit_th      = exit_params.get('div_exit_th', 1.0)
+    tight_mult       = exit_params.get('tight_mult', 0.5)
 
     sma_short    = cfg['sma_short']
     sma_long     = cfg['sma_long']
@@ -286,11 +297,14 @@ def run_backtest_exit(df, cfg, exit_params):
                         t_current_sl = min(t_current_sl, c + td)
 
                 elif method in ('atr_trail', 'combined'):
-                    td = atr_v * atr_trail_mult
-                    if is_long:
-                        t_current_sl = max(t_current_sl, c - td)
-                    else:
-                        t_current_sl = min(t_current_sl, c + td)
+                    # trail_start_mult: hold trail until profit >= ATR * trail_start_mult
+                    profit_now = (c - t_entry) if is_long else (t_entry - c)
+                    if trail_start_mult <= 0.0 or profit_now >= atr_v * trail_start_mult:
+                        td = atr_v * atr_trail_mult
+                        if is_long:
+                            t_current_sl = max(t_current_sl, c - td)
+                        else:
+                            t_current_sl = min(t_current_sl, c + td)
 
                 elif method == 'div_tighten':
                     div_rate = abs(ss_v - sl_v) / abs(sl_v) * 100.0 if sl_v != 0.0 else 0.0
@@ -305,7 +319,7 @@ def run_backtest_exit(df, cfg, exit_params):
                 continue   # still in trade, skip entry
 
         # ── Entry checks ─────────────────────────────────────────────────────────────────────────
-        if adv_v <= 20.0:
+        if adx_v <= 20.0:
             continue
 
         div_rate_entry = abs(ss_v - sl_v) / sl_v * 100.0 if sl_v != 0.0 else 999.0
@@ -421,6 +435,7 @@ def main():
                 'method':           ep['method'],
                 'trail_mult':       ep.get('trail_mult', ''),
                 'atr_trail_mult':   ep.get('atr_trail_mult', ''),
+                'trail_start_mult': ep.get('trail_start_mult', ''),
                 'keep_tp':          ep.get('keep_tp', ''),
                 'slope_exit_bars':  ep.get('slope_exit_bars', ''),
                 'div_exit_th':      ep.get('div_exit_th', ''),
@@ -479,6 +494,8 @@ def _fmt_params(r):
         parts.append(f'trail={r["trail_mult"]}')
     if r['atr_trail_mult'] != '':
         parts.append(f'atr_mult={r["atr_trail_mult"]}')
+    if r.get('trail_start_mult', '') != '':
+        parts.append(f'start={r["trail_start_mult"]}')
     if r['keep_tp'] != '':
         parts.append(f'tp={"Y" if r["keep_tp"] else "N"}')
     if r['slope_exit_bars'] != '':

@@ -13,6 +13,10 @@ v4 2026-05-21: replace B-1 breakeven with ATR-adaptive trailing stop
   Trail: trail_dist = ATR14 * atr_trail_mult; SL only moves in trade direction
   Log: [ATR_TRAIL] symbol LONG/SHORT SL old->new locked=X ticket=Y
 v4.1 2026-05-21: heartbeat log every 30 min (30 cycles) for monitoring
+v4.2 2026-05-21: trail_start_mult -- trail only activates when profit >= ATR * trail_start_mult.
+  Setting trail_start_mult = atr_trail_mult guarantees first SL move reaches BE.
+  Fixes: "briefly positive then SL-hit below entry" pattern.
+  Log: [ATR_TRAIL] symbol SIDE trail-wait profit=X threshold=Y ticket=Z
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -57,27 +61,27 @@ PAIRS_CFG = {
                'slope_period': 5,  'rr': 2.5, 'sl_atr_mult': 1.5,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'enabled': True},
+               'atr_trail_mult': 0.5, 'trail_start_mult': 0.5, 'enabled': True},
     'GBPJPY': {'sma_short': 25, 'sma_long': 250, 'squeeze_th': 0.5,
                'slope_period': 10, 'rr': 2.0, 'sl_atr_mult': 1.5,
                'timeframe': '1h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'enabled': True},
+               'atr_trail_mult': 0.5, 'trail_start_mult': 0.5, 'enabled': True},
     'EURUSD': {'sma_short': 25, 'sma_long': 200, 'squeeze_th': 2.0,
                'slope_period': 10, 'rr': 2.5, 'sl_atr_mult': 1.0,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 50, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'enabled': True},
+               'atr_trail_mult': 0.5, 'trail_start_mult': 0.5, 'enabled': True},
     'GBPUSD': {'sma_short': 15, 'sma_long': 250, 'squeeze_th': 1.5,
                'slope_period': 20, 'rr': 2.0, 'sl_atr_mult': 1.0,
                'timeframe': '1h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 5,
-               'atr_trail_mult': 1.5, 'enabled': False},
+               'atr_trail_mult': 1.5, 'trail_start_mult': 1.5, 'enabled': False},
     'EURJPY': {'sma_short': 15, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 20, 'rr': 2.5, 'sl_atr_mult': 1.5,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 5,
-               'atr_trail_mult': 0.0, 'enabled': True},
+               'atr_trail_mult': 0.0, 'trail_start_mult': 0.0, 'enabled': True},
 }
 
 MAX_JPY_LOT   = 0.4
@@ -498,6 +502,10 @@ def manage_atr_trail(broker):
     ATR-adaptive trailing stop: SL trails price at (ATR14 x atr_trail_mult).
     SL only moves in the favorable direction (long: up only, short: down only).
 
+    v4.2: trail_start_mult -- trail is held until profit >= ATR * trail_start_mult.
+      When trail_start_mult == atr_trail_mult, the first SL update lands at entry (BE).
+      This prevents the "briefly positive, then SL-hit below entry" pattern.
+
     BT results (sma_squeeze_exit_bt.py, 275 runs, 2026-05-21):
       USDJPY atr_trail_mult=0.5: PF 1.815 -> 4.441 (+2.63)
       EURUSD atr_trail_mult=0.5: PF 2.670 -> 7.447 (+4.78)
@@ -509,7 +517,8 @@ def manage_atr_trail(broker):
       For long:  new_sl = bid - trail_dist; update if new_sl > current_sl
       For short: new_sl = ask + trail_dist; update if new_sl < current_sl
 
-    Log format: [ATR_TRAIL] USDJPY LONG SL 149.50->149.80 locked=+0.30 ticket=12345
+    Log format (update): [ATR_TRAIL] USDJPY LONG SL 149.50->149.80 locked=+0.30 ticket=12345
+    Log format (wait):   [ATR_TRAIL] USDJPY LONG trail-wait profit=0.20 threshold=0.50 ticket=12345
     """
     pos = mt5.positions_get()
     if not pos:
@@ -555,15 +564,37 @@ def manage_atr_trail(broker):
         digits = info.digits if info else 5
 
         is_long    = (p.type == mt5.ORDER_TYPE_BUY)
+        side       = 'LONG' if is_long else 'SHORT'
         trail_dist = atr_v * atr_trail_mult
+
+        # v4.2: hold trail until profit >= ATR * trail_start_mult
+        # When trail_start_mult == atr_trail_mult, first SL update lands at entry (BE)
+        trail_start_mult = cfg.get('trail_start_mult', 0.0)
+        if trail_start_mult > 0.0:
+            profit = (tick.bid - p.price_open) if is_long else (p.price_open - tick.ask)
+            threshold = atr_v * trail_start_mult
+            if profit < threshold:
+                log_print('[ATR_TRAIL] ' + p.symbol + ' ' + side +
+                          ' trail-wait profit=' + str(round(profit, digits)) +
+                          ' threshold=' + str(round(threshold, digits)) +
+                          ' ticket=' + str(p.ticket), debug=True)
+                continue
 
         if is_long:
             new_sl = round(tick.bid - trail_dist, digits)
             if new_sl <= p.sl:
+                log_print('[ATR_TRAIL] ' + p.symbol + ' ' + side +
+                          ' no-update new_sl=' + str(new_sl) +
+                          ' <= sl=' + str(round(p.sl, digits)) +
+                          ' ticket=' + str(p.ticket), debug=True)
                 continue   # no improvement; skip
         else:
             new_sl = round(tick.ask + trail_dist, digits)
             if new_sl >= p.sl:
+                log_print('[ATR_TRAIL] ' + p.symbol + ' ' + side +
+                          ' no-update new_sl=' + str(new_sl) +
+                          ' >= sl=' + str(round(p.sl, digits)) +
+                          ' ticket=' + str(p.ticket), debug=True)
                 continue
 
         req = {
@@ -575,7 +606,6 @@ def manage_atr_trail(broker):
         }
         result = mt5.order_send(req)
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            side        = 'LONG' if is_long else 'SHORT'
             locked      = round((new_sl - p.price_open) * (1 if is_long else -1), digits)
             log_print('[ATR_TRAIL] ' + p.symbol + ' ' + side +
                       '  SL ' + str(round(p.sl, digits)) + '->' + str(new_sl) +
