@@ -1,6 +1,6 @@
 # 戦略一覧
 
-最終更新: 2026-05-14（EURJPY フィルター改善 v22 追記）
+最終更新: 2026-05-21（SMA Squeeze v4.1 ATR-adaptive trailing 追記）
 
 ---
 
@@ -270,53 +270,75 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 
 | 項目 | 内容 |
 |-----|-----|
-| ファイル | `vps/sma_squeeze.py` v2.1 |
-| 起動 | `vps/sma_squeeze_monitor.bat`（axiory/exness対象、oandaはREM） |
+| ファイル | `vps/sma_squeeze.py` v4.1 |
+| 起動 | `vps/sma_squeeze_monitor.bat`（常駐デーモン、60秒ループ） |
 | magic | 20260010 |
 | STRATEGY_TAG | `SMA_SQ` |
-| ステータス | **稼働中**（v2: 2026-05-12実装・VPS展開済み） |
+| ステータス | **稼働中**（axiory / exness のみ。oanda停止中） |
 | 方向 | Long / Short |
-| TF | ペア別（4H / 1H） |
+| TF | USDJPY/EURUSD/EURJPY=4H、GBPJPY/GBPUSD=1H |
 | MAX_TOTAL_POS | 3 |
 | MAX_JPY_LOT | 0.4 lot |
-| COOLDOWN_MIN | 60分／ペア |
+| COOLDOWN_MIN | 180分／ペア |
 
-### エントリー条件
+### エントリー条件（全条件を満たすこと）
 
-- SMA長期スロープが単調増加（Long）/ 単調減少（Short）
-- divergence_rate ≤ squeeze_th（スクイーズ状態）
-- ADX14 > 20
-- 前足がSMAショート側、現足がSMAショート超え＋陽線（Long） / その逆（Short）
+1. ADX14 > 20（トレンド強度フィルター）
+2. divergence_rate ≤ squeeze_th（SMA短期・長期のスクイーズ状態）
+3. SMA長期スロープ単調（slope_period連続上昇 or 連続下降）
+4. 日足SMAスロープが1H方向と一致（v3 daily_sma filter）
+5. 前バー終値がSMA短期を抜けた（スクイーズ解放）
+6. 当バーがSMA長期の外側かつ強い陽線/陰線
 
-### ペア別パラメータ（BT最適値）
+### ペア別パラメータ（v4.1現在）
 
-| ペア | TF | SMA短/長 | sq_th | slope_period | RR | SL×ATR | BT PF | BT WR | BT n |
-|-----|-----|---------|-------|------------|-----|--------|-------|-------|------|
-| USDJPY | 4h | 25/150 | 2.0 | 5 | 2.5 | 1.5 | 1.815 | 43.3% | 30 |
-| GBPJPY | 1h | 25/250 | 0.5 | 10 | 2.0 | 1.5 | 1.462 | 41.8% | 55 |
-| EURUSD | 4h | 25/200 | 2.0 | 10 | 2.5 | 1.0 | 2.670 | 46.7% | 30 |
-| GBPUSD | 1h | 15/250 | 1.5 | 20 | 2.0 | 1.0 | 1.341 | 41.2% | 228 |
-| EURJPY | 4h | 15/150 | 2.0 | 20 | 2.5 | 1.5 | 3.673 | 56.7% | 30 |
+| ペア | TF | SMA短/長 | sq_th | slope_period | RR | SL×ATR | atr_trail_mult | 有効 |
+|-----|-----|---------|-------|------------|-----|--------|--------------|-----|
+| USDJPY | 4h | 25/150 | 2.0 | 5 | 2.5 | 1.5 | 0.5 | ✅ |
+| GBPJPY | 1h | 25/250 | 0.5 | 10 | 2.0 | 1.5 | 0.5 | ✅ |
+| EURUSD | 4h | 25/200 | 2.0 | 10 | 2.5 | 1.0 | 0.5 | ✅ |
+| GBPUSD | 1h | 15/250 | 1.5 | 20 | 2.0 | 1.0 | 1.5 | ❌（無効） |
+| EURJPY | 4h | 15/150 | 2.0 | 20 | 2.5 | 1.5 | 0.0 | ✅ |
 
-BT期間: 2024-04-24〜2026-04-24 / 9720 runs（`optimizer/sma_squeeze_bt.py`）
+エントリーBT: 2024-04-24〜2026-04-24 / 9720 runs（`optimizer/sma_squeeze_bt.py`）
 
-### v2 決済改善（2026-05-12実装）
+### 決済ロジック
 
-| 機能 | パラメータ | 詳細 |
-|-----|---------|-----|
-| A-1 SMA_long slope reversal exit | slope_exit=3 | SMA長期の傾きが反転したら強制決済（force-close より優先） |
-| B-1 Breakeven SL move | be_r=0.5 | 含み益 ≥ 原SL距離×0.5 でSLを建値移動（order_modify） |
+| 機能 | 詳細 |
+|-----|-----|
+| 固定SL/TP | SL = ATR14 × sl_atr_mult / TP = SL × rr（エントリー時設定） |
+| SMA長期ブレイク強制決済 | 確定足がSMA長期を逆方向に抜けたら即クローズ（最優先） |
+| スロープ反転決済（A-1） | SMA長期がslope_exit=3本連続で反転したら決済 |
+| ATR-adaptive trailing（v4） | `manage_atr_trail()`: trail_dist = ATR14 × atr_trail_mult（60秒毎更新） |
 
-BT結果（`optimizer/sma_squeeze_exit_bt.py`, 80 runs）:
+### v4 ATR-adaptive trailing stop（2026-05-21実装）
 
-| ペア | PF改善幅 |
-|-----|---------|
-| USDJPY | +0.17 |
-| GBPJPY | +0.22 |
-| EURUSD | +0.31 |
-| EURJPY | +0.07 |
+BreakEven（be_r）を廃止し、ATR連動トレーリングに置き換え。SLは有利方向にのみラチェット。
 
-ログ確認キーワード: `BE:` / `slope-exit:`
+**BT結果**（`optimizer/sma_squeeze_exit_bt.py` 275runs、2026-05-21）:
+
+| ペア | baseline PF | atr_trail最優 | best PF | 改善幅 |
+|-----|------------|-------------|---------|--------|
+| USDJPY | 1.815 | mult=0.5 | 4.441 | +2.63 |
+| EURUSD | 2.670 | mult=0.5 | 7.447 | +4.78 |
+| GBPUSD | 0.713 | mult=1.5 | 1.418 | +0.71 |
+| EURJPY | 3.673 | trail無効 | 3.673 | ±0 |
+| GBPJPY | — | mult=0.5（USDJPY流用） | — | 1h BT未実施 |
+
+ログ確認キーワード: `[ATR_TRAIL]` / `slope-exit:` / `force-close:`
+
+### 監視ログ（v4.1）
+
+| ログ | 出力タイミング |
+|-----|------------|
+| `sma_squeeze v4 started broker=axiory` | 起動時 |
+| `connected broker=axiory login=XXXXX` | MT5接続成功時 |
+| `heartbeat alive pos=X/Y cycle=N` | **30分毎**（エントリーなし時の生存確認） |
+| `SMA_SQ entry: USDJPY LONG lot=...` | エントリー時 |
+| `[ATR_TRAIL] USDJPY LONG SL old->new locked=+X` | ATR trail SL更新時 |
+| `SMA_SQ force-close: USDJPY LONG SMA150 break` | SMA長期ブレイク決済時 |
+| `SMA_SQ slope-exit: USDJPY LONG SMA150 slope reversed` | スロープ反転決済時 |
+| `loop error: ...` | 例外発生時 |
 
 ---
 
@@ -338,3 +360,4 @@ BT結果（`optimizer/sma_squeeze_exit_bt.py`, 80 runs）:
 | 20260002 | SMC_GBPAUD |
 | 20260003 | 200MA Pullback |
 | 20260010 | SMA Squeeze Play |
+| 20260020 | COT戦略（COT極値×日足トレンド） |
