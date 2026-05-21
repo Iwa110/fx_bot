@@ -1,6 +1,6 @@
 # 戦略一覧
 
-最終更新: 2026-05-06
+最終更新: 2026-05-21
 
 ---
 
@@ -9,9 +9,9 @@
 | 項目 | 内容 |
 |-----|-----|
 | ファイル | `vps/bb_monitor.py` v17 |
-| 起動 | `run_bb.bat` → タスクスケジューラ `FX BB Monitor`（TimeTrigger 繰り返し） |
+| 起動 | `bb_monitor_all.bat` → タスクスケジューラ（毎分） |
 | magic | 20250001 |
-| ステータス | **稼働中** |
+| ステータス | **稼働中**（axiory / exness / oanda） |
 | TF | 5分足エントリー |
 | HTFフィルター | 4H BB（GBPJPY / USDJPY のみ `use_htf4h: True`） |
 
@@ -22,8 +22,8 @@
 | GBPJPY | ✅ | 3.0 | F2andF1 (f1=3, f2=10.0) | ALLOWED: 9,17 UTC / htf4h_only |
 | EURJPY | ✅ | 2.5 | F1andF2 (f1=5, f2=10.0) | ALLOWED: 9,17 UTC |
 | USDJPY | ✅ | 3.0 | F1 (f1=5, sigma=2.0) | htf4h_only |
-| EURUSD | ✅ | 3.0 | なし | ALLOWED: なし（時間制限なし）|
-| GBPUSD | ✅ | 2.0 | なし | ALLOWED: なし（時間制限なし）|
+| EURUSD | ✅ | 3.0 | なし | 時間制限なし |
+| GBPUSD | ✅ | 2.0 | なし | 時間制限なし |
 | USDCAD | ❌ | 1.5 | — | **停止中**（enabled=False） |
 
 ### BBパラメータ共通
@@ -64,7 +64,7 @@
 | 項目 | 内容 |
 |-----|-----|
 | ファイル | `vps/daily_trade.py` v3.5 |
-| 起動 | `run_daily.bat` → タスクスケジューラ `FX Daily Trade`（週次 07:00） |
+| 起動 | `daily_trade_all.bat` → タスクスケジューラ `FX Daily Trade`（週次 07:00） |
 | ステータス | **稼働中** |
 | 実行タイミング | 毎朝 07:00 + 夕方 19:00 |
 
@@ -117,7 +117,7 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 | ファイル | `vps/tod_monitor.py` v2 |
 | 起動 | `run_tod_monitor.bat` → タスクスケジューラ `FX_TOD_Monitor`（毎時 00分） |
 | magic | 20250002 |
-| ステータス | **稼働中**（Error 112 要確認 → logs/ディレクトリ作成で解消予定） |
+| ステータス | **稼働中** |
 | TF | 1H（close-to-close統計） |
 | 統計キャッシュ | 23時間TTL（`tod_stats.json`） |
 
@@ -134,9 +134,9 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 
 | 項目 | 内容 |
 |-----|-----|
-| ファイル | `vps/stat_arb_monitor.py` |
+| ファイル | `vps/stat_arb.py` |
 | magic | 20260001 |
-| ステータス | **稼働中**（batなし・手動起動） |
+| ステータス | **稼働中** |
 | TF | 1H |
 
 ### パラメータ
@@ -163,15 +163,15 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 
 | 項目 | 内容 |
 |-----|-----|
-| ファイル | `vps/trail_monitor.py` v12（トレーリング管理のみ） |
+| ファイル | `vps/smc_gbpaud.py` v4 |
 | magic | 20260002 |
-| ステータス | **稼働中**（trail_monitor内で管理） |
+| ステータス | **稼働中** |
 | 方向 | **Sell専用** |
 | TF | 1H / HTF=1D |
 | Session | 8〜20 UTC |
 | MAX_POS | 1 |
 
-### トレーリング設定
+### トレーリング設定（trail_monitor経由）
 
 | stage2 | stage3_activate | stage3_distance |
 |--------|----------------|----------------|
@@ -179,7 +179,90 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 
 ---
 
-## 7. 200MA Pullback（Pin Bar）戦略
+## 7. SMA Squeeze Play戦略
+
+| 項目 | 内容 |
+|-----|-----|
+| ファイル | `vps/sma_squeeze.py` v4.1 |
+| 起動 | `vps/sma_squeeze_monitor.bat`（常駐デーモン、60秒ループ） |
+| magic | 20260010 |
+| STRATEGY_TAG | `SMA_SQ` |
+| ステータス | **稼働中**（axiory / exness のみ。oanda停止中） |
+| TF | USDJPY/EURUSD/EURJPY=4H、GBPJPY/GBPUSD=1H |
+| ブローカー | axiory / exness |
+
+### 戦略ロジック
+
+**エントリー条件（すべて満たすこと）:**
+1. ADX14 > 20（トレンド強度フィルター）
+2. divergence_rate ≤ squeeze_th（SMA短期・長期のスクイーズ状態）
+3. SMA長期スロープ単調（slope_period連続上昇 or 連続下降）
+4. 日足SMAスロープが1H方向と一致（daily_sma filter）
+5. 前バー終値がSMA短期を抜けた（スクイーズ解放）
+6. 当バーがSMA長期の外側かつ強い陽線/陰線
+
+**決済:**
+- SL: ATR14 × sl_atr_mult（エントリー時固定）
+- TP: SL × rr
+- 強制決済: SMA長期ブレイク（逆方向）
+- スロープ反転決済: SMA長期slope_exit本連続反転
+
+### ペア別パラメータ（BT最適化済み）
+
+| ペア | sma_short | sma_long | squeeze_th | slope_period | rr | sl_atr_mult | atr_trail_mult | 有効 |
+|-----|----------|---------|-----------|------------|-----|------------|--------------|-----|
+| USDJPY | 25 | 150 | 2.0 | 5 | 2.5 | 1.5 | 0.5 | ✅ |
+| GBPJPY | 25 | 250 | 0.5 | 10 | 2.0 | 1.5 | 0.5 | ✅ |
+| EURUSD | 25 | 200 | 2.0 | 10 | 2.5 | 1.0 | 0.5 | ✅ |
+| GBPUSD | 15 | 250 | 1.5 | 20 | 2.0 | 1.0 | 1.5 | ❌（無効） |
+| EURJPY | 15 | 150 | 2.0 | 20 | 2.5 | 1.5 | 0.0 | ✅ |
+
+### ATR-adaptive trailing stop（v4 2026-05-21）
+
+`manage_atr_trail()` でエントリー後のSLを動的に引き上げ。
+
+| 項目 | 内容 |
+|-----|-----|
+| 計算式 | `trail_dist = ATR14 × atr_trail_mult` |
+| 方向 | Long: SLは上方向のみ / Short: SLは下方向のみ（ラチェット） |
+| EURJPY | atr_trail_mult=0.0（無効。固定TP維持がBT最優） |
+| ログ | `[ATR_TRAIL] USDJPY LONG SL 149.50->149.80 locked=+0.30` |
+
+**BT結果**（sma_squeeze_exit_bt.py 275runs、2026-05-21）:
+
+| ペア | baseline PF | best PF | 改善幅 |
+|-----|------------|---------|--------|
+| USDJPY | 1.815 | 4.441 | +2.63 |
+| EURUSD | 2.670 | 7.447 | +4.78 |
+| GBPUSD | 0.713 | 1.418 | +0.71 |
+| EURJPY | 3.673 | 3.673 | ±0（trail無効が最優） |
+| GBPJPY | — | — | 1h BT未実施 |
+
+### ポジション管理
+
+| 設定 | 値 |
+|-----|---|
+| MAX_TOTAL_POS | 3 |
+| MAX_JPY_LOT | 0.4 |
+| COOLDOWN_MIN | 180分/ペア |
+| LOOP_INTERVAL | 60秒 |
+
+### 監視ログ
+
+| ログ | 出力タイミング |
+|-----|------------|
+| `sma_squeeze v4 started broker=axiory` | 起動時 |
+| `connected broker=axiory login=XXXXX` | MT5接続成功時 |
+| `heartbeat alive pos=X/Y cycle=N` | 30分毎（30サイクル毎） |
+| `SMA_SQ entry: USDJPY LONG lot=... entry=... sl=... tp=...` | エントリー時 |
+| `[ATR_TRAIL] USDJPY LONG SL old->new locked=+X` | ATR trail SL更新時 |
+| `SMA_SQ force-close: USDJPY LONG SMA150 break` | SMA長期ブレイク決済時 |
+| `SMA_SQ slope-exit: USDJPY LONG SMA150 slope reversed` | スロープ反転決済時 |
+| `loop error: ...` | 例外発生時 |
+
+---
+
+## 8. 200MA Pullback（Pin Bar）戦略
 
 | 項目 | 内容 |
 |-----|-----|
@@ -218,3 +301,5 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 | 20260001 | stat_arb |
 | 20260002 | SMC_GBPAUD |
 | 20260003 | 200MA Pullback |
+| 20260010 | SMA Squeeze Play |
+| 20260020 | COT戦略（COT極値×日足トレンド） |
