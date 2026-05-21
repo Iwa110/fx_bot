@@ -56,9 +56,13 @@ MAX_TOTAL_POS = 3
 COOLDOWN_MIN  = 60
 LOOP_INTERVAL = 60
 
-# Break-even: SLをエントリー価格へ移動するトリガー距離 (SL距離の何倍動いたら)
-# 1.0 = 1R動いたら BreakEven。、0にすると無効。
-BE_MULT = 1.0
+# Trailing stop: SLをエントリーSL距離の TRAIL_MULT 倍を価格から引いた値まで引き上げる。
+# SLは有利方向にしか動かない（long=上方向のみ、short=下方向のみ）。
+# TRAIL_MULT=1.0: trail_dist = 元SL距離と同じ幅でトレール。価格が1R動いたらBE到達、
+#                 以降は含み益を距離1Rぶん確保しながら追随。
+# TRAIL_MULT=0.5: タイト。BE到達が0.5Rに短縮。より早く利益確保できるが損切りも増加。
+# 0にすると無効。
+TRAIL_MULT = 1.0
 
 DEBUG = False
 
@@ -364,15 +368,23 @@ def manage_positions(broker, webhook):
 
 
 # ══════════════════════════════════════════
-# Break-even management
+# Trailing stop management
 # ══════════════════════════════════════════
-def manage_breakeven():
+def manage_trailing():
     """
-    Price has moved BE_MULT x SL_dist in our favor -> move SL to entry price.
-    Prevents giving back all profit when price reverses to SMA force-close level.
-    Skips positions already at / past break-even.
+    Trail SL behind price at (original SL distance x TRAIL_MULT).
+    SL only moves in the direction of the trade -- never widens.
+
+    Long : new_sl = max(current_sl,  tick.bid - sl_dist * TRAIL_MULT)
+    Short: new_sl = min(current_sl,  tick.ask + sl_dist * TRAIL_MULT)
+
+    Effect at TRAIL_MULT=1.0 (trail_dist = original SL width):
+      price  +0     : no change (new_sl == original SL)
+      price  +1R    : SL reaches entry (break-even)
+      price  +2R    : SL is at entry+1R (1R profit locked)
+      price reverses: exits with whatever profit is locked
     """
-    if BE_MULT <= 0:
+    if TRAIL_MULT <= 0:
         return
 
     pos = mt5.positions_get()
@@ -393,26 +405,19 @@ def manage_breakeven():
         if tick is None:
             continue
 
-        is_long = (p.type == mt5.ORDER_TYPE_BUY)
+        info       = mt5.symbol_info(p.symbol)
+        digits     = info.digits if info else 5
+        is_long    = (p.type == mt5.ORDER_TYPE_BUY)
+        trail_dist = sl_dist * TRAIL_MULT
 
-        # Already moved to break-even or better -> skip
-        if is_long  and p.sl >= p.price_open:
-            continue
-        if not is_long and p.sl <= p.price_open:
-            continue
-
-        # Trigger: price moved BE_MULT x SL_dist in our favor
-        be_trigger = p.price_open + sl_dist * BE_MULT if is_long \
-                     else p.price_open - sl_dist * BE_MULT
-        current    = tick.bid if is_long else tick.ask
-        triggered  = (is_long and current >= be_trigger) or \
-                     (not is_long and current <= be_trigger)
-        if not triggered:
-            continue
-
-        info   = mt5.symbol_info(p.symbol)
-        digits = info.digits if info else 5
-        new_sl = round(p.price_open, digits)
+        if is_long:
+            new_sl = round(tick.bid - trail_dist, digits)
+            if new_sl <= p.sl:
+                continue   # SL would not improve; skip
+        else:
+            new_sl = round(tick.ask + trail_dist, digits)
+            if new_sl >= p.sl:
+                continue
 
         req = {
             'action':   mt5.TRADE_ACTION_SLTP,
@@ -423,14 +428,15 @@ def manage_breakeven():
         }
         result = mt5.order_send(req)
         if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-            side = 'LONG' if is_long else 'SHORT'
-            log_print('BE: ' + p.symbol + ' ' + side +
-                      '  SL moved to entry ' + str(new_sl) +
-                      '  (moved ' + str(round(sl_dist * BE_MULT, digits)) + ')' +
+            side        = 'LONG' if is_long else 'SHORT'
+            profit_pips = round((new_sl - p.price_open) * (1 if is_long else -1), digits)
+            log_print('TRAIL: ' + p.symbol + ' ' + side +
+                      '  SL ' + str(round(p.sl, digits)) + '->' + str(new_sl) +
+                      '  locked=' + str(profit_pips) +
                       '  ticket=' + str(p.ticket))
         else:
             code = result.retcode if result else 'None'
-            log_print('BE failed: ' + p.symbol + ' code=' + str(code))
+            log_print('TRAIL failed: ' + p.symbol + ' code=' + str(code))
 
 
 # ══════════════════════════════════════════
@@ -509,7 +515,7 @@ def main_loop(webhook):
 
     while True:
         try:
-            manage_breakeven()
+            manage_trailing()
             manage_positions(BROKER_KEY, webhook)
 
             total_pos = count_total_strategy()
