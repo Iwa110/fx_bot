@@ -26,3 +26,4 @@ venv/
 # バックテスト中間結果（大容量・自動生成）
 optimizer/sma_squeeze_bt_result.csv
 optimizer/grid_bt_result.csv
+optimizer/tod_scalp_bt_result.csv
