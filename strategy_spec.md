@@ -1,6 +1,6 @@
 # FX Bot 戦略仕様書
 
-生成日: 2026-05-13  
+生成日: 2026-05-21  
 対象: `C:\Users\Administrator\fx_bot\vps\` 以下のPythonスクリプト
 
 ---
