@@ -60,7 +60,7 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-21更新）
+## Top of mind（2026-05-21 夜更新）
 ### OANDA MT5接続問題・全ブローカー稼働化（2026-05-11完了）
 - **問題**: Axiory/Exnessに取引がなく、OANDAはterminal.trade_allowed=False
 - **根本原因1（OANDA IPC失敗）**: OANDAのMT5ログで `IPC failed to initialize IPC` / `IPC dispatcher not started` + ヒストリーファイルのERROR_SHARING_VIOLATION[32]を確認。Axiory/ExnessがIPCを先に確保するため
@@ -117,12 +117,13 @@ C:\Users\Administrator\fx_bot\
   - v3機能（daily SMA filter、COOLDOWN=180、slope_exit=3）は維持
   - Log: `[ATR_TRAIL] USDJPY LONG SL 149.50->149.80 locked=+0.30 atr=... ticket=...`
 - **変更ファイル**: vps/sma_squeeze.py (v4) / optimizer/sma_squeeze_exit_bt.py (新規)
-- **注意**: VPS git pull後、sma_squeeze_monitor.batを手動再起動すること
+- **注意**: feature branch `claude/sma-squeeze-strategy-ct71p` → main マージ後にVPS git pull
 
 ### 翌日Chat確認事項
+- **【要対応】PR作成**: `claude/sma-squeeze-strategy-ct71p` → main のPRを作成してマージ → VPS `git pull` でv4を反映
 - VPS再起動後: OANDA→(60s)Axiory/Exness の起動順でIPC確保。trail_watcher.logで3ブローカーのHBを確認
 - OANDAのIPC問題が起動順制御で本当に解消されたか、次回VPS再起動後に trail_log_oanda.txtで確認
-- **SMA Squeeze v4**: sma_squeeze_log_oanda.txtで `[ATR_TRAIL]` ログが出ているか確認
+- **SMA Squeeze v4**: sma_squeeze_log_oanda.txtで `[ATR_TRAIL]` ログが出ているか確認（PRマージ+git pull後）
 - GBPJPY: atr_trail_mult=0.5はUSDJPYから流用。1h BT data取得後に再検証推奨
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
@@ -134,7 +135,9 @@ C:\Users\Administrator\fx_bot\
 - [x] VPS Task Schedulerウィンドウ非表示化・trail_monitor多重起動修正（2026-05-10完了）
 - [x] OANDA MT5接続問題解消・全ブローカー稼働化（2026-05-11完了）
 - [x] SMA Squeeze v4 ATR-adaptive trailing BT+実装（2026-05-21完了）
-- [ ] VPS: git pull + sma_squeeze_monitor.bat再起動（v4反映）
+- [x] .gitignore更新: optimizer/sma_squeeze_bt_result.csv の大容量自動生成ファイルを除外（2026-05-21完了）
+- [ ] **PRマージ**: feature branch `claude/sma-squeeze-strategy-ct71p` → main（VPS git pullのために必要）
+- [ ] VPS: git pull (main) + sma_squeeze_monitor.bat再起動（v4反映）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
 - [ ] USDCAD再評価(BT結果待ち)
 - [ ] GBPJPY: 1h BT data取得後にatr_trail_mult再検証
@@ -145,10 +148,11 @@ C:\Users\Administrator\fx_bot\
 - Code: 実装・実行・push（残り全て）
 - Codeセッション開始前に必ずタスクリストを用意する
 
-## 夜の終了チェックリスト
-- [ ] 変更ファイルをcommit/push済み
-- [ ] CLAUDE.mdのTop of mindを更新済み
-- [ ] 翌日Chatで確認すべき事項をメモ済み
+## 夜の終了チェックリスト（2026-05-21）
+- [x] 変更ファイルをcommit/push済み（branch: claude/sma-squeeze-strategy-ct71p）
+- [x] CLAUDE.mdのTop of mindを更新済み
+- [x] 翌日Chatで確認すべき事項をメモ済み
+- [ ] PRマージ → VPS git pull（翌日手動対応）
 
 ## ロードマップ
 
