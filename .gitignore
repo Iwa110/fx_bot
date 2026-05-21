@@ -27,3 +27,4 @@ venv/
 optimizer/sma_squeeze_bt_result.csv
 optimizer/grid_bt_result.csv
 optimizer/tod_scalp_bt_result.csv
+optimizer/grid_bt_v2_result.csv
