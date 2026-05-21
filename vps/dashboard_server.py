@@ -78,7 +78,8 @@ def index():
 
         try:
             now_jst   = datetime.now(tz=JST)
-            to_utc    = now_jst.astimezone(timezone.utc)
+            # +60秒バッファ: 直近決済ポジションがMT5ヒストリーに反映されるまでのラグを吸収
+            to_utc    = (now_jst + timedelta(seconds=60)).astimezone(timezone.utc)
             from_utc  = (now_jst - timedelta(days=365)).astimezone(timezone.utc)
             yesterday = (now_jst - timedelta(days=1)).strftime('%Y-%m-%d')
 

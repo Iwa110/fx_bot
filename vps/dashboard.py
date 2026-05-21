@@ -157,7 +157,7 @@ h2 {
   background: #161b22; border: 1px solid #21262d; border-radius: 8px;
   padding: 16px; position: relative; height: 280px;
 }
-.table-wrap { background: #161b22; border: 1px solid #21262d; border-radius: 8px; overflow: hidden; }
+.table-wrap { background: #161b22; border: 1px solid #21262d; border-radius: 8px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
 table { width: 100%; border-collapse: collapse; font-size: 13px; }
 th {
   background: #161b22; color: #8b949e; padding: 8px 12px;
@@ -1075,7 +1075,8 @@ def main():
 
     try:
         now_jst  = datetime.now(tz=JST)
-        to_utc   = now_jst.astimezone(timezone.utc)
+        # +60秒バッファ: 直近決済ポジションがMT5ヒストリーに反映されるまでのラグを吸収
+        to_utc   = (now_jst + timedelta(seconds=60)).astimezone(timezone.utc)
         from_utc = (now_jst - timedelta(days=365)).astimezone(timezone.utc)
         yesterday = (now_jst - timedelta(days=1)).strftime('%Y-%m-%d')
 
