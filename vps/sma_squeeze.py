@@ -1,12 +1,7 @@
 """
-sma_squeeze.py - SMA Squeeze Play strategy monitor v3
+sma_squeeze.py - SMA Squeeze Play strategy monitor v1
 Trend-following: SMA200 slope filter + SMA20 squeeze/expansion entry.
 magic: 20260010
-v2 2026-05-12: A-1 SMA_long slope reversal exit + B-1 breakeven SL move
-  be_r=0.5 / slope_exit=3 (BT-optimized: sma_squeeze_exit_bt.py, 80 runs)
-v2.1 2026-05-13: enhanced debug logging in check_entry (sub-condition breakdown)
-v3 2026-05-16: daily SMA slope filter (BT: sma_squeeze_daily_filter_bt.py)
-  COOLDOWN_MIN 60->180 / GBPUSD enabled=False (live PF<1.0)
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -37,36 +32,33 @@ def _rsym(base: str) -> str:
 # Config
 # BT best params (PF>1.2, n>=30) from sma_squeeze_bt.py
 # BT period: 2024-04-24 ~ 2026-04-24, 9720 runs
-# v2 exit params from sma_squeeze_exit_bt.py (80 runs):
-#   be_r=0.5 (universal), slope_exit=3 (GBPJPY +PF, others neutral)
 # ══════════════════════════════════════════
 PAIRS_CFG = {
     'USDJPY': {'sma_short': 25, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 5,  'rr': 2.5, 'sl_atr_mult': 1.5,
-               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3,
-               'daily_sma': 20, 'daily_slope_period': 3, 'enabled': True},
+               'timeframe': '4h', 'enabled': True},
     'GBPJPY': {'sma_short': 25, 'sma_long': 250, 'squeeze_th': 0.5,
                'slope_period': 10, 'rr': 2.0, 'sl_atr_mult': 1.5,
-               'timeframe': '1h', 'be_r': 0.5, 'slope_exit': 3,
-               'daily_sma': 20, 'daily_slope_period': 3, 'enabled': True},
+               'timeframe': '1h', 'enabled': True},
     'EURUSD': {'sma_short': 25, 'sma_long': 200, 'squeeze_th': 2.0,
                'slope_period': 10, 'rr': 2.5, 'sl_atr_mult': 1.0,
-               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3,
-               'daily_sma': 50, 'daily_slope_period': 3, 'enabled': True},
+               'timeframe': '4h', 'enabled': True},
     'GBPUSD': {'sma_short': 15, 'sma_long': 250, 'squeeze_th': 1.5,
                'slope_period': 20, 'rr': 2.0, 'sl_atr_mult': 1.0,
-               'timeframe': '1h', 'be_r': 0.5, 'slope_exit': 3,
-               'daily_sma': 20, 'daily_slope_period': 5, 'enabled': True},
+               'timeframe': '1h', 'enabled': True},
     'EURJPY': {'sma_short': 15, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 20, 'rr': 2.5, 'sl_atr_mult': 1.5,
-               'timeframe': '4h', 'be_r': 0.5, 'slope_exit': 3,
-               'daily_sma': 20, 'daily_slope_period': 5, 'enabled': True},
+               'timeframe': '4h', 'enabled': True},
 }
 
 MAX_JPY_LOT   = 0.4
-MAX_TOTAL_POS = 5  # 1 per pair (matches BT: each pair runs independently)
-COOLDOWN_MIN  = 180
+MAX_TOTAL_POS = 3
+COOLDOWN_MIN  = 60
 LOOP_INTERVAL = 60
+
+# Break-even: SLをエントリー価格へ移動するトリガー距離 (SL距離の何倍動いたら)
+# 1.0 = 1R動いたら BreakEven。、0にすると無効。
+BE_MULT = 1.0
 
 DEBUG = False
 
@@ -126,17 +118,12 @@ def send_discord(msg, webhook):
 # OHLCV fetch
 # ══════════════════════════════════════════
 def get_ohlcv(symbol, tf, n, broker):
-    """Fetch OHLCV from MT5. tf='4h'/'1d' resamples from 1h bars."""
+    """Fetch OHLCV from MT5. tf='4h' resamples from 1h bars."""
     if tf == '4h':
         df_1h = get_ohlcv(symbol, '1h', n * 4 + 20, broker)
         if df_1h is None:
             return None
         return resample_4h(df_1h)
-    if tf == '1d':
-        df_1h = get_ohlcv(symbol, '1h', n * 24 + 48, broker)
-        if df_1h is None:
-            return None
-        return resample_1d(df_1h)
 
     tf_map = {'1h': mt5.TIMEFRAME_H1, '4h': mt5.TIMEFRAME_H4}
     mt5_tf = tf_map.get(tf, mt5.TIMEFRAME_H1)
@@ -159,17 +146,6 @@ def resample_4h(df_1h):
     df4h = df.resample('4h').agg(agg).dropna(subset=['close'])
     df4h.index.name = 'datetime'
     return df4h.reset_index()
-
-
-def resample_1d(df_1h):
-    """Resample 1h DataFrame to daily OHLCV."""
-    df = df_1h.set_index('datetime')
-    agg = {'open': 'first', 'high': 'max', 'low': 'min', 'close': 'last'}
-    if 'volume' in df.columns:
-        agg['volume'] = 'sum'
-    df1d = df.resample('1D').agg(agg).dropna(subset=['close'])
-    df1d.index.name = 'datetime'
-    return df1d.reset_index()
 
 
 # ══════════════════════════════════════════
@@ -231,16 +207,13 @@ def calc_squeeze_ratio(sma_short_val, sma_long_val):
 # ══════════════════════════════════════════
 # Entry signal
 # ══════════════════════════════════════════
-def check_entry(df, cfg, base_sym='', df_daily=None):
+def check_entry(df, cfg):
     """
     Check entry on last confirmed bar (iloc[-2]).
     Returns 'long' / 'short' / None.
-    df_daily: daily OHLCV for daily SMA slope filter (v3).
-    With debug logging: shows exactly which sub-condition fails and by how much.
     """
     min_bars = cfg['sma_long'] + cfg['slope_period'] + 5
     if len(df) < min_bars:
-        log_print(base_sym + ': bars=' + str(len(df)) + ' < ' + str(min_bars) + ' (not enough)', debug=True)
         return None
 
     cur  = df.iloc[-2]
@@ -254,86 +227,30 @@ def check_entry(df, cfg, base_sym='', df_daily=None):
     o     = cur['open']
 
     if any(pd.isna(x) for x in [sl_v, ss_v, atr_v, adx_v, c, o]):
-        log_print(base_sym + ': NaN in indicators  skip', debug=True)
         return None
 
-    # ADX filter
     if adx_v <= 20.0:
-        log_print(base_sym + ': ADX=' + f'{adx_v:.1f}' + ' <= 20  skip', debug=True)
+        log_print(f'ADX={adx_v:.1f} <= 20  skip', debug=True)
         return None
 
-    # Squeeze filter
     sq_ratio = calc_squeeze_ratio(ss_v, sl_v)
     if sq_ratio > cfg['squeeze_th']:
-        log_print(base_sym + ': sq=' + f'{sq_ratio:.3f}' + ' > th=' + str(cfg['squeeze_th']) + '  skip', debug=True)
+        log_print(f'squeeze_ratio={sq_ratio:.3f} > {cfg["squeeze_th"]}  skip', debug=True)
         return None
 
-    # Slope filter
     slope = calc_slope(df['sma_long'], cfg['slope_period'])
     if slope is None:
-        # Show last few diffs to diagnose non-monotone slope
-        vals  = df['sma_long'].dropna().values
-        seg   = vals[-cfg['slope_period']:]
-        diffs = np.diff(seg)
-        log_print(base_sym + ': slope=None (non-monotone)  diffs=' +
-                  str([round(float(d), 6) for d in diffs]), debug=True)
         return None
-
-    # Daily SMA slope filter (v3 2026-05-16)
-    if df_daily is not None and 'daily_sma' in cfg:
-        daily_sma = cfg['daily_sma']
-        daily_sp  = cfg.get('daily_slope_period', 5)
-        d_ind = df_daily.copy()
-        d_ind['sma_daily'] = d_ind['close'].rolling(daily_sma).mean()
-        daily_slope = calc_slope(d_ind['sma_daily'], daily_sp)
-        if daily_slope is not None:
-            if slope is True and daily_slope is False:
-                log_print(base_sym + ': daily_slope=DN vs 1h UP -> skip', debug=True)
-                return None
-            if slope is False and daily_slope is True:
-                log_print(base_sym + ': daily_slope=UP vs 1h DN -> skip', debug=True)
-                return None
 
     prev_c = prev['close']
     prev_s = prev['sma_short']
     if pd.isna(prev_c) or pd.isna(prev_s):
         return None
 
-    slope_dir = 'UP' if slope else 'DN'
-
-    # Check directional conditions and log sub-condition breakdown on miss
-    if slope is True:
-        if c > sl_v and prev_c < prev_s and c > ss_v and c > o:
-            return 'long'
-        fails = []
-        if not (c > sl_v):
-            fails.append('c>SMAlong?NO gap=' + f'{c - sl_v:.5f}')
-        if not (prev_c < prev_s):
-            fails.append('prev_c<SMAshort?NO gap=' + f'{prev_c - prev_s:.5f}')
-        if not (c > ss_v):
-            fails.append('c>SMAshort?NO gap=' + f'{c - ss_v:.5f}')
-        if not (c > o):
-            fails.append('bullish_bar?NO c-o=' + f'{c - o:.5f}')
-        log_print(base_sym + ': LONG_miss slope=' + slope_dir +
-                  ' ADX=' + f'{adx_v:.1f}' +
-                  ' sq=' + f'{sq_ratio:.3f}' +
-                  '  ' + '  '.join(fails), debug=True)
-    else:
-        if c < sl_v and prev_c > prev_s and c < ss_v and c < o:
-            return 'short'
-        fails = []
-        if not (c < sl_v):
-            fails.append('c<SMAlong?NO gap=' + f'{sl_v - c:.5f}')
-        if not (prev_c > prev_s):
-            fails.append('prev_c>SMAshort?NO gap=' + f'{prev_s - prev_c:.5f}')
-        if not (c < ss_v):
-            fails.append('c<SMAshort?NO gap=' + f'{ss_v - c:.5f}')
-        if not (c < o):
-            fails.append('bearish_bar?NO o-c=' + f'{o - c:.5f}')
-        log_print(base_sym + ': SHORT_miss slope=' + slope_dir +
-                  ' ADX=' + f'{adx_v:.1f}' +
-                  ' sq=' + f'{sq_ratio:.3f}' +
-                  '  ' + '  '.join(fails), debug=True)
+    if slope is True and c > sl_v and prev_c < prev_s and c > ss_v and c > o:
+        return 'long'
+    if slope is False and c < sl_v and prev_c > prev_s and c < ss_v and c < o:
+        return 'short'
 
     return None
 
@@ -376,92 +293,8 @@ def is_in_cooldown(base_sym):
 # ══════════════════════════════════════════
 # Position management
 # ══════════════════════════════════════════
-
-# v2 2026-05-12: factored out close helper (used by force-close and A-1 slope-exit)
-def _close_position(p, is_long, comment):
-    """Send market close order. Returns True on success."""
-    close_type = mt5.ORDER_TYPE_SELL if is_long else mt5.ORDER_TYPE_BUY
-    tick       = mt5.symbol_info_tick(p.symbol)
-    if tick is None:
-        return False
-    price = tick.bid if is_long else tick.ask
-    req = {
-        'action':       mt5.TRADE_ACTION_DEAL,
-        'symbol':       p.symbol,
-        'volume':       p.volume,
-        'type':         close_type,
-        'price':        price,
-        'deviation':    10,
-        'magic':        MAGIC,
-        'comment':      comment,
-        'position':     p.ticket,
-        'type_time':    mt5.ORDER_TIME_GTC,
-        'type_filling': mt5.ORDER_FILLING_IOC,
-    }
-    result = mt5.order_send(req)
-    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-        return True
-    code = result.retcode if result else 'None'
-    log_print('close failed: ' + p.symbol + ' code=' + str(code))
-    return False
-
-
-# v2 2026-05-12: B-1 breakeven move (profit >= be_r * original_sl_dist -> SL to entry)
-def _check_breakeven(p, is_long, be_r, webhook):
-    """Move SL to entry when unrealized profit >= be_r * (price_open - original_sl)."""
-    info = mt5.symbol_info(p.symbol)
-    tick = mt5.symbol_info_tick(p.symbol)
-    if info is None or tick is None:
-        return
-
-    if is_long:
-        if p.sl >= p.price_open - info.point:   # BE already applied
-            return
-        orig_sl_dist = p.price_open - p.sl
-        if orig_sl_dist <= 0:
-            return
-        profit = tick.bid - p.price_open
-    else:
-        if p.sl <= p.price_open + info.point:   # BE already applied
-            return
-        orig_sl_dist = p.sl - p.price_open
-        if orig_sl_dist <= 0:
-            return
-        profit = p.price_open - tick.ask
-
-    log_print('BE check: ' + p.symbol +
-              '  profit=' + str(round(profit, info.digits)) +
-              '  need='   + str(round(be_r * orig_sl_dist, info.digits)), debug=True)
-
-    if profit < be_r * orig_sl_dist:
-        return
-
-    new_sl = round(p.price_open, info.digits)
-    req = {
-        'action':   mt5.TRADE_ACTION_SLTP,
-        'position': p.ticket,
-        'sl':       new_sl,
-        'tp':       p.tp,
-    }
-    result = mt5.order_send(req)
-    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
-        side = 'LONG' if is_long else 'SHORT'
-        msg  = (STRATEGY_TAG + ' BE: ' + p.symbol + ' ' + side +
-                '  SL->entry=' + str(new_sl) + '  ticket=' + str(p.ticket))
-        log_print(msg)
-        send_discord(msg, webhook)
-    else:
-        code = result.retcode if result else 'None'
-        log_print('BE modify failed: ' + p.symbol + ' code=' + str(code))
-
-
 def manage_positions(broker, webhook):
-    """
-    Manage open positions per confirmed bar (iloc[-2]):
-    - Force close: SMA_long break in opposite direction (priority)
-    - A-1: SMA_long slope reversal exit (v2 2026-05-12)
-    - B-1: Breakeven SL move when profit >= be_r * orig_sl_dist (v2 2026-05-12)
-    """
+    """Force close positions where close breaks SMA200 in opposite direction."""
     pos = mt5.positions_get()
     if not pos:
         return
@@ -481,7 +314,7 @@ def manage_positions(broker, webhook):
             continue
 
         tf = cfg.get('timeframe', '1h')
-        n  = cfg['sma_long'] + max(cfg.get('slope_exit', 3), cfg.get('slope_period', 5)) + 10
+        n  = cfg['sma_long'] + 10
         df = get_ohlcv(p.symbol, tf, n, broker)
         if df is None or len(df) < cfg['sma_long'] + 2:
             continue
@@ -494,37 +327,110 @@ def manage_positions(broker, webhook):
         if pd.isna(sl_v) or pd.isna(c):
             continue
 
-        is_long = (p.type == mt5.ORDER_TYPE_BUY)
+        is_long  = (p.type == mt5.ORDER_TYPE_BUY)
+        force    = (is_long and c < sl_v) or (not is_long and c > sl_v)
+        if not force:
+            continue
 
-        # ── Force close: SMA_long break (priority) ──
-        if (is_long and c < sl_v) or (not is_long and c > sl_v):
+        close_type = mt5.ORDER_TYPE_SELL if is_long else mt5.ORDER_TYPE_BUY
+        tick       = mt5.symbol_info_tick(p.symbol)
+        if tick is None:
+            continue
+        price = tick.bid if is_long else tick.ask
+
+        req = {
+            'action':       mt5.TRADE_ACTION_DEAL,
+            'symbol':       p.symbol,
+            'volume':       p.volume,
+            'type':         close_type,
+            'price':        price,
+            'deviation':    10,
+            'magic':        MAGIC,
+            'comment':      STRATEGY_TAG + '_CLOSE',
+            'position':     p.ticket,
+            'type_time':    mt5.ORDER_TIME_GTC,
+            'type_filling': mt5.ORDER_FILLING_IOC,
+        }
+        result = mt5.order_send(req)
+        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
             side = 'LONG' if is_long else 'SHORT'
             msg  = (STRATEGY_TAG + ' force-close: ' + p.symbol + ' ' + side +
                     ' SMA' + str(cfg['sma_long']) + ' break  ticket=' + str(p.ticket))
             log_print(msg)
             send_discord(msg, webhook)
-            _close_position(p, is_long, STRATEGY_TAG + '_CLOSE')
+        else:
+            code = result.retcode if result else 'None'
+            log_print('force-close failed: ' + p.symbol + ' code=' + str(code))
+
+
+# ══════════════════════════════════════════
+# Break-even management
+# ══════════════════════════════════════════
+def manage_breakeven():
+    """
+    Price has moved BE_MULT x SL_dist in our favor -> move SL to entry price.
+    Prevents giving back all profit when price reverses to SMA force-close level.
+    Skips positions already at / past break-even.
+    """
+    if BE_MULT <= 0:
+        return
+
+    pos = mt5.positions_get()
+    if not pos:
+        return
+
+    for p in pos:
+        if p.magic != MAGIC:
+            continue
+        if p.sl == 0.0:
             continue
 
-        # ── A-1: SMA_long slope reversal exit ──
-        slope_exit = cfg.get('slope_exit', None)
-        if slope_exit is not None:
-            slope_now = calc_slope(df_ind['sma_long'], slope_exit)
-            reversed_ = (is_long and slope_now is False) or (not is_long and slope_now is True)
-            if reversed_:
-                side = 'LONG' if is_long else 'SHORT'
-                msg  = (STRATEGY_TAG + ' slope-exit: ' + p.symbol + ' ' + side +
-                        '  SMA' + str(cfg['sma_long']) + ' slope reversed' +
-                        '  ticket=' + str(p.ticket))
-                log_print(msg)
-                send_discord(msg, webhook)
-                _close_position(p, is_long, STRATEGY_TAG + '_SLOPE_EXIT')
-                continue
+        sl_dist = abs(p.price_open - p.sl)
+        if sl_dist <= 0:
+            continue
 
-        # ── B-1: Breakeven SL move ──
-        be_r = cfg.get('be_r', None)
-        if be_r is not None:
-            _check_breakeven(p, is_long, be_r, webhook)
+        tick = mt5.symbol_info_tick(p.symbol)
+        if tick is None:
+            continue
+
+        is_long = (p.type == mt5.ORDER_TYPE_BUY)
+
+        # Already moved to break-even or better -> skip
+        if is_long  and p.sl >= p.price_open:
+            continue
+        if not is_long and p.sl <= p.price_open:
+            continue
+
+        # Trigger: price moved BE_MULT x SL_dist in our favor
+        be_trigger = p.price_open + sl_dist * BE_MULT if is_long \
+                     else p.price_open - sl_dist * BE_MULT
+        current    = tick.bid if is_long else tick.ask
+        triggered  = (is_long and current >= be_trigger) or \
+                     (not is_long and current <= be_trigger)
+        if not triggered:
+            continue
+
+        info   = mt5.symbol_info(p.symbol)
+        digits = info.digits if info else 5
+        new_sl = round(p.price_open, digits)
+
+        req = {
+            'action':   mt5.TRADE_ACTION_SLTP,
+            'position': p.ticket,
+            'symbol':   p.symbol,
+            'sl':       new_sl,
+            'tp':       p.tp,
+        }
+        result = mt5.order_send(req)
+        if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+            side = 'LONG' if is_long else 'SHORT'
+            log_print('BE: ' + p.symbol + ' ' + side +
+                      '  SL moved to entry ' + str(new_sl) +
+                      '  (moved ' + str(round(sl_dist * BE_MULT, digits)) + ')' +
+                      '  ticket=' + str(p.ticket))
+        else:
+            code = result.retcode if result else 'None'
+            log_print('BE failed: ' + p.symbol + ' code=' + str(code))
 
 
 # ══════════════════════════════════════════
@@ -603,6 +509,7 @@ def main_loop(webhook):
 
     while True:
         try:
+            manage_breakeven()
             manage_positions(BROKER_KEY, webhook)
 
             total_pos = count_total_strategy()
@@ -634,15 +541,10 @@ def main_loop(webhook):
                     log_print(base_sym + ': OHLCV fetch failed', debug=True)
                     continue
 
-                # daily filter: fetch daily bars if configured
-                df_daily = None
-                if 'daily_sma' in cfg:
-                    d_n = cfg['daily_sma'] + cfg.get('daily_slope_period', 5) + 5
-                    df_daily = get_ohlcv(symbol, '1d', d_n, BROKER_KEY)
-
                 df_ind    = calc_indicators(df, cfg)
-                direction = check_entry(df_ind, cfg, base_sym, df_daily=df_daily)
+                direction = check_entry(df_ind, cfg)
                 if direction is None:
+                    log_print(base_sym + ': no signal', debug=True)
                     continue
 
                 cur     = df_ind.iloc[-2]
@@ -673,7 +575,7 @@ def main_loop(webhook):
 def main():
     global BROKER_KEY, LOG_FILE, DEBUG
 
-    parser = argparse.ArgumentParser(description='SMA Squeeze Play monitor v2')
+    parser = argparse.ArgumentParser(description='SMA Squeeze Play monitor v1')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='broker key')
