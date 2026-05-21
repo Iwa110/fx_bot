@@ -231,7 +231,8 @@ def _total_margin_jpy(open_longs, open_shorts, cnv):
 def run_backtest(df, conv_arr, ind,
                  grid_mult, max_levels,
                  exit_type, exit_param,
-                 use_ci, use_adx, use_relaltr):
+                 use_ci, use_adx, use_relaltr,
+                 ci_threshold=61.8):
     """
     Single backtest run.
 
@@ -361,7 +362,7 @@ def run_backtest(df, conv_arr, ind,
         ok = True
         if ok and use_ci:
             ci_v = ind['ci_d1'][i]
-            if not np.isnan(ci_v) and ci_v <= 61.8:
+            if not np.isnan(ci_v) and ci_v <= ci_threshold:
                 ok = False
         if ok and use_adx:
             adx_v  = ind['adx_d1'][i]
