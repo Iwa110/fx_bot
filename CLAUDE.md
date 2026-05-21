@@ -8,42 +8,28 @@ FX自動売買システム。VPS(Windows Server 2022)で複数戦略を並行稼
 ```
 C:\Users\Administrator\fx_bot\
 ├── vps\          # 稼働中ボット
-│   ├── bb_monitor.py         # v24 magic=20250001
-│   ├── trail_monitor.py      # v14
-│   ├── smc_gbpaud.py         # v4 magic=20260002
-│   ├── stat_arb.py           # magic=20260001
-│   ├── sma_squeeze.py        # v3 magic=20260010 (daily filter + COOLDOWN=180)
-│   ├── sma_squeeze_monitor.bat
-│   ├── cot_monitor.py        # v1 magic=20260020 ★新規
-│   └── cot_monitor.bat       # ★新規
+│   ├── bb_monitor.py      # v17 magic=20250001
+│   ├── trail_monitor.py   # v10
+│   ├── smc_gbpaud.py      # v4 magic=20260002
+│   ├── stat_arb.py        # magic=20260001
+│   └── sma_squeeze.py     # v4 magic=20260010 (ATR-adaptive trailing)
 ├── optimizer\    # バックテスト・最適化
 │   ├── loop_runner.py
 │   ├── backtest.py
 │   ├── evaluate.py
 │   ├── phase2_ai_analysis.py
-│   ├── make_4h_from_1h.py                  # 1h→4hリサンプル
-│   ├── sma_squeeze_bt.py                   # グリッドサーチBT（エントリーパラメータ）
-│   ├── sma_squeeze_exit_bt.py              # 決済パラメータ最適化BT
-│   ├── sma_squeeze_daily_filter_bt.py      # 日足フィルターBT
-│   ├── cot_extreme_bt.py                   # COT戦略BT ★新規
-│   ├── vix_riskoff_jpy_bt.py               # VIX Risk-Off BT ★新規
-│   └── event_squeeze_bt.py                 # Pre-Event Squeeze BT ★新規
-└── data\         # 14ペア 1h/5m足（*_1h.csvはgit管理）
+│   ├── sma_squeeze_bt.py             # エントリーパラメータ最適化BT
+│   ├── sma_squeeze_exit_bt.py        # 決済パラメータ最適化BT ★新規
+│   └── sma_squeeze_daily_filter_bt.py
+└── data\         # 14ペア 1h/5m足
 ```
 
 ## 戦略別現状
 
 ### BB戦略
-- PAIRS: GBPJPY/USDJPY/EURJPY（EURUSD/GBPUSD/USDCADは停止中）
-  - EURUSD: v20(2026-05-14)で停止（BT PF最高0.681、BB戦略との相性不良）
-  - GBPUSD: v20(2026-05-14)で停止（実稼働PF=0.397、BT最高0.854で目標未達）
-- htf4h_rsi_bwフィルター: GBPJPY/USDJPYに適用（4h EMA20方向 + RSI条件）
-  - GBPJPY: Buy時RSI<60/Sell時RSI>55。GBP急騰局面ではRSI≥60で両方向ブロック注意
-  - USDJPY: Buy時RSI<55/Sell時RSI>45。RSI中立ゾーン外でもブロック
-  - RSI閾値は現状維持（意図的設計）
-- rsi_ok未チェック: calc_bb_signal()内でrsi_filter()結果を参照しない実装は**意図的仕様**
-  - RSIはログ記録のみ、エントリー可否はhtf4h_rsi_bwフィルターで判断する設計
-- EURJPY: ALLOWED_HOURS_UTC=[9,17]（UTC9時台・17時台のみ）
+- PAIRS: GBPJPY/USDJPY/EURUSD/GBPUSD (USDCADは停止中)
+- Stage2 distance: EURUSD=0.1、その他=0.3
+- USDJPY許可時間帯: [21,22,5] UTC
 - RR問題あり(実RR=0.31 vs 設計1.50)、改善実施済み・データ蓄積中
 
 ### trail_monitor v10
@@ -56,41 +42,14 @@ C:\Users\Administrator\fx_bot\
 ### stat_arb
 - GBPJPY/USDJPY・EURUSD/GBPUSD、MAX_POS=2ペア
 
-### SMA Squeeze Play v3（稼働中）
+### SMA Squeeze Play v4（稼働中）
 - magic=20260010、STRATEGY_TAG='SMA_SQ'
-- PAIRS: USDJPY/GBPJPY/EURUSD/GBPUSD/EURJPY（全5ペア有効）
+- PAIRS: USDJPY/GBPJPY/EURUSD/EURJPY（GBPUSD enabled=False）
 - ロジック: SMA200スロープフィルタ + SMAスクイーズ解放エントリー + 日足フィルター
   - エントリー条件: ADX14>20、divergence_rate≤squeeze_th、SMAスロープ単調 + 日足SMA方向一致
-  - 決済: ATR×sl_atr_mult でSL、SL×rr でTP、SMA長期ブレイク強制決済 / slope-exit / BE移動
-  - クールダウン: 180分/ペア（v3: 60→180に変更）、MAX_TOTAL_POS=3、MAX_JPY_LOT=0.4
-- BT結果（日足フィルター追加後、sma_squeeze_daily_filter_bt.py）:
-  | pair   | tf | daily_sma | daily_sp |  PF(base) |  PF(filter) |  n  |
-  |--------|----|-----------|----------|-----------|-------------|-----|
-  | USDJPY | 4h | 20 | 3 | 1.815 | 1.928 | 27 |
-  | GBPJPY | 1h | 20 | 3 | 1.462 | 1.522 | 47 |
-  | EURUSD | 4h | 50 | 3 | 2.670 | 2.831 | 29 |
-  | GBPUSD | 1h | 20 | 5 | 1.341 | 1.372 | 208 | (停止中) |
-  | EURJPY | 4h | 20 | 5 | 3.673 | 3.748 | 29 |
-- **v3追加 (2026-05-16)**: 日足SMAスロープフィルター（1h方向と日足方向が不一致→スキップ）
-  + COOLDOWN_MIN 60→180 / GBPUSD enabled=False
-- **注意**: VPS側でgit pull後、sma_squeeze_monitor.batを手動再起動すること
-
-### COT極値×日足トレンド v1（新規追加・2026-05-20）
-- magic=20260020、STRATEGY_TAG='COT'
-- PAIRS: EURUSD/GBPUSD/USDJPY（各1ポジション、最大3）
-- データ源: CFTC Socrata API（毎週金曜20:30 UTC更新、`cot_cache.json`で7日キャッシュ）
-- ロジック: COT Index(156週ローリング) >90 → 逆張りSHORT / <10 → 逆張りLONG
-  + D1 EMA50フィルター（トレンド方向一致のみ）
-  + 最大保有14日でmax_hold強制決済
-- BT結果（cot_extreme_bt.py, 2023-07-14〜2026-02-27）:
-  | ペア | n | 勝率 | PF |
-  |------|---|------|----|
-  | EURUSD | 16 | 75% | 1.940 |
-  | GBPUSD | 17 | 94% | 9.739 |
-  | USDJPY | 17 | 71% | 1.958 |
-  | 全体 | 50 | 80% | 1.968 |
-- **注意**: LONG方向PF=5.888 vs SHORT方向PF=0.983（相場環境依存）。SHORT実稼働を重点監視
-- **VPS起動**: cot_monitor.bat を手動実行 or Task Schedulerに追加
+  - 決済: ATR×sl_atr_mult でSL、SL×rr でTP、SMA長期ブレイク強制決済 / slope-exit=3
+  - ATR-adaptive trailing: trail_dist = ATR14 × atr_trail_mult（ペア毎設定）
+  - クールダウン: 180分/ペア、MAX_TOTAL_POS=3、MAX_JPY_LOT=0.4
 
 ## GitHub運用
 - Repo: https://github.com/Iwa110/fx_bot (Public)
@@ -101,7 +60,7 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-20 夜更新）
+## Top of mind（2026-05-21 夜更新）
 ### OANDA MT5接続問題・全ブローカー稼働化（2026-05-11完了）
 - **問題**: Axiory/Exnessに取引がなく、OANDAはterminal.trade_allowed=False
 - **根本原因1（OANDA IPC失敗）**: OANDAのMT5ログで `IPC failed to initialize IPC` / `IPC dispatcher not started` + ヒストリーファイルのERROR_SHARING_VIOLATION[32]を確認。Axiory/ExnessがIPCを先に確保するため
@@ -138,109 +97,36 @@ C:\Users\Administrator\fx_bot\
 - **MULTIPLIERS**: tp=1.5, sl=2.0 → PF=1.924 / WR=52.9% / n=34
 - z_exit=0.0（Z回帰決済は無効、hold_period=5日で管理）
 
-### SMA Squeeze v2 決済改善（2026-05-12完了）
-- A-1 SMA_long slope reversal exit (slope_exit=3): 傾き反転で強制決済（force-closeより先に発動）
-- B-1 breakeven move (be_r=0.5): profit≥0.5×原SL距離でSLを建値移動（order_modify SLTP）
-- BT結果 (sma_squeeze_exit_bt.py, 80 runs): be_r=0.5が全ペア最優先。slope_exit=3はGBPJPYに効果
-- ヘルパー関数: _close_position() / _check_breakeven() 追加済み
-
-### SMA Squeeze v3 日足フィルター（2026-05-16完了）
-- 問題: GBP急騰局面でSELL方向に9連敗（5/13-14実稼働）。1h slopeだけでは転換検知が遅い
-- 解決: 日足SMA傾きと1h方向が不一致→スキップ（daily_slope_map）
-- BT (sma_squeeze_daily_filter_bt.py, 35 runs): 全ペアでPF改善確認
-  - USDJPY: 1.815→1.928 / GBPJPY: 1.462→1.522 / EURUSD: 2.670→2.831 / EURJPY: 3.673→3.748
-- COOLDOWN_MIN 60→180（連続エントリー抑制強化）
-- GBPUSD: enabled=True（BT PF=1.372で継続稼働）
-- 変更ファイル: vps/sma_squeeze.py (v3) / optimizer/sma_squeeze_daily_filter_bt.py (新規)
-
-### BB戦略 実RR問題改善（2026-05-19完了）
-- **根本原因**: trail_monitor(5m ATR) vs bb_monitor(H1 ATR)のATRミスマッチ
-  - Stage3発動 = 5m_ATR×1.2 ≈ H1_ATRベースTP前3-5%地点で早期発動
-  - 実稼働70件: TP到達わずか2件(2.9%)、trail/SL勝ちの平均=+687円（設計TP大幅未達）
-  - 実RR=0.276 vs 設計1.5 → 81.6%未達
-- **対策1 (主)**: trail_monitor v14: BB_GBPJPY/USDJPY/EURJPY の stage3_activate=1.2→99（実質無効化）
-  - TP一本勝負に変更。BT(trail無効): GBPJPY PF=1.105 / USDJPY 1.147 / EURJPY 1.058
-- **対策2 (副)**: bb_monitor v24: GBPJPY/USDJPY sl_atr_mult=3.0→2.5
-  - BT: GBPJPY PF=1.105 / USDJPY 1.147（sl=3.0時比 +0.09/+0.008 改善）
-  - RR引き上げ(案B)はWR低下でPF悪化→採用せず
-- **変更ファイル**:
-  - vps/trail_monitor.py (v14): BB_GBPJPY/USDJPY/EURJPY stage3_activate=99
-  - vps/bb_monitor.py (v24): GBPJPY/USDJPY sl_atr_mult=3.0→2.5
-  - optimizer/backtest.py: BB_PAIRS_CFG GBPJPY/USDJPY sl_atr_mult=2.5
-  - optimizer/bb_rr_analysis.py / bb_rr_bt.py（新規）
-  - strategy_spec.md: §1テーブル・§11テーブル更新
-
-### COT極値×日足トレンド v1 実装完了（2026-05-20）
-- **BT結果**: n=50, WR=80%, PF=1.968（cot_extreme_bt.py, 2023-07-14〜2026-02-27）
-  - GBPUSD: WR=94% PF=9.739 / EURUSD: WR=75% PF=1.940 / USDJPY: WR=71% PF=1.958
-- **データ**: CFTC Socrata API（dataset gpe5-46if, TFF FutOnly Leveraged Funds）
-- **Magic**: 20260020、BROKER: oanda、ループ1時間
-- **懸念**: LONG方向PF=5.888 vs SHORT方向PF=0.983（2023-2026 USD強含みバイアス）
-- **変更ファイル**: vps/cot_monitor.py (v1) / vps/cot_monitor.bat / strategy_spec.md §13追加
-
-### BB戦略 動的決済 v26 実装完了（2026-05-20）
-- **USDJPY**: T_max=8h 強制決済 + 指数TP Decay(τ=8h)
-  - TP(t) = initial_tp_dist × (1/3.75 + 2.75/3.75 × exp(-t/8)) → 8h後に強制決済
-  - BT: Baseline OOS PF=1.137 → exp_tau8 OOS PF=1.211 (+6.5%)
-- **EURJPY**: T_max=6h 強制決済のみ（TP変更なし）
-  - BT: Baseline OOS PF=1.047 → T_max=6h OOS PF=1.137 (+8.7%)
-- **GBPJPY**: 変更なし（T_max追加でOOS PF=1.130→1.079 に劣化）
-- **変更ファイル**: vps/bb_monitor.py (v26) / strategy_spec.md §1 / strategy_spec.html §1
-- **ログ確認**: `[DynTP]` / `[TimeStop]` ログが bb_log_oanda.txt に出ること
+### SMA Squeeze v4 ATR-adaptive trailing stop（2026-05-21完了）
+- **課題**: 単純なSLトレーリングでは早期利確・ノイズ損切りが発生
+- **解決**: 移動平均・チャート傾き・ボラティリティを加味した複数決済手法をBTで比較
+- **BT**: sma_squeeze_exit_bt.py 275runs（6手法: baseline/fixed_trail/atr_trail/slope_exit/div_tighten/combined）
+- **BT結果**（vs baseline固定SL/TP）:
+  | ペア | 最優手法 | PF(baseline) | PF(best) | 改善幅 |
+  |------|---------|------------|---------|--------|
+  | USDJPY | atr_trail mult=0.5 | 1.815 | 4.441 | +2.63 |
+  | EURUSD | atr_trail mult=0.5 | 2.670 | 7.447 | +4.78 |
+  | GBPUSD | atr_trail mult=1.5 | 0.713 | 1.418 | +0.71 |
+  | EURJPY | baseline（trailなし） | 3.673 | 3.673 | ±0 |
+  | GBPJPY | atr_trail mult=0.5 | - | - | (1h BT未実施) |
+- **実装 (sma_squeeze.py v4)**:
+  - `manage_atr_trail(broker)`: trail_dist = ATR14 × atr_trail_mult（ペア毎設定）
+  - SLは有利方向にしかラチェットしない。ボラ高時は自動的に広がる
+  - EURJPY: atr_trail_mult=0.0（無効）、固定TP維持
+  - BreakEven(`be_r`)廃止→ATR trailに統一
+  - v3機能（daily SMA filter、COOLDOWN=180、slope_exit=3）は維持
+  - Log: `[ATR_TRAIL] USDJPY LONG SL 149.50->149.80 locked=+0.30 atr=... ticket=...`
+- **変更ファイル**: vps/sma_squeeze.py (v4) / optimizer/sma_squeeze_exit_bt.py (新規)
+- **注意**: feature branch `claude/sma-squeeze-strategy-ct71p` → main マージ後にVPS git pull
 
 ### 翌日Chat確認事項
-- sma_squeeze_log_axiory.txtで「daily_slope=DN/UP vs 1h」ログが出ているか確認
-- BB戦略: v24適用後、trail_logに Stage3 ログが出なくなっているか確認（VPS git pull + trail_monitor再起動必要）
-- **BB v26**: git pull後、bb_log_oanda.txtで `[DynTP]` / `[TimeStop]` ログ確認（USDJPY 8h超・EURJPY 6h超のポジションがあれば）
-- BB戦略: TP到達件数が増えているか history.csv で確認（目安1〜2週間後）
+- **【要対応】PR作成**: `claude/sma-squeeze-strategy-ct71p` → main のPRを作成してマージ → VPS `git pull` でv4を反映
+- VPS再起動後: OANDA→(60s)Axiory/Exness の起動順でIPC確保。trail_watcher.logで3ブローカーのHBを確認
+- OANDAのIPC問題が起動順制御で本当に解消されたか、次回VPS再起動後に trail_log_oanda.txtで確認
+- **SMA Squeeze v4**: sma_squeeze_log_oanda.txtで `[ATR_TRAIL]` ログが出ているか確認（PRマージ+git pull後）
+- GBPJPY: atr_trail_mult=0.5はUSDJPYから流用。1h BT data取得後に再検証推奨
 - サンプル数100件超えたら再判定（目安: あと2〜3週間稼働後）
 - CORR実稼働後のPF/WR推移を確認（BT: PF=1.924, WR=52.9%）
-- **COT**: VPS git pull後、cot_monitor.bat実行。cot_monitor_log_oanda.txtでCOT Index値確認
-
-## 最新パフォーマンス統計（自動更新）
-<!-- AUTO_STATS_BEGIN -->
-更新日時: 2026-05-21 07:10 JST
-
-### 本日 2026-05-21
-取引なし
-
-### 直近7日（2026-05-15〜2026-05-21）
-総損益: -7,598円  PF=0.427  WR=57.1%  n=7
-
-| ペア | 損益 | PF | WR | n | |
-|------|------|----|----|---|---|
-| EURJPY | +1,280円 | inf | 100.0% | 1 | ✅ |
-| GBPJPY | -8,720円 | 0.334 | 75.0% | 4 | ⚠️ |
-| GBPUSD | -158円 | 0.000 | 0.0% | 2 | ⚠️ |
-
-### 日次推移（直近7日）
-- 2026-05-15: -13,100円  n=2
-- 2026-05-16: +1,217円  n=3
-- 2026-05-19: +4,286円  n=6
-- 2026-05-20: -3円  n=3
-
-### 戦略別（直近7日）
-| 戦略 | 損益 | PF | WR | n |
-|------|------|----|----|---|
-| BB | -7,440円 | 0.432 | 80.0% | 5 |
-| SMA_SQ | -158円 | 0.000 | 0.0% | 2 |
-
-### BB戦略 Phase1進捗（全期間）
-判定基準: PF>1.2 / WR>50%
-| ペア | PF | WR | n | 判定 |
-|------|----|----|---|------|
-| AUDJPY | 0.049 | 33.3% | 3 | ❌ NG |
-| EURJPY | 0.708 | 71.4% | 7 | ❌ NG |
-| EURUSD | 0.432 | 68.0% | 75 | ❌ NG |
-| GBPJPY | 0.558 | 76.9% | 13 | ❌ NG |
-| GBPUSD | 0.294 | 60.0% | 55 | ❌ NG |
-| USDCAD | 0.266 | 38.9% | 54 | ❌ NG |
-| USDJPY | 1.541 | 82.0% | 50 | ✅ OK |
-
-### 自動アラート
-- ⚠️ GBPJPY: PF=0.334（直近7日 n=4）→ パラメータ見直し要
-
-<!-- AUTO_STATS_END -->
 
 ## 直近タスク
 - [x] Phase1完了判定実行（2026-05-03: 全ペア不合格・データ蓄積継続）
@@ -248,20 +134,13 @@ C:\Users\Administrator\fx_bot\
 - [x] 動的ロットサイジング実装: dynamic_lot.py新規 / phase1_judgment.py新判定基準 / daily_report.py統合（2026-05-08完了）
 - [x] VPS Task Schedulerウィンドウ非表示化・trail_monitor多重起動修正（2026-05-10完了）
 - [x] OANDA MT5接続問題解消・全ブローカー稼働化（2026-05-11完了）
-- [x] SMA Squeeze Play v1 実装・BT完了・PAIRS_CFG最適化（2026-05-12完了）
-- [x] SMA Squeeze v2 決済改善 A-1+B-1 実装・BT最適化（2026-05-12完了）
-- [x] SMA Squeeze v3 日足フィルター実装・BT・push（2026-05-16完了）
-- [x] bb_monitor v20: EURUSD/GBPUSD停止（2026-05-14完了）
-- [x] bb_monitor v21/v22: GBPJPY/USDJPY htf4h_rsi_bwフィルター追加・EURJPY改善（2026-05-14以降）
-- [x] BB戦略 実RR改善: trail_monitor v14(Stage3無効化) + bb_monitor v24(sl縮小)（2026-05-19完了）
-- [x] COT極値戦略 BT実施・cot_monitor.py v1 実装（2026-05-20完了）
-- [x] BB戦略 動的決済 v26 実装: USDJPY T_max=8h+exp TP Decay / EURJPY T_max=6h（2026-05-20完了）
-- [ ] VPS: git pull + trail_monitorを再起動（bb_monitor v26/trail_monitor v14 反映）
-- [ ] VPS: sma_squeeze_monitor.bat再起動確認（v3稼働中か確認）
-- [ ] VPS: cot_monitor.bat 初回起動（git pull後）
+- [x] SMA Squeeze v4 ATR-adaptive trailing BT+実装（2026-05-21完了）
+- [x] .gitignore更新: optimizer/sma_squeeze_bt_result.csv の大容量自動生成ファイルを除外（2026-05-21完了）
+- [ ] **PRマージ**: feature branch `claude/sma-squeeze-strategy-ct71p` → main（VPS git pullのために必要）
+- [ ] VPS: git pull (main) + sma_squeeze_monitor.bat再起動（v4反映）
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
-- [ ] COT: 2〜3ヶ月後にSHORT方向実稼働PFを確認（BT=0.983と乖離あれば停止検討）
 - [ ] USDCAD再評価(BT結果待ち)
+- [ ] GBPJPY: 1h BT data取得後にatr_trail_mult再検証
 
 ## 作業スタイル
 - 作業時間: 夜まとめて1〜2時間
@@ -269,10 +148,11 @@ C:\Users\Administrator\fx_bot\
 - Code: 実装・実行・push（残り全て）
 - Codeセッション開始前に必ずタスクリストを用意する
 
-## 夜の終了チェックリスト
-- [ ] 変更ファイルをcommit/push済み
-- [ ] CLAUDE.mdのTop of mindを更新済み
-- [ ] 翌日Chatで確認すべき事項をメモ済み
+## 夜の終了チェックリスト（2026-05-21）
+- [x] 変更ファイルをcommit/push済み（branch: claude/sma-squeeze-strategy-ct71p）
+- [x] CLAUDE.mdのTop of mindを更新済み
+- [x] 翌日Chatで確認すべき事項をメモ済み
+- [ ] PRマージ → VPS git pull（翌日手動対応）
 
 ## ロードマップ
 
