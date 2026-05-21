@@ -1,12 +1,15 @@
 """
-grid_monitor.py - NZDUSD Grid Strategy monitor v1
+grid_monitor.py - Multi-pair Grid Strategy monitor v2
 Bi-directional grid: Long and Short run concurrently.
-magic: 20260030
-tag:   GRID_NZD
+
+Supported pairs and magic numbers:
+  NZDUSD: magic=20260030, tag=GRID_NZD, atr_mult=2.0
+  GBPJPY: magic=20260031, tag=GRID_GBP, atr_mult=1.5
+  CHFJPY: magic=20260032, tag=GRID_CHF, atr_mult=2.0
 
 Strategy:
-  pair: NZDUSD  tf: H1
-  grid_width = ATR(H1, 14) x 2.0
+  tf: H1
+  grid_width = ATR(H1, 14) x atr_mult (per pair)
   max_levels = 7 per direction
   TP = entry +/- grid_width (1 step), SL = none
 
@@ -30,9 +33,12 @@ Stop conditions (new orders only; existing TP continues):
   Daily realized PnL < -5,000 JPY
   Weekly realized PnL < -15,000 JPY
 
-Brokers: axiory / exness (oanda: False)
-State:   vps/grid_monitor_state.json
-Log:     vps/grid_log_{broker}.txt
+JPY pairs (GBPJPY, CHFJPY):
+  MT5 profit is returned in account currency (JPY) directly - no conversion needed.
+
+Brokers: axiory / exness (oanda: disabled)
+State:   vps/grid_monitor_state_{PAIR}.json  (per-pair)
+Log:     vps/grid_log_{PAIR}_{broker}.txt
 """
 
 import sys
@@ -51,14 +57,18 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from broker_utils import connect_mt5, disconnect_mt5, build_symbol_map, is_live_broker
 
 # ══════════════════════════════════════════
-# Constants
+# Pair configuration
 # ══════════════════════════════════════════
-MAGIC          = 20260030
-STRATEGY_TAG   = 'GRID_NZD'
-SYMBOL         = 'NZDUSD'
+PAIR_CONFIG = {
+    'NZDUSD': {'magic': 20260030, 'tag': 'GRID_NZD', 'atr_mult': 2.0, 'max_levels': 7},
+    'GBPJPY': {'magic': 20260031, 'tag': 'GRID_GBP', 'atr_mult': 1.5, 'max_levels': 7},
+    'CHFJPY': {'magic': 20260032, 'tag': 'GRID_CHF', 'atr_mult': 2.0, 'max_levels': 7},
+}
+
+# ══════════════════════════════════════════
+# Common constants
+# ══════════════════════════════════════════
 LOT            = 0.01
-MAX_LEVELS     = 7
-ATR_MULT       = 2.0
 ATR_PERIOD     = 14
 CI_THRESHOLD   = 61.8
 CI_PERIOD      = 14
@@ -71,10 +81,15 @@ HB_CYCLES      = 30   # heartbeat every 30 cycles (~30 min)
 _DEAL_REASON_TP = getattr(mt5, 'DEAL_REASON_TP', 5)
 
 # ══════════════════════════════════════════
-# Broker / symbol
+# Runtime globals (set in main() from --pair / --broker)
 # ══════════════════════════════════════════
-BROKER_KEY  = 'axiory'
-_SYMBOL_MAP = {}
+MAGIC        = 20260030
+STRATEGY_TAG = 'GRID_NZD'
+SYMBOL       = 'NZDUSD'
+ATR_MULT     = 2.0
+MAX_LEVELS   = 7
+BROKER_KEY   = 'axiory'
+_SYMBOL_MAP: dict = {}
 
 def _rsym() -> str:
     return _SYMBOL_MAP.get(SYMBOL, SYMBOL)
@@ -82,7 +97,8 @@ def _rsym() -> str:
 # ══════════════════════════════════════════
 # Logging
 # ══════════════════════════════════════════
-LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'grid_log.txt')
+_BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE  = os.path.join(_BASE_DIR, 'grid_log.txt')
 
 def log(msg: str) -> None:
     ts   = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
@@ -95,10 +111,9 @@ def log(msg: str) -> None:
         pass
 
 # ══════════════════════════════════════════
-# State persistence
+# State persistence (per-pair)
 # ══════════════════════════════════════════
-_STATE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                           'grid_monitor_state.json')
+_STATE_FILE = os.path.join(_BASE_DIR, 'grid_monitor_state.json')
 
 _STATE_DEFAULTS = {
     'max_lv_reached_ts_long':  None,
@@ -197,7 +212,7 @@ def calc_ci(df_d1: pd.DataFrame, period: int = 14):
 # Realized PnL helpers
 # ══════════════════════════════════════════
 def _realized_jpy_since(from_dt: datetime) -> float:
-    """Sum realized PnL for GRID_NZD (DEAL_ENTRY_OUT) since from_dt UTC."""
+    """Sum realized PnL (in account currency = JPY) for this pair since from_dt UTC."""
     if from_dt.tzinfo is None:
         from_dt = from_dt.replace(tzinfo=timezone.utc)
     sym   = _rsym()
@@ -221,7 +236,7 @@ def _week_start_utc() -> datetime:
 # Positions
 # ══════════════════════════════════════════
 def get_positions():
-    """Returns (longs, shorts) position lists for GRID_NZD."""
+    """Returns (longs, shorts) position lists for this pair / magic."""
     sym = _rsym()
     pos = mt5.positions_get(symbol=sym)
     if not pos:
@@ -360,7 +375,10 @@ def check_tp_closes(from_dt: datetime, b48_tickets: set) -> None:
 # Main loop
 # ══════════════════════════════════════════
 def main_loop() -> None:
-    log('grid_monitor v1 started  broker=' + BROKER_KEY +
+    log('grid_monitor v2 started  pair=' + SYMBOL +
+        '  broker=' + BROKER_KEY +
+        '  magic=' + str(MAGIC) +
+        '  atr_mult=' + str(ATR_MULT) +
         '  interval=' + str(LOOP_INTERVAL) + 's')
 
     state   = load_state()
@@ -556,17 +574,32 @@ def main_loop() -> None:
 # Entry point
 # ══════════════════════════════════════════
 def main() -> None:
-    global BROKER_KEY, LOG_FILE
+    global MAGIC, STRATEGY_TAG, SYMBOL, ATR_MULT, MAX_LEVELS
+    global BROKER_KEY, LOG_FILE, _STATE_FILE
 
-    parser = argparse.ArgumentParser(description='NZDUSD Grid Strategy monitor v1')
+    parser = argparse.ArgumentParser(description='Grid Strategy monitor v2 (multi-pair)')
+    parser.add_argument('--pair', default='NZDUSD',
+                        choices=list(PAIR_CONFIG.keys()),
+                        help='trading pair')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['axiory', 'exness', 'oanda', 'oanda_demo'],
                         help='broker key')
     args = parser.parse_args()
 
-    BROKER_KEY = args.broker
-    LOG_FILE   = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                              'grid_log_' + BROKER_KEY + '.txt')
+    # Apply pair config
+    cfg          = PAIR_CONFIG[args.pair]
+    SYMBOL       = args.pair
+    MAGIC        = cfg['magic']
+    STRATEGY_TAG = cfg['tag']
+    ATR_MULT     = cfg['atr_mult']
+    MAX_LEVELS   = cfg['max_levels']
+    BROKER_KEY   = args.broker
+
+    # Per-pair log and state files
+    LOG_FILE    = os.path.join(_BASE_DIR,
+                               'grid_log_' + SYMBOL + '_' + BROKER_KEY + '.txt')
+    _STATE_FILE = os.path.join(_BASE_DIR,
+                               'grid_monitor_state_' + SYMBOL + '.json')
 
     if not connect_mt5(BROKER_KEY):
         log('MT5 init failed  broker=' + BROKER_KEY)
