@@ -13,10 +13,12 @@ v4 2026-05-21: replace B-1 breakeven with ATR-adaptive trailing stop
   Trail: trail_dist = ATR14 * atr_trail_mult; SL only moves in trade direction
   Log: [ATR_TRAIL] symbol LONG/SHORT SL old->new locked=X ticket=Y
 v4.1 2026-05-21: heartbeat log every 30 min (30 cycles) for monitoring
-v4.2 2026-05-21: trail_start_mult -- trail only activates when profit >= ATR * trail_start_mult.
-  Setting trail_start_mult = atr_trail_mult guarantees first SL move reaches BE.
-  Fixes: "briefly positive then SL-hit below entry" pattern.
-  Log: [ATR_TRAIL] symbol SIDE trail-wait profit=X threshold=Y ticket=Z
+v4.2 2026-05-21: trail_start_mult added (BT result: 0.0 is optimal for all pairs)
+  trail_start_mult=0.0: trail starts immediately (best PF per BT).
+  trail_start_mult=atr_trail_mult: trail starts from BE (higher WR, lower PF).
+  BT: USDJPY start=0.0 PF=4.441 vs start=0.5 PF=3.500 (-0.94). All pairs worse with start>0.
+  Default: 0.0 (original v4 behavior). Code infra retained for future per-pair tuning.
+  Log: [ATR_TRAIL] symbol SIDE trail-wait profit=X threshold=Y ticket=Z (debug only)
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -61,22 +63,22 @@ PAIRS_CFG = {
                'slope_period': 5,  'rr': 2.5, 'sl_atr_mult': 1.5,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'trail_start_mult': 0.5, 'enabled': True},
+               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0, 'enabled': True},
     'GBPJPY': {'sma_short': 25, 'sma_long': 250, 'squeeze_th': 0.5,
                'slope_period': 10, 'rr': 2.0, 'sl_atr_mult': 1.5,
                'timeframe': '1h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'trail_start_mult': 0.5, 'enabled': True},
+               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0, 'enabled': True},
     'EURUSD': {'sma_short': 25, 'sma_long': 200, 'squeeze_th': 2.0,
                'slope_period': 10, 'rr': 2.5, 'sl_atr_mult': 1.0,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 50, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'trail_start_mult': 0.5, 'enabled': True},
+               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0, 'enabled': True},
     'GBPUSD': {'sma_short': 15, 'sma_long': 250, 'squeeze_th': 1.5,
                'slope_period': 20, 'rr': 2.0, 'sl_atr_mult': 1.0,
                'timeframe': '1h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 5,
-               'atr_trail_mult': 1.5, 'trail_start_mult': 1.5, 'enabled': False},
+               'atr_trail_mult': 1.5, 'trail_start_mult': 0.0, 'enabled': False},
     'EURJPY': {'sma_short': 15, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 20, 'rr': 2.5, 'sl_atr_mult': 1.5,
                'timeframe': '4h', 'slope_exit': 3,
@@ -567,8 +569,8 @@ def manage_atr_trail(broker):
         side       = 'LONG' if is_long else 'SHORT'
         trail_dist = atr_v * atr_trail_mult
 
-        # v4.2: hold trail until profit >= ATR * trail_start_mult
-        # When trail_start_mult == atr_trail_mult, first SL update lands at entry (BE)
+        # v4.2: trail_start_mult threshold (0.0 = disabled, BT shows 0.0 is optimal)
+        # trail_start_mult=atr_trail_mult would guarantee BE on first update (higher WR, lower PF)
         trail_start_mult = cfg.get('trail_start_mult', 0.0)
         if trail_start_mult > 0.0:
             profit = (tick.bid - p.price_open) if is_long else (p.price_open - tick.ask)
