@@ -64,6 +64,7 @@ MAGIC_MAP = {
     20250002: 'SMC_GBPAUD',
     20260001: 'stat_arb',
     20260010: 'SMA_SQ',
+    20260020: 'COT',
 }
 
 

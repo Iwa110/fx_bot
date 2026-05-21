@@ -8,6 +8,7 @@ Usage: python vps\dashboard_server.py
 import sys
 import os
 import logging
+import threading
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -47,6 +48,59 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 app = Flask(__name__)
+
+# ─────────────────────────────────────────────────────────────────
+# 「決済確認中」ポジション追跡
+#   positions_get() から消えた（=決済済）が、history_deals_get() に
+#   まだ反映されていないポジションをインメモリで保持する。
+#   broker × ticket をキーにし、3時間で自動削除。
+# ─────────────────────────────────────────────────────────────────
+_state_lock    = threading.Lock()
+_pending_closed: dict = {}  # (broker, ticket) -> {pos_info + pending_since: float}
+_last_open_pos: dict  = {}  # (broker, ticket) -> pos_info
+
+
+def _update_pending(broker: str, open_positions: list, closed_deals: list) -> list:
+    """
+    オープンポジションの前後を比較し、「消えたが履歴にない」ポジションを
+    pending_closed に登録/解除する。
+    戻り値: 現在の pending_closed エントリ（このbroker分のみ）
+    """
+    global _pending_closed, _last_open_pos
+    now_ts     = datetime.now(tz=JST).timestamp()
+    closed_tix = {t['ticket'] for t in closed_deals}
+    cur_tix    = {p['ticket'] for p in open_positions}
+
+    with _state_lock:
+        # 前回オープンだったポジションのうち、今回オープンにも履歴にもないもの → pending
+        for (brk, tix), info in list(_last_open_pos.items()):
+            if brk != broker:
+                continue
+            key = (broker, tix)
+            if tix not in cur_tix and tix not in closed_tix and key not in _pending_closed:
+                _pending_closed[key] = {**info, 'pending_since': now_ts}
+                log.info('pending_closed add: broker=%s ticket=%d symbol=%s',
+                         broker, tix, info.get('symbol', '?'))
+
+        # 履歴に現れたら pending から削除
+        for key in list(_pending_closed.keys()):
+            brk, tix = key
+            if brk == broker and tix in closed_tix:
+                log.info('pending_closed resolved: broker=%s ticket=%d', broker, tix)
+                del _pending_closed[key]
+
+        # 3時間を超えた古いエントリを削除
+        cutoff = now_ts - 3 * 3600
+        _pending_closed = {k: v for k, v in _pending_closed.items()
+                           if v['pending_since'] > cutoff}
+
+        # 今回のオープンポジションで last_open_pos を更新（このbrokerのみ差替え）
+        for key in [k for k in list(_last_open_pos.keys()) if k[0] == broker]:
+            del _last_open_pos[key]
+        for p in open_positions:
+            _last_open_pos[(broker, p['ticket'])] = p
+
+        return [v for (brk, _), v in _pending_closed.items() if brk == broker]
 
 
 @app.route('/strategy')
@@ -89,13 +143,18 @@ def index():
             trades         = fetch_deals_range(from_utc, to_utc)
             open_positions = fetch_open_positions()
 
-            log.info('closed=%d open=%d', len(trades), len(open_positions))
-
-            generated_at = now_jst.strftime('%Y-%m-%d %H:%M:%S') + ' JST'
-            html = generate_html(trades, open_positions, broker, days, generated_at, yesterday)
-
         finally:
             disconnect_mt5()
+
+        # 決済済みだが履歴にまだ出ていないポジションを追跡
+        pending_closed = _update_pending(broker, open_positions, trades)
+
+        log.info('closed=%d open=%d pending_closed=%d',
+                 len(trades), len(open_positions), len(pending_closed))
+
+        generated_at = now_jst.strftime('%Y-%m-%d %H:%M:%S') + ' JST'
+        html = generate_html(trades, open_positions, broker, days, generated_at, yesterday,
+                             pending_closed=pending_closed)
 
         return Response(html, status=200, mimetype='text/html; charset=utf-8')
 

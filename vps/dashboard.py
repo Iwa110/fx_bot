@@ -325,6 +325,7 @@ Chart.register(ChartDataLabels);
 
 var ALL_TRADES      = __TRADES_JSON__;
 var OPEN_POSITIONS  = __POSITIONS_JSON__;
+var PENDING_CLOSED  = __PENDING_CLOSED_JSON__;
 var STRATEGY_COLORS = __STRATEGY_COLORS_JSON__;
 var MAX_DAYS        = __DAYS__;
 var YESTERDAY       = '__YESTERDAY__';
@@ -879,11 +880,28 @@ function renderHistTable() {
 /* ── オープンポジション ──────────────────────────────────────── */
 function buildOpenPositions() {
   var el = document.getElementById('open-section');
-  if (OPEN_POSITIONS.length === 0) {
+  if (OPEN_POSITIONS.length === 0 && PENDING_CLOSED.length === 0) {
     el.innerHTML = '<div class="empty-msg">オープンポジションなし</div>';
     return;
   }
   var html = '<div class="op-list">';
+
+  /* 決済確認中（MT5ヒストリー反映待ち） */
+  PENDING_CLOSED.forEach(function(p) {
+    var color = STRATEGY_COLORS[p.strategy] || '#aaaaaa';
+    var cls   = colorClass(p.profit);
+    html += '<div class="op-card" style="border:1px solid #e3b341;opacity:0.8">' +
+      '<span class="op-symbol">' + p.symbol + '</span>' +
+      '<span class="op-tag op-strat" style="border-color:' + color + '">' + p.strategy + '</span>' +
+      '<span class="op-tag">' + p.type + '</span>' +
+      '<span class="op-tag">lots=' + p.lots.toFixed(2) + '</span>' +
+      '<span class="op-tag">open=' + p.open.toFixed(5) + '</span>' +
+      '<span class="op-tag" style="color:#e3b341;font-weight:bold">&#9203; 決済確認中</span>' +
+      '<span class="op-pnl ' + cls + '">' + fmt2(p.profit) + '</span>' +
+      '</div>';
+  });
+
+  /* 通常オープンポジション */
   OPEN_POSITIONS.forEach(function(p) {
     var color = STRATEGY_COLORS[p.strategy] || '#aaaaaa';
     var cls   = colorClass(p.profit);
@@ -897,6 +915,7 @@ function buildOpenPositions() {
       '<span class="op-pnl ' + cls + '">' + fmt2(p.profit) + '</span>' +
       '</div>';
   });
+
   html += '</div>';
   el.innerHTML = html;
 }
@@ -1041,11 +1060,15 @@ buildOpenPositions();
 
 
 def generate_html(trades: list, open_positions: list, broker: str,
-                  days: int, generated_at: str, yesterday: str) -> str:
+                  days: int, generated_at: str, yesterday: str,
+                  pending_closed: list = None) -> str:
+    if pending_closed is None:
+        pending_closed = []
     html = HTML_TEMPLATE
-    html = html.replace('__TRADES_JSON__',         json.dumps(trades,         ensure_ascii=False))
-    html = html.replace('__POSITIONS_JSON__',       json.dumps(open_positions, ensure_ascii=False))
-    html = html.replace('__STRATEGY_COLORS_JSON__', json.dumps(STRATEGY_COLORS))
+    html = html.replace('__TRADES_JSON__',          json.dumps(trades,         ensure_ascii=False))
+    html = html.replace('__POSITIONS_JSON__',        json.dumps(open_positions, ensure_ascii=False))
+    html = html.replace('__PENDING_CLOSED_JSON__',   json.dumps(pending_closed, ensure_ascii=False))
+    html = html.replace('__STRATEGY_COLORS_JSON__',  json.dumps(STRATEGY_COLORS))
     html = html.replace('__BROKER__',               broker)
     html = html.replace('__GENERATED_AT__',         generated_at)
     html = html.replace('__DAYS__',                 str(days))
