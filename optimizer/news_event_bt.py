@@ -97,7 +97,9 @@ MIN_N    = 15
 MAX_DD   = 20.0   # %
 
 # ===== バックテスト期間 =====
-BT_FROM = '2024-01-01'
+# 1h データが 2024-04-24 から。5m は 2026-02 から。M1 は VPS のみ。
+# 利用可能な最長期間に合わせて自動調整: 価格データの最古日を基準にする
+BT_FROM = '2024-05-01'   # 1h データカバレッジに合わせる
 BT_TO   = '2026-12-31'
 
 
@@ -179,30 +181,46 @@ def et_to_utc(date_str: str, time_str: str) -> pd.Timestamp | None:
 
 def fetch_m1_data(pair: str) -> pd.DataFrame | None:
     """
-    M1 足データを取得。優先順位:
-      1. data/{PAIR}_M1.csv が存在すればロード
-      2. 5m 足 (data/{PAIR}_5m.csv) で代替 (VPS 以外での開発用)
-      3. MT5 接続 (VPS 環境のみ)
+    M1 足データを取得。利用可能な全時間足をマージして最大カバレッジを確保する。
+    優先度: M1 > 5m > 1h (同一時刻では細かい時間足を優先)
     Returns DataFrame with columns [time(UTC naive), open, high, low, close]
     time 列は index ではなく通常列。
     """
-    # 1. M1 CSV
-    m1_path = DATA_DIR / f'{pair}_M1.csv'
-    if m1_path.exists():
-        df = _load_price_csv(m1_path, 'M1')
-        if df is not None and len(df) > 0:
-            print(f'  [data] {pair} M1: {len(df)} bars from CSV')
-            return df
+    frames = []
 
-    # 2. 5m CSV (代替)
+    # 1h (最長カバレッジ 2024-04〜)
+    h1_path = DATA_DIR / f'{pair}_1h.csv'
+    if h1_path.exists():
+        df = _load_price_csv(h1_path, '1h')
+        if df is not None and len(df) > 0:
+            frames.append(df)
+
+    # 5m (より細かい粒度 2026-02〜)
     m5_path = DATA_DIR / f'{pair}_5m.csv'
     if m5_path.exists():
         df = _load_price_csv(m5_path, '5m')
         if df is not None and len(df) > 0:
-            print(f'  [data] {pair} 5m (M1 proxy): {len(df)} bars')
-            return df
+            frames.append(df)
 
-    # 3. MT5 API (VPS 環境)
+    # M1 CSV (VPS 保存済みの場合)
+    m1_path = DATA_DIR / f'{pair}_M1.csv'
+    if m1_path.exists():
+        df = _load_price_csv(m1_path, 'M1')
+        if df is not None and len(df) > 0:
+            frames.append(df)
+
+    if frames:
+        # マージ: 全時間足を結合し、同一時刻は後に追加した細かい足を優先
+        merged = pd.concat(frames, ignore_index=True)
+        # 時刻でソート後、重複時刻は最後の行(より細かい足)を残す
+        merged = merged.sort_values('time').drop_duplicates(subset=['time'], keep='last')
+        merged = merged.reset_index(drop=True)
+        t_min = merged['time'].min().strftime('%Y-%m-%d')
+        t_max = merged['time'].max().strftime('%Y-%m-%d')
+        print(f'  [data] {pair} merged: {len(merged)} bars ({t_min}~{t_max})')
+        return merged
+
+    # MT5 API (VPS 環境)
     df = _fetch_m1_from_mt5(pair)
     if df is not None:
         out = DATA_DIR / f'{pair}_M1.csv'
@@ -210,7 +228,7 @@ def fetch_m1_data(pair: str) -> pd.DataFrame | None:
         print(f'  [data] {pair} M1 saved: {out}')
         return df
 
-    print(f'  [WARN] {pair}: M1/5m data not found. Skipping.')
+    print(f'  [WARN] {pair}: 価格データが見つかりません。スキップ。')
     return None
 
 
