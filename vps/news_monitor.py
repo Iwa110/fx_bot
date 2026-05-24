@@ -32,12 +32,17 @@ magic: 20260040
   3. 本ファイル PARAMS の「BT最適化対象」セクションを上位値で更新
   4. git commit/push -> VPS: git pull -> news_monitor.bat で再起動
 
-v1 2026-05-24: 初版実装
+v1   2026-05-24: 初版実装
   - ForexFactory JSON API ライブ取得
   - B+C複合条件 (BTと同一ロジック)
   - surprise_z キャッシュ (JSON永続化)
   - MT5 TP/SL + hold_max_min 強制決済
   - 取引履歴 data/news_history_{broker}.csv 追記
+v1.1 2026-05-24: 仕様差異修正
+  - Z計算不能時(サンプル不足): スキップ → C条件のみ発動に変更
+  - --dry-run オプション追加 (MT5発注なしでロジック確認)
+  - history CSV カラム変更: 仕様書準拠形式
+    (datetime, pair, direction, entry, exit, pnl_pips, lot, reason, event, surprise_z)
 """
 
 import sys, os, ssl, time, json, argparse, urllib.request
@@ -56,6 +61,7 @@ from broker_utils import connect_mt5, disconnect_mt5, build_symbol_map, is_live_
 MAGIC        = 20260040
 STRATEGY_TAG = 'NEWS'
 BROKER_KEY   = 'axiory'
+DRY_RUN      = False   # True: ログのみ、MT5発注なし (--dry-run で有効)
 
 _SYMBOL_MAP: dict[str, str] = {}
 
@@ -388,7 +394,9 @@ def get_news_positions() -> list:
 
 
 def _close_position(pos, comment: str) -> bool:
-    """成行でポジションをクローズする。"""
+    """成行でポジションをクローズする。DRY_RUN 時は発注せず True を返す。"""
+    if DRY_RUN:
+        return True
     tick = mt5.symbol_info_tick(pos.symbol)
     if tick is None:
         return False
@@ -427,13 +435,16 @@ def manage_positions(webhook: str) -> None:
 
     # ── hold_max_min 強制決済 ──────────────────────────────────────
     for pos in current_positions:
-        open_ts = _tracked_positions.get(pos.ticket)
-        if open_ts is None:
-            # 初認識: 記録
-            _tracked_positions[pos.ticket] = datetime.fromtimestamp(
-                pos.time, tz=timezone.utc
-            ).replace(tzinfo=None)
-            open_ts = _tracked_positions[pos.ticket]
+        rec = _tracked_positions.get(pos.ticket)
+        if rec is None:
+            # 初認識: 記録 (起動時から開いているポジション)
+            rec = {
+                'open_time':   datetime.fromtimestamp(pos.time, tz=timezone.utc).replace(tzinfo=None),
+                'event_label': '',
+                'surprise_z':  None,
+            }
+            _tracked_positions[pos.ticket] = rec
+        open_ts = rec['open_time']
 
         hold_min = (now_utc - open_ts).total_seconds() / 60.0
         if hold_min >= PARAMS['hold_max_min']:
@@ -451,16 +462,25 @@ def manage_positions(webhook: str) -> None:
     # ── 決済済みポジションの検出 → 履歴保存 ──────────────────────────
     closed_tickets = set(_tracked_positions.keys()) - current_tickets
     for ticket in closed_tickets:
-        _save_closed_trade(ticket)
+        rec = _tracked_positions[ticket]
+        _save_closed_trade(
+            ticket,
+            event_label = rec.get('event_label', ''),
+            surprise_z  = rec.get('surprise_z'),
+        )
         del _tracked_positions[ticket]
 
 
-def _save_closed_trade(ticket: int) -> None:
+def _save_closed_trade(ticket: int, event_label: str = '', surprise_z: float | None = None) -> None:
     """
     MT5 の取引履歴から ticket を検索し、
-    data/news_history_{broker}.csv に追記する (phase1_judgment.py 互換形式)。
+    data/news_history_{broker}.csv に追記する。
+    カラム: datetime, pair, direction, entry, exit, pnl_pips, lot, reason, event, surprise_z
     """
+    if DRY_RUN:
+        return
     try:
+        import csv
         # 直近 7 日分の deal 履歴から検索
         now   = datetime.now(timezone.utc)
         deals = mt5.history_deals_get(
@@ -483,48 +503,52 @@ def _save_closed_trade(ticket: int) -> None:
         if entry_deal is None or exit_deal is None:
             return
 
-        open_time  = datetime.fromtimestamp(entry_deal.time, tz=timezone.utc).replace(tzinfo=None)
-        close_time = datetime.fromtimestamp(exit_deal.time,  tz=timezone.utc).replace(tzinfo=None)
-        direction  = 'BUY' if entry_deal.type == mt5.DEAL_TYPE_BUY else 'SELL'
-        profit     = exit_deal.profit + exit_deal.commission + exit_deal.swap
+        close_time = datetime.fromtimestamp(exit_deal.time, tz=timezone.utc).replace(tzinfo=None)
+        direction  = 'LONG' if entry_deal.type == mt5.DEAL_TYPE_BUY else 'SHORT'
 
-        # exit reason ログ用
-        pip = PIP_UNIT.get(exit_deal.symbol[:6], 0.0001)
-        pnl_pips = round(
-            (exit_deal.price - entry_deal.price)
-            * (1 if direction == 'BUY' else -1) / pip, 1
-        )
-        reason = exit_deal.comment or 'TP/SL/unknown'
+        # pnl_pips 計算
+        pair_base = exit_deal.symbol[:6]
+        pip       = PIP_UNIT.get(pair_base, 0.0001)
+        sign      = 1 if direction == 'LONG' else -1
+        pnl_pips  = round((exit_deal.price - entry_deal.price) * sign / pip, 1)
+
+        # exit reason: コメント内の TP/SL/HOLD_MAX を抽出
+        cmt = str(exit_deal.comment or '')
+        if 'tp' in cmt.lower():
+            reason = 'TP'
+        elif 'sl' in cmt.lower():
+            reason = 'SL'
+        elif 'hold' in cmt.lower():
+            reason = 'hold_max'
+        else:
+            reason = cmt or 'unknown'
+
+        # ログ出力 (仕様書準拠形式)
         log_print(
-            STRATEGY_TAG + ' exit: ' + exit_deal.symbol +
+            STRATEGY_TAG + ' exit: ' + pair_base +
             ' ' + direction +
             ' pnl=' + ('+' if pnl_pips >= 0 else '') + str(pnl_pips) + 'pips' +
-            ' profit=' + str(round(profit, 0)) + 'JPY' +
             ' reason=' + reason
         )
 
-        # history CSV 追記
-        import csv
+        # history CSV 追記 (仕様書カラム準拠)
         history_path = os.path.join(
             _DATA_DIR, 'news_history_' + BROKER_KEY + '.csv'
         )
-        cols = ['ticket', 'open_time', 'close_time', 'type', 'lots',
-                'symbol', 'open_price', 'sl', 'tp', 'close_price',
-                'profit', 'magic', 'comment']
+        cols = ['datetime', 'pair', 'direction', 'entry', 'exit',
+                'pnl_pips', 'lot', 'reason', 'event', 'surprise_z']
+        z_str = str(round(surprise_z, 3)) if surprise_z is not None else ''
         row = {
-            'ticket':      ticket,
-            'open_time':   open_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'close_time':  close_time.strftime('%Y-%m-%d %H:%M:%S'),
-            'type':        direction,
-            'lots':        entry_deal.volume,
-            'symbol':      exit_deal.symbol,
-            'open_price':  entry_deal.price,
-            'sl':          '',
-            'tp':          '',
-            'close_price': exit_deal.price,
-            'profit':      round(profit, 2),
-            'magic':       MAGIC,
-            'comment':     entry_deal.comment or STRATEGY_TAG,
+            'datetime':   close_time.strftime('%Y-%m-%d %H:%M:%S'),
+            'pair':       pair_base,
+            'direction':  direction,
+            'entry':      entry_deal.price,
+            'exit':       exit_deal.price,
+            'pnl_pips':   pnl_pips,
+            'lot':        entry_deal.volume,
+            'reason':     reason,
+            'event':      event_label,
+            'surprise_z': z_str,
         }
         write_header = not os.path.exists(history_path)
         with open(history_path, 'a', newline='', encoding='utf-8') as f:
@@ -583,6 +607,10 @@ def place_order(
         ' tp=' + str(tp_px)
     )
 
+    if DRY_RUN:
+        log_print('DRY_RUN: order NOT sent.')
+        return True
+
     req = {
         'action':    mt5.TRADE_ACTION_DEAL,
         'symbol':    symbol,
@@ -603,8 +631,12 @@ def place_order(
         log_print('place_order FAILED: ' + base_sym + ' retcode=' + str(retcode))
         return False
 
-    # 追跡リストに追加
-    _tracked_positions[result.order] = datetime.now(timezone.utc).replace(tzinfo=None)
+    # 追跡リスト: ticket -> {open_time, event_label, surprise_z}
+    _tracked_positions[result.order] = {
+        'open_time':   datetime.now(timezone.utc).replace(tzinfo=None),
+        'event_label': event_label,
+        'surprise_z':  surprise_z,
+    }
     return True
 
 
@@ -691,16 +723,17 @@ def process_ff_events(calendar: list, cache: dict, webhook: str) -> None:
                     save_surprise_cache(cache)
 
                 # B条件チェック
+                # surprise_z_val is None = サンプル不足 → C条件のみ発動 (スキップしない)
+                # abs(z) < threshold かつ z 計算済み → B条件不成立 → スキップ
                 if not b_skip:
                     if surprise_z_val is None:
-                        # Z 計算不能 -> スキップ (サンプル不足)
+                        # サンプル不足でZ計算不能: C条件のみで発動 (b_skipと同等扱い)
                         log_print(
-                            'NEWS skip (z calc failed, insufficient history): ' +
-                            event_id + ' z=None'
+                            'NEWS z-insufficient (C-only mode): ' + event_id +
+                            ' history<3, proceeding to C check'
                         )
-                        _processed_ids.add(event_id)
-                        continue
-                    if abs(surprise_z_val) < PARAMS['surprise_z_th']:
+                        b_skip = True   # C条件のみで判定
+                    elif abs(surprise_z_val) < PARAMS['surprise_z_th']:
                         log_print(
                             'NEWS skip (B cond fail): ' + event_id +
                             ' z=' + str(round(surprise_z_val, 2)) +
@@ -895,17 +928,22 @@ def main_loop(webhook: str) -> None:
 # ══════════════════════════════════════════
 
 def main() -> None:
-    global BROKER_KEY, LOG_FILE
+    global BROKER_KEY, LOG_FILE, DRY_RUN
 
-    parser = argparse.ArgumentParser(description='NEWS monitor v1 (economic indicator strategy)')
+    parser = argparse.ArgumentParser(description='NEWS monitor v1.1 (economic indicator strategy)')
     parser.add_argument(
         '--broker', default=BROKER_KEY,
         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
         help='broker key'
     )
+    parser.add_argument(
+        '--dry-run', action='store_true',
+        help='MT5発注なし・ログのみ (ロジック確認用)'
+    )
     args = parser.parse_args()
 
     BROKER_KEY = args.broker
+    DRY_RUN    = args.dry_run
     LOG_FILE   = os.path.join(_VPS_DIR, 'news_monitor_log_' + BROKER_KEY + '.txt')
 
     env     = load_env()
@@ -915,7 +953,7 @@ def main() -> None:
         log_print('MT5 connection failed: ' + BROKER_KEY)
         sys.exit(1)
 
-    log_print('MT5 connected: ' + BROKER_KEY)
+    log_print('MT5 connected: ' + BROKER_KEY + ('  [DRY_RUN]' if DRY_RUN else ''))
 
     # シンボルマップ構築
     pairs = list({cfg['pair'] for cfg in EVENT_PAIR_MAP})

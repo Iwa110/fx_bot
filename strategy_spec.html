@@ -1168,7 +1168,10 @@ NEWS force-close: USDJPY LONG hold=30.5min ticket=XXXXXXX
 heartbeat alive pos=0/1 pending=0 cycle=30</pre>
 
     <h3>起動方法</h3>
-    <pre>C:\Users\Administrator\fx_bot\vps\news_monitor.bat</pre>
+    <pre>C:\Users\Administrator\fx_bot\vps\news_monitor_all.bat
+
+REM ロジック確認 (MT5発注なし)
+python news_monitor.py --broker axiory --dry-run</pre>
     <p>ログ: <code>news_monitor_log_{broker}.txt</code> / Zキャッシュ: <code>news_surprise_cache.json</code> / 履歴: <code>data/news_history_{broker}.csv</code></p>
   </div>
 </div>
