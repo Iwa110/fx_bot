@@ -30,3 +30,5 @@ optimizer/tod_scalp_bt_result.csv
 optimizer/grid_bt_v2_result.csv
 optimizer/grid_isoos_result.csv
 optimizer/grid_ci_sweep_result.csv
+optimizer/news_bt_result.csv
+optimizer/news_bt_quick_trades.csv
