@@ -887,3 +887,118 @@ filter_block ci=XX.X (threshold=61.8)
 heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X
 loop_error ...
 ```
+
+---
+
+## 15. 経済指標戦略 (news_monitor.py v1)
+
+### 概要
+ForexFactory JSON から高インパクト経済指標をリアルタイム取得し、B条件(サプライズZスコア)とC条件(値動き確認)の複合シグナルでエントリーするニューストレード戦略。
+
+### 基本情報
+
+| 項目 | 値 |
+|------|-----|
+| スクリプト | news_monitor.py v1 |
+| magic | 20260040 |
+| STRATEGY_TAG | NEWS |
+| ループ間隔 | 60秒 |
+| ハートビート | 30サイクル毎（約30分） |
+| 稼働ブローカー | axiory / exness |
+| データソース | ForexFactory JSON (今週分) |
+
+### 対象指標・ペア
+
+| 指標 | 通貨 | ペア | 方向 | 条件 |
+|------|------|------|------|------|
+| Non-Farm Employment Change (NFP) | USD | USDJPY | LONG | USD+サプライズ |
+| CPI m/m (US) | USD | USDJPY | LONG | USD+サプライズ |
+| CPI m/m (US) | USD | EURUSD | SHORT | USD+サプライズ |
+| CPI y/y (GB) | GBP | GBPUSD | LONG | GBP+サプライズ |
+| CPI y/y (GB) | GBP | GBPJPY | LONG | GBP+サプライズ |
+
+### エントリー条件 (B+C複合)
+
+| 条件 | 詳細 |
+|------|------|
+| B条件 | サプライズZ >= surprise_z_th (forecast がある場合に適用) |
+| C条件 | 発表後 delay_min 分後の値動き >= move_th_pips (方向一致) |
+| エントリー | B AND C (forecast あり) / C のみ (forecast なし) |
+| Z計算 | surprise_raw = actual - forecast (なければ actual - previous) |
+| Z窓 | 同一指標種別の過去 surprise_window 件 |
+
+### 確定パラメータ (2026-05-24 Mac暫定BT / 1h精度)
+
+| パラメータ | 値 | 備考 |
+|-----------|---|------|
+| delay_min | 2 | 発表後エントリー遅延(分) |
+| move_th_pips | 5.0 | C条件: 値動き閾値(pips) |
+| surprise_z_th | 0.5 | B条件: Zスコア閾値 |
+| sl_pips | 5.0 | SL(固定pips) |
+| rr | 3.0 | TP = move_th × rr |
+| hold_max_min | 30 | 最大保有(分) / 強制決済 |
+| surprise_window | 12 | Zスコア計算ウィンドウ |
+| lot | 0.1 | 最大ロット (rm.calc_lot でリスク計算後にキャップ) |
+| max_pos | 1 | 同時エントリー上限 |
+
+**スリッページ想定 (指標発表時)**
+
+| ペア | スリッページ |
+|------|------------|
+| USDJPY | 3.0 pips |
+| EURUSD | 2.0 pips |
+| GBPUSD | 2.5 pips |
+| GBPJPY | 4.0 pips |
+
+### バックテスト結果 (Mac/1h精度, n=31, 2024-05〜2026-05)
+
+⚠️ forecast=前回値(naive近似)のため精度限定。VPS M1+実forecast取得後に再BT予定。
+
+| 指標 | PF | WR | n |
+|------|----|----|---|
+| 全体 | 2.146 | 58.1% | 31 |
+| NFP (USDJPY) | 5.14 | 67% | 3 |
+| US CPI (USDJPY/EURUSD) | 11.13 | 67% | 6 |
+| GB CPI (GBPUSD/GBPJPY) | 999 | 100% | 2 |
+
+### パラメータ更新手順 (VPS BT完了後)
+
+```
+1. VPS で: python optimizer/news_event_bt.py
+2. optimizer/news_bt_result.csv の上位行 (PF>1.3, n>=15) を確認
+3. news_monitor.py の PARAMS セクション「BT最適化対象」を上位値で更新
+4. コメント「最終更新:」日付を更新
+5. git commit/push -> VPS: git pull -> news_monitor.bat で再起動
+```
+
+### 起動方法
+
+```bat
+REM VPS上で実行 (axiory + exness 同時起動)
+C:\Users\Administrator\fx_bot\vps\news_monitor.bat
+
+REM 個別ブローカー起動例
+pythonw.exe news_monitor.py --broker axiory
+```
+
+### ログファイル / Stateファイル
+
+| ファイル名 | 説明 |
+|-----------|------|
+| `news_monitor_log_axiory.txt` | axiory ログ |
+| `news_monitor_log_exness.txt` | exness ログ |
+| `news_surprise_cache.json` | Zスコア計算用サプライズ履歴 (共有) |
+| `data/news_history_{broker}.csv` | 決済済みトレード履歴 (phase1_judgment.py 互換) |
+
+### ログ出力仕様
+
+```
+NEWS scheduled: 2026-06-06_Non-Farm_USD_USDJPY z=1.45 pre_px=154.200 entry_check=12:32:00 UTC
+NEWS entry: USDJPY LONG lot=0.1 z=1.45 move=6.2pips entry=154.820 sl=154.570 tp=155.770
+NEWS exit:  USDJPY LONG pnl=+15.0pips profit=1500JPY reason=TP
+NEWS skip (B cond fail): ... z=0.23 th=0.5
+NEWS skip (max_pos): ...
+NEWS force-close: USDJPY LONG hold=30.5min ticket=XXXXXXX
+heartbeat alive pos=0/1 pending=0 cycle=30
+loop error: ...
+```

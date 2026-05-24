@@ -12,7 +12,8 @@ C:\Users\Administrator\fx_bot\
 │   ├── trail_monitor.py   # v10
 │   ├── smc_gbpaud.py      # v4 magic=20260002
 │   ├── stat_arb.py        # magic=20260001
-│   └── sma_squeeze.py     # v4.1 magic=20260010 (ATR-adaptive trailing + heartbeat)
+│   ├── sma_squeeze.py     # v4.1 magic=20260010 (ATR-adaptive trailing + heartbeat)
+│   └── news_monitor.py    # v1 magic=20260040 (経済指標B+C複合戦略)
 ├── optimizer\    # バックテスト・最適化
 │   ├── loop_runner.py
 │   ├── backtest.py
@@ -164,6 +165,9 @@ C:\Users\Administrator\fx_bot\
 - [ ] VPS: Task Schedulerに週次phase1_judgment（日曜7:05 JST）を追加登録
 - [ ] USDCAD再評価(BT結果待ち)
 - [ ] GBPJPY: 1h BT data取得後にatr_trail_mult再検証
+- [x] 経済指標戦略 news_monitor.py v1 実装・push（2026-05-24完了）
+- [ ] **VPS**: `git pull origin main` → `news_monitor.bat` 起動（axiory/exness）
+- [ ] VPS M1データ取得後: `news_event_bt.py` 再実行 → PARAMS 更新
 
 ## 作業スタイル
 - 作業時間: 夜まとめて1〜2時間

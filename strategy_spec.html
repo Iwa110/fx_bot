@@ -1095,6 +1095,84 @@ heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X</pre>
   </div>
 </div>
 
+<!-- 15. 経済指標戦略 -->
+<div class="section" id="news">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>15. 経済指標戦略 <small style="font-size:11px;color:var(--muted)">news_monitor.py v1</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <table>
+      <thead><tr><th>項目</th><th>値</th></tr></thead>
+      <tbody>
+        <tr><td>magic</td><td class="magic-num">20260040</td></tr>
+        <tr><td>STRATEGY_TAG</td><td><code>NEWS</code></td></tr>
+        <tr><td>ループ間隔</td><td>60秒</td></tr>
+        <tr><td>ハートビート</td><td>30サイクル毎（約30分）</td></tr>
+        <tr><td>稼働ブローカー</td><td>axiory / exness</td></tr>
+        <tr><td>データソース</td><td>ForexFactory JSON (今週分)</td></tr>
+      </tbody>
+    </table>
+
+    <h3>対象指標・ペア</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>指標</th><th>通貨</th><th>ペア</th><th>方向</th></tr></thead>
+        <tbody>
+          <tr><td>Non-Farm Employment Change (NFP)</td><td>USD</td><td>USDJPY</td><td>LONG</td></tr>
+          <tr><td>CPI m/m (US)</td><td>USD</td><td>USDJPY</td><td>LONG</td></tr>
+          <tr><td>CPI m/m (US)</td><td>USD</td><td>EURUSD</td><td>SHORT</td></tr>
+          <tr><td>CPI y/y (GB)</td><td>GBP</td><td>GBPUSD</td><td>LONG</td></tr>
+          <tr><td>CPI y/y (GB)</td><td>GBP</td><td>GBPJPY</td><td>LONG</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>確定パラメータ (2026-05-24 Mac暫定BT / 1h精度)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>パラメータ</th><th>値</th><th>備考</th></tr></thead>
+        <tbody>
+          <tr><td>delay_min</td><td>2</td><td>発表後エントリー遅延(分)</td></tr>
+          <tr><td>move_th_pips</td><td>5.0</td><td>C条件: 値動き閾値(pips)</td></tr>
+          <tr><td>surprise_z_th</td><td>0.5</td><td>B条件: Zスコア閾値</td></tr>
+          <tr><td>sl_pips</td><td>5.0</td><td>SL(固定pips)</td></tr>
+          <tr><td>rr</td><td>3.0</td><td>TP = move_th × rr</td></tr>
+          <tr><td>hold_max_min</td><td>30</td><td>最大保有(分) / 強制決済</td></tr>
+          <tr><td>surprise_window</td><td>12</td><td>Zスコア計算ウィンドウ</td></tr>
+          <tr><td>lot</td><td>0.1</td><td>最大ロット (rm.calc_lot でキャップ)</td></tr>
+          <tr><td>max_pos</td><td>1</td><td>同時エントリー上限</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h3>BTサマリー (Mac/1h精度, n=31)</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>指標</th><th>PF</th><th>WR</th><th>n</th></tr></thead>
+        <tbody>
+          <tr><td>全体</td><td>2.146</td><td>58.1%</td><td>31</td></tr>
+          <tr><td>NFP (USDJPY)</td><td>5.14</td><td>67%</td><td>3</td></tr>
+          <tr><td>US CPI</td><td>11.13</td><td>67%</td><td>6</td></tr>
+          <tr><td>GB CPI</td><td>999</td><td>100%</td><td>2</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="color:var(--muted);font-size:12px">⚠️ forecast=前回値(naive近似)のため精度限定。VPS M1+実forecast取得後に再BT予定。</p>
+
+    <h3>ログ出力</h3>
+    <pre>NEWS scheduled: 2026-06-06_Non-Farm_USD_USDJPY z=1.45 pre_px=154.200 entry_check=12:32:00 UTC
+NEWS entry: USDJPY LONG lot=0.1 z=1.45 move=6.2pips entry=154.820 sl=154.570 tp=155.770
+NEWS exit:  USDJPY LONG pnl=+15.0pips profit=1500JPY reason=TP
+NEWS force-close: USDJPY LONG hold=30.5min ticket=XXXXXXX
+heartbeat alive pos=0/1 pending=0 cycle=30</pre>
+
+    <h3>起動方法</h3>
+    <pre>C:\Users\Administrator\fx_bot\vps\news_monitor.bat</pre>
+    <p>ログ: <code>news_monitor_log_{broker}.txt</code> / Zキャッシュ: <code>news_surprise_cache.json</code> / 履歴: <code>data/news_history_{broker}.csv</code></p>
+  </div>
+</div>
+
 <!-- Magic番号早見表 -->
 <div class="section" id="magic">
   <div class="section-header" onclick="toggleSection(this)">
@@ -1124,6 +1202,7 @@ heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X</pre>
           <tr><td>Grid NZDUSD</td><td class="magic-num">20260030</td><td><code>GRID_NZD</code></td><td>grid_monitor.py</td></tr>
           <tr><td>Grid GBPJPY</td><td class="magic-num">20260031</td><td><code>GRID_GBP</code></td><td>grid_monitor.py</td></tr>
           <tr><td>Grid CHFJPY</td><td class="magic-num">20260032</td><td><code>GRID_CHF</code></td><td>grid_monitor.py</td></tr>
+          <tr><td>経済指標(NEWS)</td><td class="magic-num">20260040</td><td><code>NEWS_{event}</code></td><td>news_monitor.py</td></tr>
         </tbody>
       </table>
     </div>
