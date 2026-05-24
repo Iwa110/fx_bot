@@ -504,7 +504,8 @@ def run_backtest(pair: str,
 # 統計計算（session_fakeout_bt.py から流用・採用基準変更）
 # =============================================================================
 def calc_stats(df: pd.DataFrame, pair: str = "ALL",
-               vol_thresh: float = None, bb_std_val: float = None) -> dict:
+               vol_thresh: float = None, bb_std_val: float = None,
+               **kwargs) -> dict:
     if df.empty:
         return {"pair": pair, "n": 0,
                 "vol_thresh": vol_thresh, "bb_std": bb_std_val}
@@ -541,8 +542,9 @@ def calc_stats(df: pd.DataFrame, pair: str = "ALL",
     else:
         sharpe = 0.0
 
-    # 採用基準: Sharpe>1.0 かつ DD<20% かつ n>=200
-    adopt = (sharpe >= 1.0) and (dd_pct < 20.0) and (n >= 200)
+    # 採用基準: Sharpe>1.0 かつ DD<20% かつ n>=min_n（デフォルト200）
+    min_n = kwargs.get("min_n", 200)
+    adopt = (sharpe >= 1.0) and (dd_pct < 20.0) and (n >= min_n)
 
     return {
         "pair":        pair,
@@ -581,7 +583,8 @@ def monthly_table(df: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 # 感度分析（スイープ）
 # =============================================================================
-def run_sweep(pair_data: dict, calendar_df: pd.DataFrame) -> pd.DataFrame:
+def run_sweep(pair_data: dict, calendar_df: pd.DataFrame,
+              adopt_min_n: int = 200) -> pd.DataFrame:
     results = []
     total = len(SWEEP_VOL_THRESH) * len(SWEEP_BB_STD)
     done  = 0
@@ -601,7 +604,8 @@ def run_sweep(pair_data: dict, calendar_df: pd.DataFrame) -> pd.DataFrame:
             if not all_trades:
                 continue
             combined = pd.concat(all_trades, ignore_index=True)
-            s = calc_stats(combined, "ALL", vol_thresh=vt, bb_std_val=bs)
+            s = calc_stats(combined, "ALL", vol_thresh=vt, bb_std_val=bs,
+                           min_n=adopt_min_n)
             results.append(s)
 
     return pd.DataFrame(results)
@@ -610,7 +614,7 @@ def run_sweep(pair_data: dict, calendar_df: pd.DataFrame) -> pd.DataFrame:
 # =============================================================================
 # チャート描画（session_fakeout_bt.py の可視化から流用・拡張）
 # =============================================================================
-def plot_results(all_trades: pd.DataFrame, stats_list: list):
+def plot_results(all_trades: pd.DataFrame, stats_list: list, mode_tag: str = "ALL-EVENTS"):
     pairs  = list(set(all_trades["pair"].tolist())) if not all_trades.empty else PAIRS
     colors = {"EURUSD": "#2196F3", "USDJPY": "#FF5722"}
 
@@ -639,7 +643,7 @@ def plot_results(all_trades: pd.DataFrame, stats_list: list):
 
     ax_eq.axhline(0, color="gray", linestyle=":", linewidth=0.8)
     ax_eq.set_title(
-        f"Equity Curve — Pre-Event Vol Squeeze BB Reversal\n"
+        f"Equity Curve — Pre-Event Vol Squeeze BB Reversal  [{mode_tag}]\n"
         f"VOL_RATIO_THRESH={VOL_RATIO_THRESH}, BB_STD={BB_STD}, "
         f"TP×{TP_ATR_MULT} / SL×{SL_ATR_MULT} ATR",
         fontsize=10, fontweight="bold")
@@ -726,7 +730,8 @@ def plot_results(all_trades: pd.DataFrame, stats_list: list):
             cell = tbl[i + 1, adopt_idx]
             cell.set_facecolor("#C8E6C9" if s.get("adopt") else "#FFCDD2")
 
-    ax_tbl.set_title("Strategy Statistics (Adopt: Sharpe>=1.0, DD<20%, n>=200)",
+    adopt_label = "n>=15" if mode_tag == "FOMC-ONLY" else "n>=200"
+    ax_tbl.set_title(f"Strategy Statistics  [{mode_tag}]  (Adopt: Sharpe>=1.0, DD<20%, {adopt_label})",
                      fontsize=10, fontweight="bold", pad=6)
 
     if not all_trades.empty:
@@ -790,22 +795,44 @@ def main():
     )
     parser.add_argument("--sweep", action="store_true",
                         help="VOL_RATIO_THRESH x BB_STD 感度分析を実行")
+    parser.add_argument("--fomc-only", action="store_true",
+                        help="FOMC前のみに絞り込んでBT（採用基準 n>=15 に緩和）")
     args = parser.parse_args()
 
+    # FOMC-only モード設定
+    fomc_only = args.fomc_only
+    # 採用基準 n: FOMC年8回×2年=最大16件なので緩和
+    adopt_min_n = 15 if fomc_only else 200
+
+    # 出力ファイルをモード別に分ける
+    global TRADE_CSV, STATS_CSV, SWEEP_CSV, CHART_PNG
+    if fomc_only:
+        TRADE_CSV = os.path.join(OUT_DIR, "pre_event_fomc_trades.csv")
+        STATS_CSV = os.path.join(OUT_DIR, "pre_event_fomc_stats.csv")
+        SWEEP_CSV = os.path.join(OUT_DIR, "pre_event_fomc_sweep.csv")
+        CHART_PNG = os.path.join(OUT_DIR, "pre_event_fomc_chart.png")
+
+    mode_tag = "FOMC-ONLY" if fomc_only else "ALL-EVENTS"
     print("=" * 66)
-    print("Pre-Event Vol Squeeze x BB Reversal Backtest v1")
+    print(f"Pre-Event Vol Squeeze x BB Reversal Backtest v1  [{mode_tag}]")
     print(f"  VOL_RATIO_THRESH={VOL_RATIO_THRESH}, BB({BB_PERIOD},{BB_STD})")
     print(f"  TP=ATRx{TP_ATR_MULT}, SL=ATRx{SL_ATR_MULT}")
     print(f"  PRE_EVENT={PRE_EVENT_HOURS}h, FORCE_CLOSE={CLOSE_BEFORE_HOURS}h before")
     print(f"  PAIRS: {PAIRS}")
     print(f"  Calendar: {CALENDAR_METHOD} (NFP/CPI/FOMC 固定日近似)")
+    if fomc_only:
+        print(f"  ** FOMC-ONLY mode: 採用基準 n>={adopt_min_n} **")
     print("=" * 66)
 
     # ── カレンダー生成 ──────────────────────────────────────────
     print("\n[Calendar]")
     calendar_df = load_calendar()
-    print(f"  Events: {len(calendar_df)}")
-    print(calendar_df[["event_dt", "event"]].head(8).to_string(index=False))
+    if fomc_only:
+        calendar_df = calendar_df[calendar_df["event"] == "FOMC"].reset_index(drop=True)
+        print(f"  FOMC-ONLY filter applied: {len(calendar_df)} events")
+    else:
+        print(f"  Events: {len(calendar_df)}")
+    print(calendar_df[["event_dt", "event"]].to_string(index=False))
 
     # ── データ取得 ──────────────────────────────────────────────
     pair_data = {}
@@ -835,7 +862,8 @@ def main():
         if not trades_df.empty:
             all_trades.append(trades_df)
             s = calc_stats(trades_df, pair,
-                           vol_thresh=VOL_RATIO_THRESH, bb_std_val=BB_STD)
+                           vol_thresh=VOL_RATIO_THRESH, bb_std_val=BB_STD,
+                           min_n=adopt_min_n)
             stats_list.append(s)
             print(f"  WR={s['wr_%']}%  PF={s['pf']}  Sharpe={s['sharpe']}  "
                   f"DD%={s['dd_%']}%  n={s['n']}  Adopt={s['adopt']}")
@@ -848,7 +876,8 @@ def main():
 
     combined = pd.concat(all_trades, ignore_index=True)
     s_all    = calc_stats(combined, "ALL",
-                          vol_thresh=VOL_RATIO_THRESH, bb_std_val=BB_STD)
+                          vol_thresh=VOL_RATIO_THRESH, bb_std_val=BB_STD,
+                          min_n=adopt_min_n)
     stats_list.append(s_all)
     print(f"\n[ALL] WR={s_all['wr_%']}%  PF={s_all['pf']}  "
           f"Sharpe={s_all['sharpe']}  DD%={s_all['dd_%']}%  "
@@ -884,12 +913,12 @@ def main():
 
     # ── チャート ──────────────────────────────────────────────
     print("\n[Chart] Plotting...")
-    plot_results(combined, stats_list)
+    plot_results(combined, stats_list, mode_tag=mode_tag)
 
     # ── 感度分析 ──────────────────────────────────────────────
     if args.sweep:
         print("\n── Parameter Sweep ─────────────────────────────────────────")
-        sweep_df = run_sweep(pair_data, calendar_df)
+        sweep_df = run_sweep(pair_data, calendar_df, adopt_min_n=adopt_min_n)
         if not sweep_df.empty:
             sweep_df.to_csv(SWEEP_CSV, index=False)
             cols = ["vol_thresh", "bb_std", "n", "wr_%", "pf", "sharpe", "dd_%", "adopt"]
@@ -901,7 +930,7 @@ def main():
                 print(f"  Sweep chart error: {e}")
 
     # ── 採用判定サマリー ──────────────────────────────────────
-    print("\n── Adoption (Sharpe>=1.0, DD<20%, n>=200) ────────────────────")
+    print(f"\n── Adoption (Sharpe>=1.0, DD<20%, n>={adopt_min_n}) ───────────────────")
     for s in stats_list:
         if s.get("n", 0) == 0:
             continue
