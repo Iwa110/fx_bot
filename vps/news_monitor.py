@@ -125,9 +125,16 @@ SURPRISE_CACHE_FILE = os.path.join(_VPS_DIR, 'news_surprise_cache.json')
 ENV_FILE           = os.path.join(_VPS_DIR, '.env')
 
 # ForexFactory JSON API
-FF_JSON_URL = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json'
+FF_JSON_URL       = 'https://nfs.faireconomy.media/ff_calendar_thisweek.json'
+FF_FETCH_INTERVAL = 300   # 5分毎に再取得 (429対策: 毎分ポーリング禁止)
+FF_BACKOFF_SEC    = 900   # 429発生時は15分待機
 
 LOOP_INTERVAL = 60   # 秒
+
+# FF カレンダーキャッシュ
+_ff_calendar_cache: list = []
+_ff_cache_fetched_at: datetime | None = None
+_ff_backoff_until:   datetime | None = None
 
 # ══════════════════════════════════════════
 # 状態管理
@@ -291,9 +298,27 @@ def get_event_key_from_title(title: str) -> str:
 def fetch_ff_calendar() -> list:
     """
     ForexFactory JSON API から今週の経済指標を取得して返す。
-    Returns: list of dicts with keys: title, country, date(UTC ISO8601), impact, forecast, previous, actual
-    失敗時は []。
+    - FF_FETCH_INTERVAL(5分)毎のみ実際にHTTPリクエストを送る
+    - 429発生時は FF_BACKOFF_SEC(15分)待機してキャッシュを返す
+    - インターバル未達時はキャッシュをそのまま返す (追加リクエスト不要)
+    Returns: list of dicts
     """
+    global _ff_calendar_cache, _ff_cache_fetched_at, _ff_backoff_until
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+
+    # バックオフ中はキャッシュを返す
+    if _ff_backoff_until is not None and now < _ff_backoff_until:
+        remaining = int((_ff_backoff_until - now).total_seconds())
+        log_print('FF backoff: ' + str(remaining) + 's remaining, using cache', debug=True)
+        return _ff_calendar_cache
+
+    # インターバル未達はキャッシュを返す
+    if (_ff_cache_fetched_at is not None and
+            (now - _ff_cache_fetched_at).total_seconds() < FF_FETCH_INTERVAL):
+        return _ff_calendar_cache
+
+    # 実際に取得
     try:
         ctx = ssl.create_default_context()
         ctx.check_hostname = False
@@ -305,12 +330,21 @@ def fetch_ff_calendar() -> list:
         with urllib.request.urlopen(req, timeout=15, context=ctx) as resp:
             raw = resp.read().decode('utf-8')
         data = json.loads(raw)
-        if not isinstance(data, list):
-            return []
-        return data
+        if isinstance(data, list):
+            _ff_calendar_cache = data
+            _ff_cache_fetched_at = now
+            _ff_backoff_until    = None
+            log_print('FF calendar fetched: ' + str(len(data)) + ' events')
+            return _ff_calendar_cache
+        return _ff_calendar_cache
     except Exception as e:
-        log_print('FF calendar fetch error: ' + str(e))
-        return []
+        err = str(e)
+        if '429' in err:
+            _ff_backoff_until = now + timedelta(seconds=FF_BACKOFF_SEC)
+            log_print('FF 429: backoff ' + str(FF_BACKOFF_SEC) + 's, using cache')
+        else:
+            log_print('FF calendar fetch error: ' + err)
+        return _ff_calendar_cache
 
 
 def parse_ff_event_time(date_str: str) -> datetime | None:
