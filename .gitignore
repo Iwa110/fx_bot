@@ -8,6 +8,10 @@ config_secret.py
 *_secret.*
 secrets/
 
+# 実行時生成ファイル（毎回変化するため追跡不要）
+vps/heartbeat.json
+vps/processed_mails.json
+
 # MT4/MT5ログ・一時ファイル
 *.log
 *.tmp
