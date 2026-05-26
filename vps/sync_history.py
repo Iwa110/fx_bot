@@ -1,5 +1,5 @@
 """
-sync_history.py  v1 - MT5取引履歴をhistory.csvに追記してgit push
+sync_history.py  v2 - MT5取引履歴をhistory.csvに追記してgit push
 
 Usage:
     python sync_history.py [--days 14] [--no-push]
@@ -9,7 +9,8 @@ Usage:
     1. 有効な全ブローカーに順次接続
     2. 直近N日のクローズ済みポジションを取得
     3. optimizer/history.csv に追記（ticket重複除外）
-    4. git pull --rebase -> add -> commit -> push
+    4. add -> commit -> pull --rebase -> push
+       (unstaged changes を先に commit してから rebase することで競合を回避)
 
 IPC注意: ブローカー間は mt5.shutdown() で都度切断してから次に接続する。
 """
@@ -165,26 +166,61 @@ def merge_with_csv(df_new: pd.DataFrame) -> tuple[pd.DataFrame, int]:
 
 # ── git push ──────────────────────────────────────────────────────────
 def git_push(added: int) -> bool:
+    """
+    処理順: add -> commit -> pull --rebase -> push
+    pull --rebase を先にすると unstaged changes で失敗するため、
+    先に add/commit を済ませてからリベースする。
+    """
     repo  = str(BASE_DIR)
     today = datetime.now(JST).strftime('%Y-%m-%d')
-    cmds  = [
-        ['git', '-C', repo, 'pull', '--rebase'],
-        ['git', '-C', repo, 'add', 'optimizer/history.csv'],
-        ['git', '-C', repo, 'commit', '-m',
-         f'data: sync history {today} (+{added} trades)'],
-        ['git', '-C', repo, 'push'],
-    ]
-    for cmd in cmds:
-        r = subprocess.run(cmd, capture_output=True, text=True, encoding='utf-8')
-        merged_out = r.stdout + r.stderr
-        if r.returncode != 0 and 'nothing to commit' not in merged_out:
-            print(f'[git] WARN {cmd[2]}: {r.stderr.strip()}')
-            # pull失敗は致命的、それ以外は続行
-            if cmd[2] == 'pull':
-                return False
+
+    def run(cmd: list[str]):
+        return subprocess.run(
+            cmd, capture_output=True, text=True,
+            encoding='utf-8', errors='replace',
+        )
+
+    # Step 1: git add
+    r = run(['git', '-C', repo, 'add', 'optimizer/history.csv'])
+    if r.returncode != 0:
+        print(f'[git] ERROR add: {r.stderr.strip()}')
+        return False
+    print('[git] OK   add optimizer/history.csv')
+
+    # Step 2: 変更がなければスキップ
+    r = run(['git', '-C', repo, 'diff', '--cached', '--quiet'])
+    if r.returncode == 0:
+        print('[git] OK   nothing to commit, skip push')
+        return True
+
+    # Step 3: git commit
+    msg = f'data: sync history {today} (+{added} trades)'
+    r = run(['git', '-C', repo, 'commit', '-m', msg])
+    if r.returncode != 0:
+        print(f'[git] ERROR commit: {r.stderr.strip()}')
+        return False
+    print(f'[git] OK   commit "{msg}"')
+
+    # Step 4: git pull --rebase
+    r = run(['git', '-C', repo, 'pull', '--rebase', 'origin', 'main'])
+    if r.returncode != 0:
+        print(f'[git] ERROR pull --rebase: {r.stderr.strip()}')
+        # リポジトリを壊さないよう rebase を中断してから返る
+        abort = run(['git', '-C', repo, 'rebase', '--abort'])
+        if abort.returncode == 0:
+            print('[git] WARN  rebase --abort 実行済み（次回実行時に自動回復可能）')
         else:
-            action = ' '.join(cmd[2:4])
-            print(f'[git] OK  {action}')
+            print(f'[git] WARN  rebase --abort 失敗: {abort.stderr.strip()}')
+        return False
+    print('[git] OK   pull --rebase origin main')
+
+    # Step 5: git push
+    r = run(['git', '-C', repo, 'push', 'origin', 'main'])
+    if r.returncode != 0:
+        print(f'[git] ERROR push: {r.stderr.strip()}')
+        return False
+    print('[git] OK   push origin main')
+
     return True
 
 
