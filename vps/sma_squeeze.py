@@ -19,6 +19,10 @@ v4.2 2026-05-21: trail_start_mult added (BT result: 0.0 is optimal for all pairs
   BT: USDJPY start=0.0 PF=4.441 vs start=0.5 PF=3.500 (-0.94). All pairs worse with start>0.
   Default: 0.0 (original v4 behavior). Code infra retained for future per-pair tuning.
   Log: [ATR_TRAIL] symbol SIDE trail-wait profit=X threshold=Y ticket=Z (debug only)
+v4.3 2026-05-26: EURJPY enabled=False / T_max added (USDJPY/GBPJPY/EURUSD=24h)
+  EURJPY: live WR=0% (n=2, -9,900 JPY), 94.6h hold -> SL hit. BT PF=3.673 but live divergence.
+  T_max: force-close by market order when hold time > tmax_hours. tmax_hours=None disables.
+  Log: [TMAX] symbol LONG/SHORT hold=Xh>Yh force-close
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -63,27 +67,32 @@ PAIRS_CFG = {
                'slope_period': 5,  'rr': 2.5, 'sl_atr_mult': 1.5,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0, 'enabled': True},
+               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0,
+               'tmax_hours': 24, 'enabled': True},
     'GBPJPY': {'sma_short': 25, 'sma_long': 250, 'squeeze_th': 0.5,
                'slope_period': 10, 'rr': 2.0, 'sl_atr_mult': 1.5,
                'timeframe': '1h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0, 'enabled': True},
+               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0,
+               'tmax_hours': 24, 'enabled': True},
     'EURUSD': {'sma_short': 25, 'sma_long': 200, 'squeeze_th': 2.0,
                'slope_period': 10, 'rr': 2.5, 'sl_atr_mult': 1.0,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 50, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0, 'enabled': True},
+               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0,
+               'tmax_hours': 24, 'enabled': True},
     'GBPUSD': {'sma_short': 15, 'sma_long': 250, 'squeeze_th': 1.5,
                'slope_period': 20, 'rr': 2.0, 'sl_atr_mult': 1.0,
                'timeframe': '1h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 5,
-               'atr_trail_mult': 1.5, 'trail_start_mult': 0.0, 'enabled': False},
+               'atr_trail_mult': 1.5, 'trail_start_mult': 0.0,
+               'tmax_hours': None, 'enabled': False},
     'EURJPY': {'sma_short': 15, 'sma_long': 150, 'squeeze_th': 2.0,
                'slope_period': 20, 'rr': 2.5, 'sl_atr_mult': 1.5,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 5,
-               'atr_trail_mult': 0.0, 'trail_start_mult': 0.0, 'enabled': True},
+               'atr_trail_mult': 0.0, 'trail_start_mult': 0.0,
+               'tmax_hours': None, 'enabled': False},  # v4.3: live WR=0% n=2 -9900JPY
 }
 
 MAX_JPY_LOT   = 0.4
@@ -469,6 +478,22 @@ def manage_positions(broker, webhook):
             continue
 
         is_long = (p.type == mt5.ORDER_TYPE_BUY)
+
+        # ── T_max: max hold time force-close (v4.3, before slope-exit) ──
+        tmax_hours = cfg.get('tmax_hours', None)
+        if tmax_hours is not None:
+            open_time = datetime.fromtimestamp(p.time, tz=timezone.utc)
+            now_utc   = datetime.now(tz=timezone.utc)
+            elapsed_h = (now_utc - open_time).total_seconds() / 3600.0
+            if elapsed_h > tmax_hours:
+                side = 'LONG' if is_long else 'SHORT'
+                msg  = ('[TMAX] ' + p.symbol + ' ' + side +
+                        ' hold=' + f'{elapsed_h:.1f}' + 'h>' + str(tmax_hours) + 'h' +
+                        ' force-close  ticket=' + str(p.ticket))
+                log_print(msg)
+                send_discord(msg, webhook)
+                _close_position(p, is_long, STRATEGY_TAG + '_TMAX')
+                continue
 
         # ── Force close: SMA_long break (priority) ──
         if (is_long and c < sl_v) or (not is_long and c > sl_v):

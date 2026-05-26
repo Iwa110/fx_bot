@@ -1,6 +1,6 @@
 # 戦略一覧
 
-最終更新: 2026-05-21（SMA Squeeze v4.1 ATR-adaptive trailing 追記）
+最終更新: 2026-05-26（SMA Squeeze v4.3 EURJPY停止・T_max追加 / magic番号テーブル更新）
 
 ---
 
@@ -270,11 +270,11 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 
 | 項目 | 内容 |
 |-----|-----|
-| ファイル | `vps/sma_squeeze.py` v4.1 |
+| ファイル | `vps/sma_squeeze.py` v4.3 |
 | 起動 | `vps/sma_squeeze_monitor.bat`（常駐デーモン、60秒ループ） |
 | magic | 20260010 |
 | STRATEGY_TAG | `SMA_SQ` |
-| ステータス | **稼働中**（axiory / exness のみ。oanda停止中） |
+| ステータス | **稼働中**（axiory / exness / oanda停止中）。有効ペア: USDJPY/GBPJPY/EURUSD |
 | 方向 | Long / Short |
 | TF | USDJPY/EURUSD/EURJPY=4H、GBPJPY/GBPUSD=1H |
 | MAX_TOTAL_POS | 3 |
@@ -290,15 +290,15 @@ EURUSD / GBPUSD / AUDUSD / USDJPY / EURGBP / USDCAD / USDCHF / NZDUSD / EURJPY /
 5. 前バー終値がSMA短期を抜けた（スクイーズ解放）
 6. 当バーがSMA長期の外側かつ強い陽線/陰線
 
-### ペア別パラメータ（v4.1現在）
+### ペア別パラメータ（v4.3現在）
 
-| ペア | TF | SMA短/長 | sq_th | slope_period | RR | SL×ATR | atr_trail_mult | 有効 |
-|-----|-----|---------|-------|------------|-----|--------|--------------|-----|
-| USDJPY | 4h | 25/150 | 2.0 | 5 | 2.5 | 1.5 | 0.5 | ✅ |
-| GBPJPY | 1h | 25/250 | 0.5 | 10 | 2.0 | 1.5 | 0.5 | ✅ |
-| EURUSD | 4h | 25/200 | 2.0 | 10 | 2.5 | 1.0 | 0.5 | ✅ |
-| GBPUSD | 1h | 15/250 | 1.5 | 20 | 2.0 | 1.0 | 1.5 | ❌（無効） |
-| EURJPY | 4h | 15/150 | 2.0 | 20 | 2.5 | 1.5 | 0.0 | ✅ |
+| ペア | TF | SMA短/長 | sq_th | slope_period | RR | SL×ATR | atr_trail_mult | tmax_hours | 有効 |
+|-----|-----|---------|-------|------------|-----|--------|--------------|------------|-----|
+| USDJPY | 4h | 25/150 | 2.0 | 5 | 2.5 | 1.5 | 0.5 | 24h | ✅ |
+| GBPJPY | 1h | 25/250 | 0.5 | 10 | 2.0 | 1.5 | 0.5 | 24h | ✅ |
+| EURUSD | 4h | 25/200 | 2.0 | 10 | 2.5 | 1.0 | 0.5 | 24h | ✅ |
+| GBPUSD | 1h | 15/250 | 1.5 | 20 | 2.0 | 1.0 | 1.5 | None | ❌（無効） |
+| EURJPY | 4h | 15/150 | 2.0 | 20 | 2.5 | 1.5 | 0.0 | None | ❌（v4.3停止: 実稼働WR=0%） |
 
 エントリーBT: 2024-04-24〜2026-04-24 / 9720 runs（`optimizer/sma_squeeze_bt.py`）
 
@@ -361,3 +361,7 @@ BreakEven（be_r）を廃止し、ATR連動トレーリングに置き換え。S
 | 20260003 | 200MA Pullback |
 | 20260010 | SMA Squeeze Play |
 | 20260020 | COT戦略（COT極値×日足トレンド） |
+| 20260030 | GRID_NZD（NZDUSD） |
+| 20260031 | GRID_GBP（GBPJPY） |
+| 20260032 | GRID_CHF（CHFJPY） |
+| 20260040 | NEWS（news_monitor.py） |
