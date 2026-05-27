@@ -211,7 +211,15 @@ def git_push(added: int) -> bool:
         return False
     print(f'[git] OK   commit "{msg}"')
 
-    # Step 4: git pull --rebase
+    # Step 4: git stash (history.csv以外の未ステージ変更を退避)
+    #   history.csv は既に add/commit 済みなので、残る変更（log更新等）をstash。
+    #   stash しないと pull --rebase が "unstaged changes" で失敗する。
+    r_stash = run(['git', '-C', repo, 'stash'])
+    did_stash = r_stash.returncode == 0 and 'No local changes' not in (r_stash.stdout + r_stash.stderr)
+    if did_stash:
+        print('[git] OK   stash (unstaged changes saved)')
+
+    # Step 5: git pull --rebase
     r = run(['git', '-C', repo, 'pull', '--rebase', 'origin', 'main'])
     if r.returncode != 0:
         print(f'[git] ERROR pull --rebase: {r.stderr.strip()}')
@@ -221,10 +229,20 @@ def git_push(added: int) -> bool:
             print('[git] WARN  rebase --abort 実行済み（次回実行時に自動回復可能）')
         else:
             print(f'[git] WARN  rebase --abort 失敗: {abort.stderr.strip()}')
+        if did_stash:
+            run(['git', '-C', repo, 'stash', 'pop'])
         return False
     print('[git] OK   pull --rebase origin main')
 
-    # Step 5: git push
+    # Step 6: git stash pop
+    if did_stash:
+        r_pop = run(['git', '-C', repo, 'stash', 'pop'])
+        if r_pop.returncode == 0:
+            print('[git] OK   stash pop')
+        else:
+            print(f'[git] WARN  stash pop 失敗: {r_pop.stderr.strip()}')
+
+    # Step 7: git push
     r = run(['git', '-C', repo, 'push', 'origin', 'main'])
     if r.returncode != 0:
         print(f'[git] ERROR push: {r.stderr.strip()}')
@@ -267,7 +285,9 @@ def main():
     if args.no_push:
         print('[INFO] --no-push: git pushスキップ')
     else:
-        git_push(added)
+        if not git_push(added):
+            print('[ERROR] git push失敗 → exit 1')
+            sys.exit(1)
 
     print('=== 完了 ===')
 
