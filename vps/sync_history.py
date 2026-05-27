@@ -175,10 +175,20 @@ def git_push(added: int) -> bool:
     today = datetime.now(JST).strftime('%Y-%m-%d')
 
     def run(cmd: list[str]):
-        return subprocess.run(
-            cmd, capture_output=True, text=True,
-            encoding='utf-8', errors='replace',
-        )
+        try:
+            return subprocess.run(
+                cmd, capture_output=True, text=True,
+                encoding='utf-8', errors='replace',
+                timeout=120,
+            )
+        except subprocess.TimeoutExpired:
+            print(f'[git] ERROR timeout(120s): {" ".join(cmd)}')
+            # TimeoutExpired の場合は returncode=1 相当のダミーを返す
+            class _T:
+                returncode = 1
+                stderr = 'timeout'
+                stdout = ''
+            return _T()
 
     # Step 1: git add
     r = run(['git', '-C', repo, 'add', 'optimizer/history.csv'])

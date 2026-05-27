@@ -11,4 +11,6 @@ set LOG=C:\Users\Administrator\fx_bot\logs\sync_history.log
 echo.>> "%LOG%"
 echo === %date% %time% === >> "%LOG%"
 "%PYTHON%" "%SCRIPT%" --days 14 >> "%LOG%" 2>&1
-echo [bat] exit code: %ERRORLEVEL% >> "%LOG%"
+set EXIT_CODE=%ERRORLEVEL%
+echo [bat] exit code: %EXIT_CODE% >> "%LOG%"
+exit /b %EXIT_CODE%
