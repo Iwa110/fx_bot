@@ -931,7 +931,8 @@ def manage_dynamic_exit(logf, webhook):
             if res and res.retcode == mt5.TRADE_RETCODE_DONE:
                 pnl = round((close_price - p.price_open) * direction
                             * p.volume * info.trade_contract_size)
-                msg = ('[TimeStop] ' + base_sym + ' ticket=' + str(p.ticket) +
+                msg = ('[TimeStop] ' + BROKER_KEY + ' ' + base_sym +
+                       ' ticket=' + str(p.ticket) +
                        ' elapsed=' + f'{elapsed_h:.1f}' + 'h' +
                        ' >= ' + str(t_max_h) + 'h → 強制決済' +
                        ' PnL≈' + ('+' if pnl >= 0 else '') + str(pnl) + '円')

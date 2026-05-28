@@ -491,22 +491,22 @@ def manage_positions(broker, webhook):
             elapsed_h = (now_utc - open_time).total_seconds() / 3600.0
             if elapsed_h > tmax_hours:
                 side = 'LONG' if is_long else 'SHORT'
-                msg  = ('[TMAX] ' + p.symbol + ' ' + side +
+                msg  = ('[TMAX] ' + BROKER_KEY + ' ' + p.symbol + ' ' + side +
                         ' hold=' + f'{elapsed_h:.1f}' + 'h>' + str(tmax_hours) + 'h' +
                         ' force-close  ticket=' + str(p.ticket))
                 log_print(msg)
-                send_discord(msg, webhook)
-                _close_position(p, is_long, STRATEGY_TAG + '_TMAX')
+                if _close_position(p, is_long, STRATEGY_TAG + '_TMAX'):
+                    send_discord(msg, webhook)
                 continue
 
         # ── Force close: SMA_long break (priority) ──
         if (is_long and c < sl_v) or (not is_long and c > sl_v):
             side = 'LONG' if is_long else 'SHORT'
-            msg  = (STRATEGY_TAG + ' force-close: ' + p.symbol + ' ' + side +
+            msg  = (STRATEGY_TAG + ' force-close: ' + BROKER_KEY + ' ' + p.symbol + ' ' + side +
                     ' SMA' + str(cfg['sma_long']) + ' break  ticket=' + str(p.ticket))
             log_print(msg)
-            send_discord(msg, webhook)
-            _close_position(p, is_long, STRATEGY_TAG + '_CLOSE')
+            if _close_position(p, is_long, STRATEGY_TAG + '_CLOSE'):
+                send_discord(msg, webhook)
             continue
 
         # ── A-1: SMA_long slope reversal exit ──
@@ -516,12 +516,12 @@ def manage_positions(broker, webhook):
             reversed_ = (is_long and slope_now is False) or (not is_long and slope_now is True)
             if reversed_:
                 side = 'LONG' if is_long else 'SHORT'
-                msg  = (STRATEGY_TAG + ' slope-exit: ' + p.symbol + ' ' + side +
+                msg  = (STRATEGY_TAG + ' slope-exit: ' + BROKER_KEY + ' ' + p.symbol + ' ' + side +
                         '  SMA' + str(cfg['sma_long']) + ' slope reversed' +
                         '  ticket=' + str(p.ticket))
                 log_print(msg)
-                send_discord(msg, webhook)
-                _close_position(p, is_long, STRATEGY_TAG + '_SLOPE_EXIT')
+                if _close_position(p, is_long, STRATEGY_TAG + '_SLOPE_EXIT'):
+                    send_discord(msg, webhook)
                 continue
 
 
