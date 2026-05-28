@@ -1,5 +1,5 @@
 """
-bb_monitor.py  - BB逆張り戦略（5分毎実行）v27
+bb_monitor.py  - BB逆張り戦略（5分毎実行）v28
 v14:
   - ALLOWED_HOURS_UTC辞書を追加（ペア別UTC時間帯フィルター）
   - main()ループに時間帯チェックを追加（空リスト=停止、None=制限なし）
@@ -85,6 +85,9 @@ v26 USDJPY T_max=8h+exp TP Decay / EURJPY T_max=6h 強制決済追加 (2026-05-2
     USDJPY: Baseline OOS PF=1.137 → exp_tau8 OOS PF=1.211 (+6.5%)
     EURJPY: Baseline OOS PF=1.047 → T_max=6h OOS PF=1.137 (+8.7%)
     GBPJPY: T_max追加でOOS PF劣化(1.130→1.079)のため変更なし
+v28 T_max二重通知防止: deal履歴チェック追加 (2026-05-29)
+  - manage_dynamic_exit: T_max強制決済前に1時間以内のBB_time_stopディール履歴を確認
+  - デモ口座でRETCODE_DONEだがポジション残存するケースのスキップ処理
 v27 GBPJPY bb_sigma 1.5→2.0 (2026-05-28)
   - GBPJPY: sigma None(=1.5)→2.0（より深い逆張りエントリー、USDJPYと同設計）
   BT根拠 (optimizer/bb_analysis_bt.py, 5m足全データ, 2026-05-28):
@@ -903,6 +906,16 @@ def manage_dynamic_exit(logf, webhook):
 
         # ── T_max 強制決済 ─────────────────────────────────────────
         if elapsed_h >= t_max_h:
+            # デモ口座でRETCODE_DONEが返ってもポジションが残るケースに対応:
+            # 1時間以内にBB_time_stopコメントの決済履歴があれば二重通知をスキップ
+            hist_since = datetime.now(timezone.utc) - timedelta(hours=1)
+            hist = mt5.history_deals_get(hist_since, datetime.now(timezone.utc))
+            if hist and any(d.position_id == p.ticket and d.entry == mt5.DEAL_ENTRY_OUT
+                            and 'BB_time_stop' in (d.comment or '') for d in hist):
+                log('[TimeStop] already_closed ticket=' + str(p.ticket) +
+                    ' skipping duplicate close', logf)
+                continue
+
             tick = mt5.symbol_info_tick(p.symbol)
             if tick is None:
                 log('[TimeStop] tick取得失敗 ' + base_sym, logf)
@@ -1091,7 +1104,7 @@ def main():
             executed += 1
 
     now = datetime.now().strftime('%H:%M')
-    log('[' + now + '] BB v27完了: 発注' + str(executed) + '件 ' +
+    log('[' + now + '] BB v28完了: 発注' + str(executed) + '件 ' +
         'スキップ' + str(skipped) + '件 ' +
         'ポジション' + str(count_total()) + '/' + str(MAX_TOTAL_POS) +
         ' broker=' + BROKER_KEY)
