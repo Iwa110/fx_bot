@@ -288,7 +288,7 @@
 <!-- §1 BB -->
 <div class="section" id="s1">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>1. BB逆張り戦略 <small style="font-size:11px;color:var(--muted)">bb_monitor.py v26</small></h2>
+    <h2>1. BB逆張り戦略 <small style="font-size:11px;color:var(--muted)">bb_monitor.py v27</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
@@ -308,7 +308,7 @@
       <table>
         <thead><tr><th>ペア</th><th>状態</th><th>σ値</th><th>max_pos</th><th>SL(ATR×)</th><th>TP</th><th>動的決済</th><th>フィルター</th></tr></thead>
         <tbody>
-          <tr><td><strong>GBPJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>1.5</td><td>2</td><td>2.5</td><td>SL×1.5</td><td>なし</td><td>htf4h_rsi_bw<br><small>Buy RSI&lt;60 / Sell RSI&gt;55, BBwidth&gt;20avg×1.2</small></td></tr>
+          <tr><td><strong>GBPJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td><strong>2.0</strong></td><td>2</td><td>2.5</td><td>SL×1.5</td><td>なし</td><td>htf4h_rsi_bw<br><small>Buy RSI&lt;60 / Sell RSI&gt;55, BBwidth&gt;20avg×1.2</small></td></tr>
           <tr><td><strong>USDJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>2.0</td><td>2</td><td>2.5</td><td>SL×1.5</td><td><strong>T_max=8h + exp TP Decay(τ=8h)</strong></td><td>htf4h_rsi_bw<br><small>Buy RSI&lt;55 / Sell RSI&gt;45, BBwidth&gt;30avg×0.8</small></td></tr>
           <tr><td><strong>EURJPY</strong></td><td><span class="badge badge-green">稼働中</span></td><td>1.5</td><td>1</td><td>2.5</td><td>SL×1.5</td><td><strong>T_max=6h 強制決済</strong></td><td>htf4h_only (EMA20方向一致)<br><small style="color:var(--muted)">時間帯: UTC 9h,17h のみ</small></td></tr>
           <tr><td>EURUSD</td><td><span class="badge badge-red">停止中</span></td><td>1.5</td><td>1</td><td>1.2</td><td>-</td><td>-</td><td>-</td></tr>
@@ -334,6 +334,11 @@
           <tr><td>GBPJPY</td><td>なし</td><td>なし</td><td>T_max追加で 1.130→1.079 に劣化のため対象外</td></tr>
         </tbody>
       </table>
+    </div>
+    <div class="alert alert-info">
+      <strong>v27 変更 (2026-05-28):</strong> GBPJPY bb_sigma 1.5→<strong>2.0</strong>（USDJPYと同じ「より深い逆張り」設計）。
+      BT根拠 (bb_analysis_bt.py, 5m全データ): σ=1.5 PF=1.019 → σ=2.0 PF=<strong>1.275</strong> (N=268)。
+      直近5000本でも PF=1.509→2.190 と改善確認。
     </div>
 
     <h3>エントリー条件（フィルター適用順）</h3>

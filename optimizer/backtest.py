@@ -44,7 +44,7 @@ USDCAD_CFG = {
 }
 # ===== BB全ペア設定 =====
 BB_PAIRS_CFG = {
-    'GBPJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5, 'use_htf4h': True},  # v24: 3.0→2.5
+    'GBPJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 2.0, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5, 'use_htf4h': True},  # v27: sigma 1.5→2.0
     'EURJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
     'AUDJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 1.5, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
     'USDJPY': {'is_jpy': True,  'pip_unit': 0.01,   'bb_sigma': 2.0, 'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5, 'use_htf4h': True},  # v24: 3.0→2.5

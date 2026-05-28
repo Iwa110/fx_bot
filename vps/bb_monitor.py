@@ -85,6 +85,13 @@ v26 USDJPY T_max=8h+exp TP Decay / EURJPY T_max=6h 強制決済追加 (2026-05-2
     USDJPY: Baseline OOS PF=1.137 → exp_tau8 OOS PF=1.211 (+6.5%)
     EURJPY: Baseline OOS PF=1.047 → T_max=6h OOS PF=1.137 (+8.7%)
     GBPJPY: T_max追加でOOS PF劣化(1.130→1.079)のため変更なし
+v27 GBPJPY bb_sigma 1.5→2.0 (2026-05-28)
+  - GBPJPY: sigma None(=1.5)→2.0（より深い逆張りエントリー、USDJPYと同設計）
+  BT根拠 (optimizer/bb_analysis_bt.py, 5m足全データ, 2026-05-28):
+    GBPJPY sigma=1.5 sl=2.5: PF=1.019 WR=35% n=563（Phase1基準 PF>1.2 未達）
+    GBPJPY sigma=2.0 sl=2.5: PF=1.275 WR=47% n=268（Phase1基準達成）
+    直近5000本: PF=1.509→2.190 (sigma 1.5→2.0で改善確認)
+    ※ ATRスケール注意: BTは5m足ATR、実機はH1足ATR（比率≈3.7倍）
 """
 
 import sys, os, ssl, json, argparse, math
@@ -144,7 +151,7 @@ BB_PAIRS = {
         'sl_atr_mult': 1.5,  # 停止中・変更なし
     },
     'GBPJPY': {
-        'is_jpy': True, 'max_pos': 2, 'sigma': None,  # v25: 1→2
+        'is_jpy': True, 'max_pos': 2, 'sigma': 2.0,  # v27: None(=1.5)→2.0（BT: PF=1.019→1.275）
         'filter_type': None,  # v20: F1フィルター削除（htf4h後は追加効果ゼロのためシンプル化）
         'sl_atr_mult': 2.5,  # v24: 3.0→2.5（BT: PF=1.105 vs 3.0時PF=1.015）
         'fixed_tp_rr': 1.5,  # v21: Stage2廃止→固定TP(SL×1.5)
