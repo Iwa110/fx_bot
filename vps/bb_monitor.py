@@ -1,5 +1,5 @@
 """
-bb_monitor.py  - BB逆張り戦略（5分毎実行）v26
+bb_monitor.py  - BB逆張り戦略（5分毎実行）v27
 v14:
   - ALLOWED_HOURS_UTC辞書を追加（ペア別UTC時間帯フィルター）
   - main()ループに時間帯チェックを追加（空リスト=停止、None=制限なし）
@@ -1090,7 +1090,7 @@ def main():
             executed += 1
 
     now = datetime.now().strftime('%H:%M')
-    log('[' + now + '] BB v26完了: 発注' + str(executed) + '件 ' +
+    log('[' + now + '] BB v27完了: 発注' + str(executed) + '件 ' +
         'スキップ' + str(skipped) + '件 ' +
         'ポジション' + str(count_total()) + '/' + str(MAX_TOTAL_POS) +
         ' broker=' + BROKER_KEY)
