@@ -1,12 +1,21 @@
 """
-grid_monitor.py - Multi-pair Grid Strategy monitor v3
+grid_monitor.py - Multi-pair Grid Strategy monitor v4
 Bi-directional grid: Long and Short run concurrently.
+
+v4 changes (forced-exit improvements for 1.00 lot):
+  - Float stop (FLOAT_STOP_JPY): close a direction immediately when unrealized
+    loss exceeds threshold, without waiting for B48 timer.
+    GBPJPY/CHFJPY 1.00 lot: -1,500,000 JPY per direction
+    (fires ~3 gw below 7th level entry; gw ~ 50k JPY/level at 1.00 lot)
+  - DD realized force-close: when daily/weekly realized DD limit is breached,
+    close ALL open positions (previously only blocked new entries).
+  - Heartbeat: float_l / float_s (unrealized PnL per direction) added to log.
 
 v3 changes:
   - Per-pair LOT sizing (LOT_PER_PAIR) replacing single global LOT=0.01
   - Per-pair DD limits (DD_DAY_PER_PAIR / DD_WEEK_PER_PAIR) scaled to lot size
-  - GBPJPY: 0.02 lot (B48 worst-case both-dir ~42k JPY, BT MaxDD ~53k JPY)
-  - CHFJPY: 0.02 lot (OOS_DD ~25.5k JPY, B48 worst-case ~45k JPY)
+  - GBPJPY: 1.00 lot (demo account)
+  - CHFJPY: 1.00 lot (demo account)
   - NZDUSD: 0.01 lot (not running, preserve original)
 
 Supported pairs and magic numbers:
@@ -35,10 +44,12 @@ Exit B48:
   TP fires -> count drops below max_levels -> timer reset.
   Timer expires -> close all positions in that direction at market.
 
-Stop conditions (new orders only; existing TP continues):
-  CI <= 61.8
-  Daily realized PnL < -5,000 JPY
-  Weekly realized PnL < -15,000 JPY
+Float stop (v4):
+  Unrealized PnL per direction < FLOAT_STOP_JPY -> close that direction immediately.
+  Checked every cycle before B48 timer to catch rapid adverse moves.
+
+DD realized force-close (v4):
+  Daily or weekly realized PnL breaches DD limit -> close ALL positions + block entries.
 
 JPY pairs (GBPJPY, CHFJPY):
   MT5 profit is returned in account currency (JPY) directly - no conversion needed.
@@ -95,18 +106,28 @@ DD_WEEK_PER_PAIR = {
     'NZDUSD':   -15000.0,
 }
 
+# Per-pair float stop: unrealized loss per direction triggers immediate close.
+# GBPJPY 1.00 lot: gw~50k JPY/level, 7lv filled=-1.05M, fires ~3gw below 7th level.
+# CHFJPY 1.00 lot: gw~54k JPY/level, similar profile.
+FLOAT_STOP_PER_PAIR = {
+    'GBPJPY': -1_500_000.0,
+    'CHFJPY': -1_500_000.0,
+    'NZDUSD':    -15_000.0,
+}
+
 # ══════════════════════════════════════════
 # Common constants
 # ══════════════════════════════════════════
-LOT            = 0.01    # overridden per-pair in main()
-ATR_PERIOD     = 14
-CI_THRESHOLD   = 61.8
-CI_PERIOD      = 14
-B48_HOURS      = 48
-DD_DAY_JPY     = -5000.0   # overridden per-pair in main()
-DD_WEEK_JPY    = -15000.0  # overridden per-pair in main()
-LOOP_INTERVAL  = 60
-HB_CYCLES      = 30   # heartbeat every 30 cycles (~30 min)
+LOT             = 0.01       # overridden per-pair in main()
+ATR_PERIOD      = 14
+CI_THRESHOLD    = 61.8
+CI_PERIOD       = 14
+B48_HOURS       = 48
+DD_DAY_JPY      = -5000.0    # overridden per-pair in main()
+DD_WEEK_JPY     = -15000.0   # overridden per-pair in main()
+FLOAT_STOP_JPY  = -15000.0   # overridden per-pair in main()
+LOOP_INTERVAL   = 60
+HB_CYCLES       = 30   # heartbeat every 30 cycles (~30 min)
 
 _DEAL_REASON_TP = getattr(mt5, 'DEAL_REASON_TP', 5)
 
@@ -405,13 +426,14 @@ def check_tp_closes(from_dt: datetime, b48_tickets: set) -> None:
 # Main loop
 # ══════════════════════════════════════════
 def main_loop() -> None:
-    log('grid_monitor v3 started  pair=' + SYMBOL +
+    log('grid_monitor v4 started  pair=' + SYMBOL +
         '  broker=' + BROKER_KEY +
         '  magic=' + str(MAGIC) +
         '  lot=' + str(LOT) +
         '  atr_mult=' + str(ATR_MULT) +
         '  dd_day=' + str(int(DD_DAY_JPY)) +
         '  dd_week=' + str(int(DD_WEEK_JPY)) +
+        '  float_stop=' + str(int(FLOAT_STOP_JPY)) +
         '  interval=' + str(LOOP_INTERVAL) + 's')
 
     state   = load_state()
@@ -476,8 +498,33 @@ def main_loop() -> None:
             long_count    = len(longs)
             short_count   = len(shorts)
 
-            # ── B48 timer: Long ──
+            # ── Float stop: close direction immediately if unrealized < threshold ──
             b48_closed_tickets: set = set()
+
+            if longs:
+                long_float = sum(p.profit for p in longs)
+                if long_float < FLOAT_STOP_JPY:
+                    n_cl, tot, tix = close_positions('LONG', longs)
+                    b48_closed_tickets |= tix
+                    log('float_stop LONG unrealized=' + str(round(long_float)) +
+                        ' JPY  closed=' + str(n_cl))
+                    state['max_lv_reached_ts_long'] = None
+                    longs, _ = get_positions()
+                    long_count = len(longs)
+
+            if shorts:
+                short_float = sum(p.profit for p in shorts)
+                if short_float < FLOAT_STOP_JPY:
+                    _, shorts_now = get_positions()
+                    n_cl, tot, tix = close_positions('SHORT', shorts_now)
+                    b48_closed_tickets |= tix
+                    log('float_stop SHORT unrealized=' + str(round(short_float)) +
+                        ' JPY  closed=' + str(n_cl))
+                    state['max_lv_reached_ts_short'] = None
+                    _, shorts = get_positions()
+                    short_count = len(shorts)
+
+            # ── B48 timer: Long ──
 
             if long_count >= MAX_LEVELS:
                 if state['max_lv_reached_ts_long'] is None:
@@ -530,32 +577,57 @@ def main_loop() -> None:
             # ── Save state ──
             save_state(state)
 
-            # ── Heartbeat ──
+            # ── Heartbeat (with unrealized PnL per direction) ──
             ci_str = str(round(ci, 1)) if ci is not None else 'N/A'
             if _cycle % HB_CYCLES == 0:
+                float_l = round(sum(p.profit for p in longs))  if longs  else 0
+                float_s = round(sum(p.profit for p in shorts)) if shorts else 0
                 log('heartbeat alive' +
                     ' long_pos='  + str(long_count)  + '/' + str(MAX_LEVELS) +
                     ' short_pos=' + str(short_count) + '/' + str(MAX_LEVELS) +
+                    ' float_l=' + str(float_l) +
+                    ' float_s=' + str(float_s) +
                     ' ci=' + ci_str)
 
-            # ── Filter check (applies to new orders only) ──
+            # ── Filter check: entry block + DD force-close ──
             if ci is None:
                 time.sleep(LOOP_INTERVAL)
                 continue
 
             entry_blocked  = False
             block_reasons  = []
+            dd_force_close = False
             if ci <= CI_THRESHOLD:
                 entry_blocked = True
                 block_reasons.append('ci=' + ci_str + ' (threshold=' + str(CI_THRESHOLD) + ')')
             if day_pnl < DD_DAY_JPY:
                 entry_blocked = True
+                dd_force_close = True
                 block_reasons.append('day_pnl=' + str(round(day_pnl)) + ' JPY')
             if week_pnl < DD_WEEK_JPY:
                 entry_blocked = True
+                dd_force_close = True
                 block_reasons.append('week_pnl=' + str(round(week_pnl)) + ' JPY')
 
-            # Refresh positions after B48 closes
+            # DD force-close: close all open positions when realized DD limit breached
+            if dd_force_close:
+                longs, shorts = get_positions()
+                if longs:
+                    n_cl, tot, _ = close_positions('LONG', longs)
+                    log('dd_force_close LONG positions=' + str(n_cl) +
+                        ' total_pnl=' + ('+' if tot >= 0 else '') + str(round(tot)) + ' JPY' +
+                        ' day=' + str(round(day_pnl)) + ' week=' + str(round(week_pnl)))
+                    state['max_lv_reached_ts_long'] = None
+                if shorts:
+                    _, shorts_now = get_positions()
+                    n_cl, tot, _ = close_positions('SHORT', shorts_now)
+                    log('dd_force_close SHORT positions=' + str(n_cl) +
+                        ' total_pnl=' + ('+' if tot >= 0 else '') + str(round(tot)) + ' JPY' +
+                        ' day=' + str(round(day_pnl)) + ' week=' + str(round(week_pnl)))
+                    state['max_lv_reached_ts_short'] = None
+                save_state(state)
+
+            # Refresh positions after B48 / DD force-close
             longs, shorts = get_positions()
             long_count    = len(longs)
             short_count   = len(shorts)
@@ -609,7 +681,7 @@ def main_loop() -> None:
 def main() -> None:
     global MAGIC, STRATEGY_TAG, SYMBOL, ATR_MULT, MAX_LEVELS
     global BROKER_KEY, LOG_FILE, _STATE_FILE
-    global LOT, DD_DAY_JPY, DD_WEEK_JPY
+    global LOT, DD_DAY_JPY, DD_WEEK_JPY, FLOAT_STOP_JPY
 
     parser = argparse.ArgumentParser(description='Grid Strategy monitor v2 (multi-pair)')
     parser.add_argument('--pair', default='NZDUSD',
@@ -629,10 +701,11 @@ def main() -> None:
     MAX_LEVELS   = cfg['max_levels']
     BROKER_KEY   = args.broker
 
-    # Per-pair lot and DD limits
-    LOT         = LOT_PER_PAIR.get(SYMBOL, 0.01)
-    DD_DAY_JPY  = DD_DAY_PER_PAIR.get(SYMBOL,  -5000.0)
-    DD_WEEK_JPY = DD_WEEK_PER_PAIR.get(SYMBOL, -15000.0)
+    # Per-pair lot, DD limits, float stop
+    LOT            = LOT_PER_PAIR.get(SYMBOL, 0.01)
+    DD_DAY_JPY     = DD_DAY_PER_PAIR.get(SYMBOL,  -5000.0)
+    DD_WEEK_JPY    = DD_WEEK_PER_PAIR.get(SYMBOL, -15000.0)
+    FLOAT_STOP_JPY = FLOAT_STOP_PER_PAIR.get(SYMBOL, -15000.0)
 
     # Per-pair log and state files
     LOG_FILE    = os.path.join(_BASE_DIR,
