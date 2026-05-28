@@ -259,7 +259,7 @@
 
 <header>
   <h1>FX Bot 戦略仕様書</h1>
-  <p>生成日: 2026-05-26 &nbsp;|&nbsp; VPS: C:\Users\Administrator\fx_bot\vps\</p>
+  <p>生成日: 2026-05-28 &nbsp;|&nbsp; VPS: C:\Users\Administrator\fx_bot\vps\</p>
 </header>
 
 <!-- TOC -->
@@ -536,12 +536,12 @@ SELL: diff >= +0.0007</pre>
 <!-- §6 SMA Squeeze -->
 <div class="section" id="s6">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>6. SMA Squeeze Play <small style="font-size:11px;color:var(--muted)">sma_squeeze.py v4.3</small></h2>
+    <h2>6. SMA Squeeze Play <small style="font-size:11px;color:var(--muted)">sma_squeeze.py v4.4</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
     <h3>概要</h3>
-    <p>SMA200スロープフィルター + SMAスクイーズ解放でトレンドフォロー。v3で日足SMAスロープフィルター追加・COOLDOWN=180分、v4でATR-adaptive trailing stop導入（be_r廃止）、v4.2でtrail_start_mult BT検証（0.0=即時開始が全ペア最適と確定）、v4.3でEURJPY停止・T_max=24h追加（USDJPY/GBPJPY/EURUSD）。</p>
+    <p>SMA200スロープフィルター + SMAスクイーズ解放でトレンドフォロー。v3で日足SMAスロープフィルター追加・COOLDOWN=180分、v4でATR-adaptive trailing stop導入（be_r廃止）、v4.2でtrail_start_mult BT検証（0.0=即時開始が全ペア最適と確定）、v4.3でEURJPY停止・T_max=24h追加（USDJPY/GBPJPY/EURUSD）、v4.4でUSADJPY squeeze_th緩和（2.0→1.5、シグナル頻度改善）。</p>
 
     <div class="info-grid">
       <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20260010</div></div>
@@ -555,7 +555,7 @@ SELL: diff >= +0.0007</pre>
       <table>
         <thead><tr><th>ペア</th><th>有効</th><th>TF</th><th>SMA短</th><th>SMA長</th><th>squeeze_th</th><th>RR</th><th>SL倍率</th><th>atr_trail</th><th>tmax_hours</th><th>daily_sma</th><th>ATR trail PF</th></tr></thead>
         <tbody>
-          <tr><td><strong>USDJPY</strong></td><td>✅</td><td>4h</td><td>25</td><td>150</td><td>2.0%</td><td>2.5</td><td>1.5</td><td><strong>0.5</strong></td><td><strong>24h</strong></td><td>20(sp=3)</td><td class="pf-good">4.441</td></tr>
+          <tr><td><strong>USDJPY</strong></td><td>✅</td><td>4h</td><td>25</td><td>150</td><td><strong>1.5%</strong></td><td>2.5</td><td>1.5</td><td><strong>0.5</strong></td><td><strong>24h</strong></td><td>20(sp=3)</td><td class="pf-good">4.441</td></tr>
           <tr><td><strong>GBPJPY</strong></td><td>✅</td><td>1h</td><td>25</td><td>250</td><td>0.5%</td><td>2.0</td><td>1.5</td><td><strong>0.5</strong></td><td><strong>24h</strong></td><td>20(sp=3)</td><td class="pf-good">2.883</td></tr>
           <tr><td><strong>EURUSD</strong></td><td>✅</td><td>4h</td><td>25</td><td>200</td><td>2.0%</td><td>2.5</td><td>1.0</td><td><strong>0.5</strong></td><td><strong>24h</strong></td><td>50(sp=3)</td><td class="pf-good">5.193</td></tr>
           <tr><td><strong>GBPUSD</strong></td><td>❌</td><td>1h</td><td>15</td><td>250</td><td>1.5%</td><td>2.0</td><td>1.0</td><td>1.5</td><td>None</td><td>20(sp=5)</td><td class="pf-ok">—</td></tr>
@@ -565,6 +565,7 @@ SELL: diff >= +0.0007</pre>
     </div>
     <p style="font-size:12px;color:var(--muted);margin-top:6px">ATR trail PF: sma_squeeze_exit_bt.py 415runs (atr_trail_mult=0.5, trail_start_mult=0.0, keep_tp=True)。EURJPYはbaseline(trail無効)が最優。<br>
     <strong>EURJPY停止理由 (v4.3):</strong> 実稼働WR=0%（n=2, -9,900円）。94.6h保有でSL到達。BT PF=3.673だが実稼働と乖離が大きいため一時停止。<br>
+    <strong>USDJPY squeeze_th変更 (v4.4):</strong> 2.0→1.5。BT PF=1.972 WR=46.2%（現行2.0: PF=1.815）。実稼働直近3M月平均0.94件/月（&lt;1.0閾値）のため緩和。EURUSD は2.0が最適PF=2.670のため維持。<br>
     <strong>T_max=24h:</strong> USDJPY/GBPJPY/EURUSDで保有24時間超過→成行強制決済。ログ: <code>[TMAX] symbol SIDE hold=Xh&gt;24h force-close</code></p>
 
     <h3>エントリー条件（確定足 iloc[-2] で判定）</h3>

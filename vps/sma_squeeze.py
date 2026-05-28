@@ -23,6 +23,10 @@ v4.3 2026-05-26: EURJPY enabled=False / T_max added (USDJPY/GBPJPY/EURUSD=24h)
   EURJPY: live WR=0% (n=2, -9,900 JPY), 94.6h hold -> SL hit. BT PF=3.673 but live divergence.
   T_max: force-close by market order when hold time > tmax_hours. tmax_hours=None disables.
   Log: [TMAX] symbol LONG/SHORT hold=Xh>Yh force-close
+v4.4 2026-05-28: USDJPY squeeze_th 2.0->1.5
+  BT: squeeze_th=1.5 PF=1.972 WR=46.2% (vs 2.0: PF=1.815 WR=43.3%)
+  Live signal: USDJPY 3M monthly avg 0.94/month (< 1.0 threshold). Loosening improves frequency.
+  EURUSD unchanged (current th=2.0 is optimal PF=2.670).
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -63,7 +67,7 @@ def _rsym(base: str) -> str:
 #   GBPJPY: atr_trail_mult=0.5 (default, same as USDJPY; 1h BT data pending)
 # ══════════════════════════════════════════
 PAIRS_CFG = {
-    'USDJPY': {'sma_short': 25, 'sma_long': 150, 'squeeze_th': 2.0,
+    'USDJPY': {'sma_short': 25, 'sma_long': 150, 'squeeze_th': 1.5,  # v4.4: 2.0->1.5 (BT PF 1.815->1.972)
                'slope_period': 5,  'rr': 2.5, 'sl_atr_mult': 1.5,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 3,
