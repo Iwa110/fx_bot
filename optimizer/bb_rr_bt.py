@@ -70,10 +70,10 @@ PAIRS_BASE = {
     },
 }
 
-# 現状パラメータ（v22）
+# 現状パラメータ（v26: GBPJPY/USDJPY sl_atr_mult 3.0→2.5）
 CURRENT_PARAMS = {
-    'GBPJPY': {'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5},
-    'USDJPY': {'sl_atr_mult': 3.0, 'tp_sl_ratio': 1.5},
+    'GBPJPY': {'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
+    'USDJPY': {'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
     'EURJPY': {'sl_atr_mult': 2.5, 'tp_sl_ratio': 1.5},
 }
 
@@ -98,6 +98,19 @@ def run_single(sym, sl_mult, tp_rr, n_bars, label=''):
         n_bars=n_bars,
     )
     return res
+
+
+def run_with_trail(sym, sl_mult, tp_rr, activate, distance, n_bars):
+    cfg = PAIRS_BASE[sym].copy()
+    cfg['sl_atr_mult'] = sl_mult
+    cfg['tp_sl_ratio'] = tp_rr
+    return simulate_with_stage2(
+        sym, cfg,
+        stage2_activate=activate,
+        stage2_distance=distance,
+        sl_atr_mult=None,
+        n_bars=n_bars,
+    )
 
 
 def format_row(sym, label, sl, rr, res_all, res_rec):
@@ -245,3 +258,71 @@ for sym in PAIRS_BASE:
 
 print('\n  採用基準: PF>1.2 かつ n>30 かつ 全期間/直近両方で改善')
 print('  ※BTは5m ATRベース。実機はH1 ATRのため方向感の参考として解釈すること')
+
+# ────────────────────────────────────────────────────
+# 案E: Stage2 activate × distance スイープ（SL=2.5固定）
+# ────────────────────────────────────────────────────
+print('\n' + '=' * 90)
+print('【案E: Stage2 activate × distance スイープ (sl=2.5 rr=1.5固定)】')
+print('  目的: Stage2 trailがRRを下げている原因か・最適設定を特定')
+print('=' * 90)
+
+E_ACTIVATE  = [0.5, 1.0, 1.5, 2.0, 2.5]
+E_DISTANCE  = [0.1, 0.2, 0.3]
+E_SL        = 2.5
+E_RR        = 1.5
+
+case_e_results  = {}   # sym -> list of (activate, distance, res_all, res_rec)
+case_e_best     = {}   # sym -> (activate, distance, res_all)
+
+for sym in PAIRS_BASE:
+    print(f'\n  --- {sym} ---')
+    best_rr   = -1.0
+    best_cfg  = None
+    best_res  = None
+    sym_rows  = []
+    for act in E_ACTIVATE:
+        for dist in E_DISTANCE:
+            r_all = run_with_trail(sym, E_SL, E_RR, act, dist, N_BARS_ALL)
+            r_rec = run_with_trail(sym, E_SL, E_RR, act, dist, N_BARS_RECENT)
+            label = f'E:act={act} dist={dist}'
+            print(format_row(sym, label, E_SL, E_RR, r_all, r_rec))
+            sym_rows.append((act, dist, r_all, r_rec))
+            if r_all and r_all.get('rr_actual', 0) > best_rr:
+                best_rr  = r_all.get('rr_actual', 0)
+                best_cfg = (act, dist)
+                best_res = r_all
+    case_e_results[sym] = sym_rows
+    case_e_best[sym]    = (best_cfg, best_res)
+
+print('\n' + '=' * 90)
+print('【案E 最良設定まとめ (RR>0.5 かつ PF>1.0 を優先、なければPF最大)】')
+print('=' * 90)
+e_summary_line = []
+for sym in PAIRS_BASE:
+    rows = case_e_results[sym]
+    # RR>0.5 かつ PF>1.0 フィルター
+    qualified = [
+        (act, dist, ra) for act, dist, ra, _ in rows
+        if ra and ra.get('rr_actual', 0) > 0.5 and ra.get('pf', 0) > 1.0
+    ]
+    if qualified:
+        best = max(qualified, key=lambda x: x[2].get('rr_actual', 0))
+    else:
+        valid = [(act, dist, ra) for act, dist, ra, _ in rows if ra]
+        if valid:
+            best = max(valid, key=lambda x: x[2].get('pf', 0))
+        else:
+            print(f'  {sym}: データなし')
+            continue
+    act, dist, ra = best
+    tag = '★RR+PF合格' if qualified else '(PF最大フォールバック)'
+    line = (f'  {sym}: act={act} dist={dist}  '
+            f'PF={ra["pf"]:.3f}  WR={ra["win_rate"]:.1f}%  '
+            f'RR={ra.get("rr_actual", 0):.3f}  n={ra["trades"]}  {tag}')
+    print(line)
+    e_summary_line.append(f'{sym} act={act}/dist={dist} RR={ra.get("rr_actual",0):.3f}')
+
+print()
+if e_summary_line:
+    print('案E推奨一行サマリー: ' + ' | '.join(e_summary_line))
