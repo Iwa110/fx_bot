@@ -1,6 +1,13 @@
 """
-grid_monitor.py - Multi-pair Grid Strategy monitor v2
+grid_monitor.py - Multi-pair Grid Strategy monitor v3
 Bi-directional grid: Long and Short run concurrently.
+
+v3 changes:
+  - Per-pair LOT sizing (LOT_PER_PAIR) replacing single global LOT=0.01
+  - Per-pair DD limits (DD_DAY_PER_PAIR / DD_WEEK_PER_PAIR) scaled to lot size
+  - GBPJPY: 0.02 lot (B48 worst-case both-dir ~42k JPY, BT MaxDD ~53k JPY)
+  - CHFJPY: 0.02 lot (OOS_DD ~25.5k JPY, B48 worst-case ~45k JPY)
+  - NZDUSD: 0.01 lot (not running, preserve original)
 
 Supported pairs and magic numbers:
   NZDUSD: magic=20260030, tag=GRID_NZD, atr_mult=2.0
@@ -66,15 +73,38 @@ PAIR_CONFIG = {
 }
 
 # ══════════════════════════════════════════
+# Per-pair lot sizing
+# ══════════════════════════════════════════
+# GBPJPY 0.02: BT full_DD~53k JPY, B48 worst-case(both dir)~42k JPY
+# CHFJPY 0.02: OOS_DD~25.5k JPY,   B48 worst-case(both dir)~45k JPY
+LOT_PER_PAIR = {
+    'GBPJPY': 0.02,
+    'CHFJPY': 0.02,
+    'NZDUSD': 0.01,
+}
+
+# Per-pair daily/weekly DD limits scaled to lot size (vs original 0.01 lot baseline)
+DD_DAY_PER_PAIR = {
+    'GBPJPY': -10000.0,
+    'CHFJPY': -10000.0,
+    'NZDUSD':  -5000.0,
+}
+DD_WEEK_PER_PAIR = {
+    'GBPJPY': -30000.0,
+    'CHFJPY': -30000.0,
+    'NZDUSD': -15000.0,
+}
+
+# ══════════════════════════════════════════
 # Common constants
 # ══════════════════════════════════════════
-LOT            = 0.01
+LOT            = 0.01    # overridden per-pair in main()
 ATR_PERIOD     = 14
 CI_THRESHOLD   = 61.8
 CI_PERIOD      = 14
 B48_HOURS      = 48
-DD_DAY_JPY     = -5000.0
-DD_WEEK_JPY    = -15000.0
+DD_DAY_JPY     = -5000.0   # overridden per-pair in main()
+DD_WEEK_JPY    = -15000.0  # overridden per-pair in main()
 LOOP_INTERVAL  = 60
 HB_CYCLES      = 30   # heartbeat every 30 cycles (~30 min)
 
@@ -375,10 +405,13 @@ def check_tp_closes(from_dt: datetime, b48_tickets: set) -> None:
 # Main loop
 # ══════════════════════════════════════════
 def main_loop() -> None:
-    log('grid_monitor v2 started  pair=' + SYMBOL +
+    log('grid_monitor v3 started  pair=' + SYMBOL +
         '  broker=' + BROKER_KEY +
         '  magic=' + str(MAGIC) +
+        '  lot=' + str(LOT) +
         '  atr_mult=' + str(ATR_MULT) +
+        '  dd_day=' + str(int(DD_DAY_JPY)) +
+        '  dd_week=' + str(int(DD_WEEK_JPY)) +
         '  interval=' + str(LOOP_INTERVAL) + 's')
 
     state   = load_state()
@@ -576,6 +609,7 @@ def main_loop() -> None:
 def main() -> None:
     global MAGIC, STRATEGY_TAG, SYMBOL, ATR_MULT, MAX_LEVELS
     global BROKER_KEY, LOG_FILE, _STATE_FILE
+    global LOT, DD_DAY_JPY, DD_WEEK_JPY
 
     parser = argparse.ArgumentParser(description='Grid Strategy monitor v2 (multi-pair)')
     parser.add_argument('--pair', default='NZDUSD',
@@ -594,6 +628,11 @@ def main() -> None:
     ATR_MULT     = cfg['atr_mult']
     MAX_LEVELS   = cfg['max_levels']
     BROKER_KEY   = args.broker
+
+    # Per-pair lot and DD limits
+    LOT         = LOT_PER_PAIR.get(SYMBOL, 0.01)
+    DD_DAY_JPY  = DD_DAY_PER_PAIR.get(SYMBOL,  -5000.0)
+    DD_WEEK_JPY = DD_WEEK_PER_PAIR.get(SYMBOL, -15000.0)
 
     # Per-pair log and state files
     LOG_FILE    = os.path.join(_BASE_DIR,

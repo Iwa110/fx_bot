@@ -1012,7 +1012,7 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
 <!-- §14 Grid -->
 <div class="section" id="s14">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>14. グリッド戦略 <small style="font-size:11px;color:var(--muted)">grid_monitor.py v2</small></h2>
+    <h2>14. グリッド戦略 <small style="font-size:11px;color:var(--muted)">grid_monitor.py v3</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
@@ -1022,18 +1022,18 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
     <h3>対象ペアと確定パラメータ</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>Magic</th><th>atr_mult</th><th>max_levels</th><th>CI_th</th><th>Exit</th><th>BT PF</th><th>n</th></tr></thead>
+        <thead><tr><th>ペア</th><th>Magic</th><th>atr_mult</th><th>max_levels</th><th>CI_th</th><th>Exit</th><th>BT PF</th><th>n</th><th>LOT</th></tr></thead>
         <tbody>
-          <tr><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0</td><td>7</td><td>61.8</td><td>B48h</td><td>—</td><td>—</td></tr>
-          <tr><td>GBPJPY</td><td class="magic-num">20260031</td><td>1.5</td><td>7</td><td>61.8</td><td>B48h</td><td class="pf-good">3.857 (Full)</td><td>218</td></tr>
-          <tr><td>CHFJPY</td><td class="magic-num">20260032</td><td>2.0</td><td>7</td><td>61.8</td><td>B48h</td><td class="pf-good">OOS 1.521</td><td>38</td></tr>
+          <tr><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0</td><td>7</td><td>61.8</td><td>B48h</td><td>—</td><td>—</td><td>0.01</td></tr>
+          <tr><td>GBPJPY</td><td class="magic-num">20260031</td><td>1.5</td><td>7</td><td>61.8</td><td>B48h</td><td class="pf-good">3.857 (Full)</td><td>218</td><td><strong>0.02</strong></td></tr>
+          <tr><td>CHFJPY</td><td class="magic-num">20260032</td><td>2.0</td><td>7</td><td>61.8</td><td>B48h</td><td class="pf-good">OOS 1.521</td><td>38</td><td><strong>0.02</strong></td></tr>
         </tbody>
       </table>
     </div>
 
     <div class="info-grid">
       <div class="info-item"><div class="info-label">TF</div><div class="info-value">H1(ATR) / D1 resample(CI)</div></div>
-      <div class="info-item"><div class="info-label">ロット</div><div class="info-value">0.01</div></div>
+      <div class="info-item"><div class="info-label">ロット</div><div class="info-value">GBPJPY/CHFJPY: 0.02 / NZDUSD: 0.01</div></div>
       <div class="info-item"><div class="info-label">ループ間隔</div><div class="info-value">60秒</div></div>
       <div class="info-item"><div class="info-label">稼働ブローカー</div><div class="info-value">axiory / exness</div></div>
     </div>
@@ -1058,8 +1058,10 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
         <thead><tr><th>条件</th><th>詳細</th></tr></thead>
         <tbody>
           <tr><td>CI フィルター</td><td>CI(D1,14) &gt; 61.8（レンジ相場必須）</td></tr>
-          <tr><td>日次 DD</td><td>日次実現損益 ≥ −5,000 JPY</td></tr>
-          <tr><td>週次 DD</td><td>週次実現損益 ≥ −15,000 JPY</td></tr>
+          <tr><td>日次 DD (GBPJPY/CHFJPY)</td><td>日次実現損益 ≥ −10,000 JPY</td></tr>
+          <tr><td>週次 DD (GBPJPY/CHFJPY)</td><td>週次実現損益 ≥ −30,000 JPY</td></tr>
+          <tr><td>日次 DD (NZDUSD)</td><td>日次実現損益 ≥ −5,000 JPY</td></tr>
+          <tr><td>週次 DD (NZDUSD)</td><td>週次実現損益 ≥ −15,000 JPY</td></tr>
         </tbody>
       </table>
     </div>
@@ -1095,7 +1097,7 @@ pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory
 pythonw.exe grid_monitor.py --pair CHFJPY --broker exness</pre>
 
     <h3>ログ出力仕様</h3>
-    <pre>entry LONG lot=0.01 price=... grid_width=... level=X/7
+    <pre>entry LONG lot=0.02 price=... grid_width=... level=X/7
 tp_close LONG price=... pnl=+XXXX JPY hold=Xh
 b48_close LONG positions=X total_pnl=+XXXX JPY
 filter_block ci=XX.X (threshold=61.8)

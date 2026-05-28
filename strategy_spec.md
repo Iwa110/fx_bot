@@ -801,29 +801,39 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 
 ---
 
-## 14. グリッド戦略 (grid_monitor.py v2)
+## 14. グリッド戦略 (grid_monitor.py v3)
 
 ### 概要
 双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が高い時のみエントリー。最大7レベルに達した後48時間タイマーで強制決済する B48 Exit を採用。
 
 ### 対象ペアと確定パラメータ
 
-| ペア | Magic | atr_mult | max_levels | CI_threshold | Exit | BT PF (Full) | BT n |
-|------|-------|----------|------------|--------------|------|--------------|------|
-| NZDUSD | 20260030 | 2.0 | 7 | 61.8 | B48h | — | — |
-| GBPJPY | 20260031 | 1.5 | 7 | 61.8 | B48h | 3.857 | 218 |
-| CHFJPY | 20260032 | 2.0 | 7 | 61.8 | B48h | IS:1.023/OOS:1.521 | 38 |
+| ペア | Magic | atr_mult | max_levels | CI_threshold | Exit | BT PF (Full) | BT n | LOT |
+|------|-------|----------|------------|--------------|------|--------------|------|-----|
+| NZDUSD | 20260030 | 2.0 | 7 | 61.8 | B48h | — | — | 0.01 |
+| GBPJPY | 20260031 | 1.5 | 7 | 61.8 | B48h | 3.857 | 218 | **0.02** |
+| CHFJPY | 20260032 | 2.0 | 7 | 61.8 | B48h | IS:1.023/OOS:1.521 | 38 | **0.02** |
 
 ### 基本情報
 
 | 項目 | 値 |
 |------|-----|
-| スクリプト | grid_monitor.py v2 |
+| スクリプト | grid_monitor.py v3 |
 | TF | H1（ATR計算）/ D1 resample（CI計算）|
-| ロット | 0.01 |
+| ロット | ペア別（LOT_PER_PAIR 参照） |
 | ループ間隔 | 60秒 |
 | ハートビート | 30サイクル毎（約30分） |
 | 稼働ブローカー | axiory / exness |
+
+### ロット設計根拠（v3）
+
+| ペア | LOT | BT MaxDD(JPY) | B48最悪ケース(両方向,JPY) | 月次期待PnL |
+|------|-----|--------------|--------------------------|------------|
+| GBPJPY | 0.02 | ~53,180 | ~42,070 | +6,329 |
+| CHFJPY | 0.02 | OOS: ~25,540 | ~45,094 | +1,900 |
+
+- B48最悪ケース = 両方向7レベル全発動時の含み損合計 (Σ0〜6 × gw × 2,000 units)
+- CHFJPY full_DD=65k はIS期不調が主因 → OOS_DD=12.77%を実運用基準として採用
 
 ### グリッドロジック
 
@@ -837,11 +847,11 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 
 ### エントリーフィルター（新規発注のみ適用）
 
-| 条件 | 詳細 |
-|------|------|
-| CI フィルター | CI(D1, 14) > 61.8（レンジ相場必須） |
-| 日次 DD | 日次実現損益 ≥ −5,000 JPY |
-| 週次 DD | 週次実現損益 ≥ −15,000 JPY |
+| 条件 | GBPJPY | CHFJPY | NZDUSD |
+|------|--------|--------|--------|
+| CI フィルター | CI(D1,14) > 61.8 | CI(D1,14) > 61.8 | CI(D1,14) > 61.8 |
+| 日次 DD | ≥ −10,000 JPY | ≥ −10,000 JPY | ≥ −5,000 JPY |
+| 週次 DD | ≥ −30,000 JPY | ≥ −30,000 JPY | ≥ −15,000 JPY |
 
 ### B48 Exit（最大レベル到達後タイマー決済）
 
@@ -888,7 +898,7 @@ pythonw.exe grid_monitor.py --pair CHFJPY --broker exness
 ### ログ出力仕様
 
 ```
-entry LONG lot=0.01 price=... grid_width=... level=X/7
+entry LONG lot=0.02 price=... grid_width=... level=X/7
 tp_close LONG price=... pnl=+XXXX JPY hold=Xh
 b48_close LONG positions=X total_pnl=+XXXX JPY
 filter_block ci=XX.X (threshold=61.8)
