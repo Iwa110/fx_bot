@@ -8,7 +8,7 @@ FX自動売買システム。VPS(Windows Server 2022)で複数戦略を並行稼
 ```
 C:\Users\Administrator\fx_bot\
 ├── vps\          # 稼働中ボット
-│   ├── bb_monitor.py      # v26 magic=20250001
+│   ├── bb_monitor.py      # v27 magic=20250001
 │   ├── trail_monitor.py   # v15
 │   ├── smc_gbpaud.py      # v4 magic=20260002
 │   ├── stat_arb.py        # magic=20260001
@@ -29,9 +29,10 @@ C:\Users\Administrator\fx_bot\
 
 ### BB戦略
 - PAIRS: GBPJPY/USDJPY/EURUSD/GBPUSD (USDCADは停止中)
-- Stage2 distance: EURUSD=0.1、その他=0.3
-- USDJPY許可時間帯: [21,22,5] UTC
-- RR問題あり(実RR=0.31 vs 設計1.50)、改善実施済み・データ蓄積中
+- GBPJPY bb_sigma: v27で1.5→2.0（BT全データPF: 1.019→1.275）
+- USDJPY: bb_sigma=2.0、T_max=8h+exp TP Decay(τ=8h)
+- EURJPY: bb_sigma=1.5、T_max=6h
+- 実RR乖離の原因確定: 実機はH1足ATR(比率≈3.7倍)、BT誤差あり
 
 ### trail_monitor v15
 - STR/MOM_JPYペア別設定分離済み
@@ -66,64 +67,59 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-26 更新）
+## Top of mind（2026-05-28 更新）
 
-### 現在の稼働状態（2026-05-26時点）
-- **sma_squeeze**: v4.3 / axiory/exness（oanda停止中）
+### 現在の稼働状態（2026-05-28時点）
+- **sma_squeeze**: v4.4 / axiory/exness（oanda停止中）
   有効ペア: USDJPY/GBPJPY/EURUSD / 停止: GBPUSD・EURJPY
-- **bb_monitor**: v26 / 3ブローカー（Task Scheduler毎分実行）
+- **bb_monitor**: v27 / 3ブローカー（Task Scheduler毎分実行）
+  **【VPS未反映】git pull → bb_monitor再起動が必要**
 - **trail_monitor**: v15 / axiory/exness・oanda（独立プロセス）
 - **grid_monitor**: v2 / axiory/exness（GBPJPY=20260031, CHFJPY=20260032）
-- **news_monitor**: v1 / 未起動（VPS git pull → news_monitor.bat 起動待ち）
+- **news_monitor**: v1 / 未起動（news_monitor.bat 起動待ち）
 - MT5端末起動順: OANDA→(60秒後)Axiory→Exness
 
-### sma_squeeze.py v4.3（2026-05-26完了）
-- **EURJPY enabled=False**: 実稼働WR=0%（n=2）、94.6h保有で-9,900円SL到達。
-  BT PF=3.673だが実稼働と乖離が大きいため一時停止。
-- **T_max=24h追加**（USDJPY/GBPJPY/EURUSD）: 保有24時間超過で強制成行決済
-  ログ: `[TMAX] USDJPY LONG hold=26.3h>24h force-close ticket=X`
-- **VPS対応**: `git pull origin main` → `sma_squeeze_monitor.bat` 再起動が必要
+### bb_monitor.py v27（2026-05-28完了）
+- **GBPJPY bb_sigma 1.5→2.0**: BT全データ PF 1.019→1.275（N=268）達成
+- BT実施: bb_analysis_bt.py（sigma sweep + SL×sigma グリッド）
+- 実RR=0.12 の根本原因確定:
+  - 実機: `rm.get_atr()` = H1足ATR14（ewm）
+  - BT: `calc_atr(df_5m)` = 5m足ATR14（rolling mean）
+  - H1/5m ATR比率: GBPJPY=3.73倍、USDJPY=3.91倍
+  - → BT SL/TP は実機より約4倍小さい（BT sl=2.5 ≈ 実機 sl=10倍相当）
+  - → 実稼働WR=82%は「H1 ATR基準の大きなSLが早期にストップされにくい」ため
 
 ### Phase1判定進捗（BB 全期間, 2026-05-26時点, magic=20250001）
 | ペア   |    PF | 勝率  | n  | 総合  |
 |--------|------:|------:|---:|-------|
-| USDJPY | 1.355 | 82.3% | 62 | ✅ PF合格（蓄積継続） |
-| GBPJPY | 0.840 | 81.0% | 21 | ❌（n不足・PF未達） |
+| USDJPY | 1.355 | 82.3% | 62 | ✅ PF合格（蓄積継続）、σ=2.0維持 |
+| GBPJPY | 0.840 | 81.0% | 21 | ❌（n不足・PF未達）→v27でσ=2.0に変更 |
 | EURUSD | — | — | — | enabled=False（BT PF<0.7/v20停止） |
 | GBPUSD | — | — | — | enabled=False（実稼働PF=0.294/v20停止） |
 
-### GRID戦略（2026-05-26 確認）
-- GBPJPY（20260031）: 直近7日 +1,791円 WR=100% n=7（好調）
-- CHFJPY（20260032）: 直近7日 +9円 WR=100% n=4
-- magic 20260030-32 / 20260040 を docs/strategies.md magic番号テーブルに追記済み（v4.3と同コミット）
+### USDJPY Phase1確定への分析結果（2026-05-28）
+- BT全データ PF=1.159（5m ATR基準）→ H1 ATR補正後は実稼働 PF=1.355 が正
+- bb_sigma=2.0の妥当性: σ=1.5(PF=0.835) vs σ=2.0(PF=1.161) → σ=2.0が優位
+- T_max=8h+exp Decay: OOS PF=1.137→1.211 (+6.5%)、v26実装根拠確認済み
+- → n=100到達まで蓄積継続（現在n=62、目安あと3〜4週間）
 
 ### 翌日確認事項
-- **【要対応】VPS**: `git pull origin main` → `sma_squeeze_monitor.bat` 再起動（v4.3反映）
+- **【最優先】VPS**: `git pull origin main` → bb_monitor.bat 再起動（v27反映）
 - **【要対応】VPS**: `news_monitor.bat` 起動（axiory/exness）
-- sma_squeeze v4.3 動作確認: `[TMAX]` ログが出ないことを確認（正常時は24h以内に決済済み）
-- VPS M1データ取得後: `news_event_bt.py` 再実行 → PARAMS更新
+- bb_monitor v27 動作確認: GBPJPY の `シグナル確定` ログで `BB_σ=2.0` を確認
 - Phase1 USDJPY: n=100超えたら再判定（目安あと3〜4週間）
+- backtest.py BT精度向上（任意）: simulate_with_stage2をH1足ATRに切り替え
 
 ## 直近タスク
-- [x] Phase1完了判定実行（2026-05-03: 全ペア不合格・データ蓄積継続）
-- [x] CORR戦略 BT最適化＋Zスコア決済/hold_period実装（2026-05-08完了）
-- [x] 動的ロットサイジング実装: dynamic_lot.py新規 / phase1_judgment.py新判定基準 / daily_report.py統合（2026-05-08完了）
-- [x] VPS Task Schedulerウィンドウ非表示化・trail_monitor多重起動修正（2026-05-10完了）
-- [x] OANDA MT5接続問題解消・全ブローカー稼働化（2026-05-11完了）
-- [x] SMA Squeeze v4 ATR-adaptive trailing BT+実装（2026-05-21完了）
-- [x] .gitignore更新: optimizer/sma_squeeze_bt_result.csv の大容量自動生成ファイルを除外（2026-05-21完了）
-- [x] 全batファイル kill-before-restart 追加（2026-05-21完了）
-- [x] sma_squeeze.py エンコーディング破損修正 + heartbeat追加 v4.1（2026-05-21完了）
-- [x] SMA Squeeze v4.2 trail_start_mult BT検証・最終設定0.0確定（2026-05-21完了）
-- [x] 経済指標戦略 news_monitor.py v1 実装・push（2026-05-24完了）
-- [x] sma_squeeze v4.3: EURJPY停止 + T_max=24h追加（2026-05-26完了）
-- [x] strategy_spec.md / docs/strategies.md 更新（2026-05-26完了）
-- [x] CLAUDE.md更新（2026-05-26完了）
-- [ ] **VPS**: `git pull origin main` → `sma_squeeze_monitor.bat` 再起動（v4.3反映）
+- [x] BB戦略 実稼働vsET乖離分析（2026-05-28: H1/5m ATR比率定量化）
+- [x] GBPJPY bb_sigma最適化BT（2026-05-28: sigma=2.0でPF>1.2達成）
+- [x] USDJPY Phase1補強分析（2026-05-28: σ=2.0維持・T_max有効性再確認）
+- [x] bb_monitor v27: GBPJPY sigma 1.5→2.0・push済み（2026-05-28完了）
+- [x] strategy_spec.md / strategy_spec.html 更新（2026-05-28完了）
+- [ ] **VPS**: `git pull origin main` → bb_monitor.bat 再起動（v27反映）
 - [ ] **VPS**: `news_monitor.bat` 起動（axiory/exness）
-- [ ] VPS M1データ → `news_event_bt.py` → PARAMS更新
-- [ ] GBPJPY: 1h BT data取得後にatr_trail_mult再検証
 - [ ] Phase1 USDJPY: n=100超えたら再判定（目安あと3〜4週間）
+- [ ] backtest.py BT精度向上: simulate_with_stage2をH1足ATRに切り替え（任意）
 
 ## 作業スタイル
 - 作業時間: 夜まとめて1〜2時間
@@ -131,12 +127,12 @@ C:\Users\Administrator\fx_bot\
 - Code: 実装・実行・push（残り全て）
 - Codeセッション開始前に必ずタスクリストを用意する
 
-## 夜の終了チェックリスト（2026-05-26）
+## 夜の終了チェックリスト（2026-05-28）
 - [x] 変更ファイルをcommit/push済み
 - [x] CLAUDE.mdのTop of mindを更新済み
 - [x] 翌日Chatで確認すべき事項をメモ済み
-- [x] sma_squeeze v4.3: EURJPY停止・T_max追加・push済み
-- [ ] VPS: git pull origin main → sma_squeeze_monitor.bat 再起動（翌日手動対応）
+- [x] bb_monitor v27: GBPJPY sigma 1.5→2.0・push済み
+- [ ] VPS: git pull origin main → bb_monitor.bat 再起動（翌日手動対応）
 - [ ] VPS: news_monitor.bat 起動（翌日手動対応）
 
 ## ロードマップ
