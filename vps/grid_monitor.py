@@ -75,24 +75,24 @@ PAIR_CONFIG = {
 # ══════════════════════════════════════════
 # Per-pair lot sizing
 # ══════════════════════════════════════════
-# GBPJPY 0.02: BT full_DD~53k JPY, B48 worst-case(both dir)~42k JPY
-# CHFJPY 0.02: OOS_DD~25.5k JPY,   B48 worst-case(both dir)~45k JPY
+# GBPJPY 1.00: demo account / B48 worst-case(both dir)~2.1M JPY
+# CHFJPY 1.00: demo account / B48 worst-case(both dir)~2.25M JPY
 LOT_PER_PAIR = {
-    'GBPJPY': 0.02,
-    'CHFJPY': 0.02,
+    'GBPJPY': 1.00,
+    'CHFJPY': 1.00,
     'NZDUSD': 0.01,
 }
 
 # Per-pair daily/weekly DD limits scaled to lot size (vs original 0.01 lot baseline)
 DD_DAY_PER_PAIR = {
-    'GBPJPY': -10000.0,
-    'CHFJPY': -10000.0,
-    'NZDUSD':  -5000.0,
+    'GBPJPY': -500000.0,
+    'CHFJPY': -500000.0,
+    'NZDUSD':   -5000.0,
 }
 DD_WEEK_PER_PAIR = {
-    'GBPJPY': -30000.0,
-    'CHFJPY': -30000.0,
-    'NZDUSD': -15000.0,
+    'GBPJPY': -1500000.0,
+    'CHFJPY': -1500000.0,
+    'NZDUSD':   -15000.0,
 }
 
 # ══════════════════════════════════════════
