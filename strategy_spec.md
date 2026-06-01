@@ -815,8 +815,8 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 | NZDUSD | 20260030 | 2.0 | 7 | 61.8 | B48h | — | — | 0.01 | 停止中 |
 | GBPJPY | 20260031 | 1.5 | 7 | 61.8 | B48h | Full:3.857 | 218 | 1.00 | demo |
 | CHFJPY | 20260032 | 2.0 | 7 | 61.8 | B48h | OOS:1.521 | 38 | 1.00 | demo |
-| NZDJPY | 20260033 | 1.0 | 7 | 61.8 | B48h | OOS:3.405 | 132 | 0.01 | v5追加 |
-| AUDCAD | 20260034 | 1.0 | 7 | 61.8 | B48h | Full:3.311 | 156 | 0.01 | v5追加 |
+| NZDJPY | 20260033 | 1.0 | 7 | 61.8 | B48h | OOS:3.405 | 132 | **1.00** | v5追加(demo) |
+| AUDCAD | 20260034 | 1.0 | 7 | 61.8 | B48h | Full:3.311 | 156 | **1.00** | v5追加(demo) |
 
 - NZDJPY BT根拠: grid_new_pairs_bt.py / IS70%/OOS30% / atr_mult=1.0 lv=7
 - AUDCAD BT根拠: grid_new_pairs_bt.py / full_PF=3.31 / CI>61.8率=28.1%（全ペア最高）
@@ -839,8 +839,8 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 | GBPJPY | 1.00 | -500,000 | -1,500,000 | -1,500,000 | demo |
 | CHFJPY | 1.00 | -500,000 | -1,500,000 | -1,500,000 | demo |
 | NZDUSD | 0.01 | -5,000 | -15,000 | -15,000 | 停止中 |
-| NZDJPY | 0.01 | -5,000 | -15,000 | -15,000 | v5新規 |
-| AUDCAD | 0.01 | -5,000 | -15,000 | -15,000 | v5新規 |
+| NZDJPY | **1.00** | -500,000 | -1,500,000 | -500,000 | v5新規(demo) |
+| AUDCAD | **1.00** | -500,000 | -1,500,000 | -500,000 | v5新規(demo) |
 
 ### グリッドロジック
 

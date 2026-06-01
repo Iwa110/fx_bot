@@ -98,14 +98,14 @@ PAIR_CONFIG = {
 # ══════════════════════════════════════════
 # GBPJPY 1.00: demo account / B48 worst-case(both dir)~2.1M JPY
 # CHFJPY 1.00: demo account / B48 worst-case(both dir)~2.25M JPY
-# NZDJPY 0.01: live eval (BT OOS PF=3.40, gm=1.0 lv=7)
-# AUDCAD 0.01: live eval (BT full PF=3.31, gm=1.0 lv=7, CI>61.8=28%)
+# NZDJPY 1.00: demo account (BT OOS PF=3.40, gm=1.0 lv=7)
+# AUDCAD 1.00: demo account (BT full PF=3.31, gm=1.0 lv=7, CI>61.8=28%)
 LOT_PER_PAIR = {
     'GBPJPY': 1.00,
     'CHFJPY': 1.00,
     'NZDUSD': 0.01,
-    'NZDJPY': 0.01,
-    'AUDCAD': 0.01,
+    'NZDJPY': 1.00,
+    'AUDCAD': 1.00,
 }
 
 # Per-pair daily/weekly DD limits scaled to lot size (vs original 0.01 lot baseline)
@@ -113,26 +113,28 @@ DD_DAY_PER_PAIR = {
     'GBPJPY': -500000.0,
     'CHFJPY': -500000.0,
     'NZDUSD':   -5000.0,
-    'NZDJPY':   -5000.0,
-    'AUDCAD':   -5000.0,
+    'NZDJPY': -500000.0,
+    'AUDCAD': -500000.0,
 }
 DD_WEEK_PER_PAIR = {
     'GBPJPY': -1500000.0,
     'CHFJPY': -1500000.0,
     'NZDUSD':   -15000.0,
-    'NZDJPY':   -15000.0,
-    'AUDCAD':   -15000.0,
+    'NZDJPY': -1500000.0,
+    'AUDCAD': -1500000.0,
 }
 
 # Per-pair float stop: unrealized loss per direction triggers immediate close.
 # GBPJPY 1.00 lot: gw~50k JPY/level, 7lv filled=-1.05M, fires ~3gw below 7th level.
 # CHFJPY 1.00 lot: gw~54k JPY/level, similar profile.
+# NZDJPY 1.00 lot: gw~17.6k JPY/level, 7lv filled~370k, fires ~3gw below 7th=-452k -> -500k
+# AUDCAD 1.00 lot: gw~20k JPY/level (CADJPY~102), 7lv filled~418k, fires ~3gw below=-478k -> -500k
 FLOAT_STOP_PER_PAIR = {
     'GBPJPY': -1_500_000.0,
     'CHFJPY': -1_500_000.0,
     'NZDUSD':    -15_000.0,
-    'NZDJPY':    -15_000.0,
-    'AUDCAD':    -15_000.0,
+    'NZDJPY':  -500_000.0,
+    'AUDCAD':  -500_000.0,
 }
 
 # ══════════════════════════════════════════
