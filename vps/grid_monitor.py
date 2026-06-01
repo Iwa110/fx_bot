@@ -1,6 +1,12 @@
 """
-grid_monitor.py - Multi-pair Grid Strategy monitor v4
+grid_monitor.py - Multi-pair Grid Strategy monitor v5
 Bi-directional grid: Long and Short run concurrently.
+
+v5 changes:
+  - Add NZDJPY (magic=20260033, atr_mult=1.0, max_levels=7, lot=0.01)
+    BT: OOS PF=3.40 (gm=1.0, lv=7, IS70%/OOS30%)
+  - Add AUDCAD (magic=20260034, atr_mult=1.0, max_levels=7, lot=0.01)
+    BT: full PF=3.31 (gm=1.0, lv=7, CI>61.8 rate=28.1%)
 
 v4 changes (forced-exit improvements for 1.00 lot):
   - Float stop (FLOAT_STOP_JPY): close a direction immediately when unrealized
@@ -19,9 +25,11 @@ v3 changes:
   - NZDUSD: 0.01 lot (not running, preserve original)
 
 Supported pairs and magic numbers:
-  NZDUSD: magic=20260030, tag=GRID_NZD, atr_mult=2.0
-  GBPJPY: magic=20260031, tag=GRID_GBP, atr_mult=1.5
-  CHFJPY: magic=20260032, tag=GRID_CHF, atr_mult=2.0
+  NZDUSD: magic=20260030, tag=GRID_NZD, atr_mult=2.0, max_levels=7
+  GBPJPY: magic=20260031, tag=GRID_GBP, atr_mult=1.5, max_levels=7
+  CHFJPY: magic=20260032, tag=GRID_CHF, atr_mult=2.0, max_levels=7
+  NZDJPY: magic=20260033, tag=GRID_NZJ, atr_mult=1.0, max_levels=7
+  AUDCAD: magic=20260034, tag=GRID_AUC, atr_mult=1.0, max_levels=7
 
 Strategy:
   tf: H1
@@ -81,6 +89,8 @@ PAIR_CONFIG = {
     'NZDUSD': {'magic': 20260030, 'tag': 'GRID_NZD', 'atr_mult': 2.0, 'max_levels': 7},
     'GBPJPY': {'magic': 20260031, 'tag': 'GRID_GBP', 'atr_mult': 1.5, 'max_levels': 7},
     'CHFJPY': {'magic': 20260032, 'tag': 'GRID_CHF', 'atr_mult': 2.0, 'max_levels': 7},
+    'NZDJPY': {'magic': 20260033, 'tag': 'GRID_NZJ', 'atr_mult': 1.0, 'max_levels': 7},
+    'AUDCAD': {'magic': 20260034, 'tag': 'GRID_AUC', 'atr_mult': 1.0, 'max_levels': 7},
 }
 
 # ══════════════════════════════════════════
@@ -88,10 +98,14 @@ PAIR_CONFIG = {
 # ══════════════════════════════════════════
 # GBPJPY 1.00: demo account / B48 worst-case(both dir)~2.1M JPY
 # CHFJPY 1.00: demo account / B48 worst-case(both dir)~2.25M JPY
+# NZDJPY 0.01: live eval (BT OOS PF=3.40, gm=1.0 lv=7)
+# AUDCAD 0.01: live eval (BT full PF=3.31, gm=1.0 lv=7, CI>61.8=28%)
 LOT_PER_PAIR = {
     'GBPJPY': 1.00,
     'CHFJPY': 1.00,
     'NZDUSD': 0.01,
+    'NZDJPY': 0.01,
+    'AUDCAD': 0.01,
 }
 
 # Per-pair daily/weekly DD limits scaled to lot size (vs original 0.01 lot baseline)
@@ -99,11 +113,15 @@ DD_DAY_PER_PAIR = {
     'GBPJPY': -500000.0,
     'CHFJPY': -500000.0,
     'NZDUSD':   -5000.0,
+    'NZDJPY':   -5000.0,
+    'AUDCAD':   -5000.0,
 }
 DD_WEEK_PER_PAIR = {
     'GBPJPY': -1500000.0,
     'CHFJPY': -1500000.0,
     'NZDUSD':   -15000.0,
+    'NZDJPY':   -15000.0,
+    'AUDCAD':   -15000.0,
 }
 
 # Per-pair float stop: unrealized loss per direction triggers immediate close.
@@ -113,6 +131,8 @@ FLOAT_STOP_PER_PAIR = {
     'GBPJPY': -1_500_000.0,
     'CHFJPY': -1_500_000.0,
     'NZDUSD':    -15_000.0,
+    'NZDJPY':    -15_000.0,
+    'AUDCAD':    -15_000.0,
 }
 
 # ══════════════════════════════════════════
@@ -683,7 +703,7 @@ def main() -> None:
     global BROKER_KEY, LOG_FILE, _STATE_FILE
     global LOT, DD_DAY_JPY, DD_WEEK_JPY, FLOAT_STOP_JPY
 
-    parser = argparse.ArgumentParser(description='Grid Strategy monitor v2 (multi-pair)')
+    parser = argparse.ArgumentParser(description='Grid Strategy monitor v5 (multi-pair)')
     parser.add_argument('--pair', default='NZDUSD',
                         choices=list(PAIR_CONFIG.keys()),
                         help='trading pair')

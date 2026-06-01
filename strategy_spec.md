@@ -716,6 +716,8 @@ lot = clamp(lot, MIN=0.01, MAX=0.2)
 | Grid NZDUSD | 20260030 | `GRID_NZD` | grid_monitor.py |
 | Grid GBPJPY | 20260031 | `GRID_GBP` | grid_monitor.py |
 | Grid CHFJPY | 20260032 | `GRID_CHF` | grid_monitor.py |
+| Grid NZDJPY | 20260033 | `GRID_NZJ` | grid_monitor.py |
+| Grid AUDCAD | 20260034 | `GRID_AUC` | grid_monitor.py |
 
 ---
 
@@ -801,39 +803,44 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 
 ---
 
-## 14. グリッド戦略 (grid_monitor.py v3)
+## 14. グリッド戦略 (grid_monitor.py v5)
 
 ### 概要
 双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が高い時のみエントリー。最大7レベルに達した後48時間タイマーで強制決済する B48 Exit を採用。
 
 ### 対象ペアと確定パラメータ
 
-| ペア | Magic | atr_mult | max_levels | CI_threshold | Exit | BT PF (Full) | BT n | LOT |
-|------|-------|----------|------------|--------------|------|--------------|------|-----|
-| NZDUSD | 20260030 | 2.0 | 7 | 61.8 | B48h | — | — | 0.01 |
-| GBPJPY | 20260031 | 1.5 | 7 | 61.8 | B48h | 3.857 | 218 | **0.02** |
-| CHFJPY | 20260032 | 2.0 | 7 | 61.8 | B48h | IS:1.023/OOS:1.521 | 38 | **0.02** |
+| ペア | Magic | atr_mult | max_levels | CI_threshold | Exit | BT PF | BT n | LOT | 備考 |
+|------|-------|----------|------------|--------------|------|-------|------|-----|------|
+| NZDUSD | 20260030 | 2.0 | 7 | 61.8 | B48h | — | — | 0.01 | 停止中 |
+| GBPJPY | 20260031 | 1.5 | 7 | 61.8 | B48h | Full:3.857 | 218 | 1.00 | demo |
+| CHFJPY | 20260032 | 2.0 | 7 | 61.8 | B48h | OOS:1.521 | 38 | 1.00 | demo |
+| NZDJPY | 20260033 | 1.0 | 7 | 61.8 | B48h | OOS:3.405 | 132 | 0.01 | v5追加 |
+| AUDCAD | 20260034 | 1.0 | 7 | 61.8 | B48h | Full:3.311 | 156 | 0.01 | v5追加 |
+
+- NZDJPY BT根拠: grid_new_pairs_bt.py / IS70%/OOS30% / atr_mult=1.0 lv=7
+- AUDCAD BT根拠: grid_new_pairs_bt.py / full_PF=3.31 / CI>61.8率=28.1%（全ペア最高）
 
 ### 基本情報
 
 | 項目 | 値 |
 |------|-----|
-| スクリプト | grid_monitor.py v3 |
+| スクリプト | grid_monitor.py v5 |
 | TF | H1（ATR計算）/ D1 resample（CI計算）|
 | ロット | ペア別（LOT_PER_PAIR 参照） |
 | ループ間隔 | 60秒 |
 | ハートビート | 30サイクル毎（約30分） |
 | 稼働ブローカー | axiory / exness |
 
-### ロット設計根拠（v3）
+### ロット・リスク設計
 
-| ペア | LOT | BT MaxDD(JPY) | B48最悪ケース(両方向,JPY) | 月次期待PnL |
-|------|-----|--------------|--------------------------|------------|
-| GBPJPY | 0.02 | ~53,180 | ~42,070 | +6,329 |
-| CHFJPY | 0.02 | OOS: ~25,540 | ~45,094 | +1,900 |
-
-- B48最悪ケース = 両方向7レベル全発動時の含み損合計 (Σ0〜6 × gw × 2,000 units)
-- CHFJPY full_DD=65k はIS期不調が主因 → OOS_DD=12.77%を実運用基準として採用
+| ペア | LOT | DD_DAY | DD_WEEK | FLOAT_STOP | 備考 |
+|------|-----|--------|---------|------------|------|
+| GBPJPY | 1.00 | -500,000 | -1,500,000 | -1,500,000 | demo |
+| CHFJPY | 1.00 | -500,000 | -1,500,000 | -1,500,000 | demo |
+| NZDUSD | 0.01 | -5,000 | -15,000 | -15,000 | 停止中 |
+| NZDJPY | 0.01 | -5,000 | -15,000 | -15,000 | v5新規 |
+| AUDCAD | 0.01 | -5,000 | -15,000 | -15,000 | v5新規 |
 
 ### グリッドロジック
 
@@ -845,20 +852,16 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 | TP | エントリー ± grid_width（1ステップ先） |
 | SL | なし |
 
-### エントリーフィルター（新規発注のみ適用）
-
-| 条件 | GBPJPY | CHFJPY | NZDUSD |
-|------|--------|--------|--------|
-| CI フィルター | CI(D1,14) > 61.8 | CI(D1,14) > 61.8 | CI(D1,14) > 61.8 |
-| 日次 DD | ≥ −10,000 JPY | ≥ −10,000 JPY | ≥ −5,000 JPY |
-| 週次 DD | ≥ −30,000 JPY | ≥ −30,000 JPY | ≥ −15,000 JPY |
-
 ### B48 Exit（最大レベル到達後タイマー決済）
 
 - Long / Short それぞれ独立したタイマー
 - max_levels（7）到達時刻を記録
 - 48時間経過 → その方向の全ポジションを成行決済
 - TP が発火してカウントが max_levels を下回ると → タイマーリセット
+
+### Float Stop（v4〜）
+
+- 方向ごとの含み損が FLOAT_STOP_JPY を下回った場合、B48タイマーを待たず即時成行決済
 
 ### バックテスト結果詳細
 
@@ -877,15 +880,32 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 | IS | 1.023 | — |
 | OOS | 1.521 | 38 |
 
+**NZDJPY（IS70%/OOS30%, atr_mult=1.0, lv=7）**
+
+| 期間 | PF | n | max_dd | n_b48 |
+|------|----|---|--------|-------|
+| Full | 1.798 | 557 | 10,910 | 3 |
+| IS | 1.563 | 425 | — | — |
+| OOS | 3.405 | 132 | 13,836 | 1 |
+
+**AUDCAD（IS70%/OOS30%, atr_mult=1.0, lv=7）**
+
+| 期間 | PF | n | max_dd | n_b48 |
+|------|----|---|--------|-------|
+| Full | 3.311 | 587 | 0 | 0 |
+| IS | 4.082 | 431 | — | — |
+| OOS | inf | 156 | 0 | 0 |
+
+- AUDCAD OOS inf = OOS期間（2025/9〜）でB48ゼロ。CI>61.8=28.1%（全ペア最高）が背景
+
 ### 起動方法
 
 ```bat
-REM VPS上で実行
-C:\Users\Administrator\fx_bot\vps\grid_monitor.bat
-
 REM 個別ペア・ブローカー起動例
 pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory
 pythonw.exe grid_monitor.py --pair CHFJPY --broker exness
+pythonw.exe grid_monitor.py --pair NZDJPY --broker axiory
+pythonw.exe grid_monitor.py --pair AUDCAD --broker axiory
 ```
 
 ### ログファイル / Stateファイル
@@ -898,7 +918,7 @@ pythonw.exe grid_monitor.py --pair CHFJPY --broker exness
 ### ログ出力仕様
 
 ```
-entry LONG lot=0.02 price=... grid_width=... level=X/7
+entry LONG lot=0.01 price=... grid_width=... level=X/7
 tp_close LONG price=... pnl=+XXXX JPY hold=Xh
 b48_close LONG positions=X total_pnl=+XXXX JPY
 filter_block ci=XX.X (threshold=61.8)
