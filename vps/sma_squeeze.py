@@ -27,6 +27,17 @@ v4.4 2026-05-28: USDJPY squeeze_th 2.0->1.5
   BT: squeeze_th=1.5 PF=1.972 WR=46.2% (vs 2.0: PF=1.815 WR=43.3%)
   Live signal: USDJPY 3M monthly avg 0.94/month (< 1.0 threshold). Loosening improves frequency.
   EURUSD unchanged (current th=2.0 is optimal PF=2.670).
+v4.5 2026-06-02: ATR trailing disabled (root cause of live WR~0%, n=20 -19,285 JPY)
+  Divergence analysis (optimizer/sma_squeeze_divergence_bt.py): the live exit stack
+  (ATR trail 0.5x, ratcheted every 60s intrabar via tick.bid) tightens SL to ~0.5*ATR /
+  to breakeven and stops out trades before they reach the RR=2.0-2.5 TP. This strategy is
+  low-WR/high-RR: cutting the few large winners destroys the edge. Live signature: 0 TP hits,
+  many "pnl~0 [sl]" = trail-to-BE then stopped.
+  Refuted hypotheses: next-bar-open entry (PF 1.642->1.645, ~0 effect on 1h/4h),
+  squeeze-release trigger (n=0-1, kills signal; in-squeeze gate is intentional), spread (-3..7% PF).
+  Fix: atr_trail_mult 0.5->0.0 for USDJPY/EURUSD (BT w/o trail: USDJPY PF 1.34->2.48).
+  GBPJPY disabled: PF=0.999<1.2 even w/o trail + worst live loss -> redesign pending.
+  NOTE: sma_squeeze_exit_bt.py validated trail at bar-close only (missed intrabar) -> unreliable.
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -71,19 +82,19 @@ PAIRS_CFG = {
                'slope_period': 5,  'rr': 2.5, 'sl_atr_mult': 1.5,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0,
+               'atr_trail_mult': 0.0, 'trail_start_mult': 0.0,  # v4.5: 0.5->0.0 (intrabar trail cut RR-winners; BT PF 1.34->2.48)
                'tmax_hours': 24, 'enabled': True},
     'GBPJPY': {'sma_short': 25, 'sma_long': 250, 'squeeze_th': 0.5,
                'slope_period': 10, 'rr': 2.0, 'sl_atr_mult': 1.5,
                'timeframe': '1h', 'slope_exit': 3,
                'daily_sma': 20, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0,
-               'tmax_hours': 24, 'enabled': True},
+               'atr_trail_mult': 0.0, 'trail_start_mult': 0.0,  # v4.5: 0.5->0.0 (trail removed)
+               'tmax_hours': 24, 'enabled': False},  # v4.5: BT PF=0.999<1.2 even w/o trail + worst live loss -> disabled, redesign pending
     'EURUSD': {'sma_short': 25, 'sma_long': 200, 'squeeze_th': 2.0,
                'slope_period': 10, 'rr': 2.5, 'sl_atr_mult': 1.0,
                'timeframe': '4h', 'slope_exit': 3,
                'daily_sma': 50, 'daily_slope_period': 3,
-               'atr_trail_mult': 0.5, 'trail_start_mult': 0.0,
+               'atr_trail_mult': 0.0, 'trail_start_mult': 0.0,  # v4.5: 0.5->0.0 (intrabar trail; BT borderline, monitor)
                'tmax_hours': 24, 'enabled': True},
     'GBPUSD': {'sma_short': 15, 'sma_long': 250, 'squeeze_th': 1.5,
                'slope_period': 20, 'rr': 2.0, 'sl_atr_mult': 1.0,

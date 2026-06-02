@@ -541,12 +541,12 @@ SELL: diff >= +0.0007</pre>
 <!-- §6 SMA Squeeze -->
 <div class="section" id="s6">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>6. SMA Squeeze Play <small style="font-size:11px;color:var(--muted)">sma_squeeze.py v4.4</small></h2>
+    <h2>6. SMA Squeeze Play <small style="font-size:11px;color:var(--muted)">sma_squeeze.py v4.5</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
     <h3>概要</h3>
-    <p>SMA200スロープフィルター + SMAスクイーズ解放でトレンドフォロー。v3で日足SMAスロープフィルター追加・COOLDOWN=180分、v4でATR-adaptive trailing stop導入（be_r廃止）、v4.2でtrail_start_mult BT検証（0.0=即時開始が全ペア最適と確定）、v4.3でEURJPY停止・T_max=24h追加（USDJPY/GBPJPY/EURUSD）、v4.4でUSADJPY squeeze_th緩和（2.0→1.5、シグナル頻度改善）。</p>
+    <p>SMA200スロープフィルター + SMA圧縮中の押し目でトレンドフォロー（低WR・高RR型）。v3で日足SMAスロープフィルター追加・COOLDOWN=180分、v4でATR-adaptive trailing stop導入（be_r廃止）、v4.2でtrail_start_mult BT検証、v4.3でEURJPY停止・T_max=24h追加、v4.4でUSDJPY squeeze_th緩和、<strong>v4.5でATRトレーリング無効化（実稼働WR~0%の真因）・GBPJPY停止</strong>。</p>
 
     <div class="info-grid">
       <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20260010</div></div>
@@ -558,17 +558,18 @@ SELL: diff >= +0.0007</pre>
     <h3>対象通貨ペア・パラメータ</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>有効</th><th>TF</th><th>SMA短</th><th>SMA長</th><th>squeeze_th</th><th>RR</th><th>SL倍率</th><th>atr_trail</th><th>tmax_hours</th><th>daily_sma</th><th>ATR trail PF</th></tr></thead>
+        <thead><tr><th>ペア</th><th>有効</th><th>TF</th><th>SMA短</th><th>SMA長</th><th>squeeze_th</th><th>RR</th><th>SL倍率</th><th>atr_trail</th><th>tmax_hours</th><th>daily_sma</th><th>trail無しBT PF</th></tr></thead>
         <tbody>
-          <tr><td><strong>USDJPY</strong></td><td>✅</td><td>4h</td><td>25</td><td>150</td><td><strong>1.5%</strong></td><td>2.5</td><td>1.5</td><td><strong>0.5</strong></td><td><strong>24h</strong></td><td>20(sp=3)</td><td class="pf-good">4.441</td></tr>
-          <tr><td><strong>GBPJPY</strong></td><td>✅</td><td>1h</td><td>25</td><td>250</td><td>0.5%</td><td>2.0</td><td>1.5</td><td><strong>0.5</strong></td><td><strong>24h</strong></td><td>20(sp=3)</td><td class="pf-good">2.883</td></tr>
-          <tr><td><strong>EURUSD</strong></td><td>✅</td><td>4h</td><td>25</td><td>200</td><td>2.0%</td><td>2.5</td><td>1.0</td><td><strong>0.5</strong></td><td><strong>24h</strong></td><td>50(sp=3)</td><td class="pf-good">5.193</td></tr>
+          <tr><td><strong>USDJPY</strong></td><td>✅</td><td>4h</td><td>25</td><td>150</td><td><strong>1.5%</strong></td><td>2.5</td><td>1.5</td><td><strong>0.0</strong></td><td><strong>24h</strong></td><td>20(sp=3)</td><td class="pf-good">2.475</td></tr>
+          <tr style="opacity:0.6"><td><strong>GBPJPY</strong></td><td>❌</td><td>1h</td><td>25</td><td>250</td><td>0.5%</td><td>2.0</td><td>1.5</td><td><strong>0.0</strong></td><td><strong>24h</strong></td><td>20(sp=3)</td><td class="pf-ok">0.999</td></tr>
+          <tr><td><strong>EURUSD</strong></td><td>✅</td><td>4h</td><td>25</td><td>200</td><td>2.0%</td><td>2.5</td><td>1.0</td><td><strong>0.0</strong></td><td><strong>24h</strong></td><td>50(sp=3)</td><td class="pf-ok">1.157</td></tr>
           <tr><td><strong>GBPUSD</strong></td><td>❌</td><td>1h</td><td>15</td><td>250</td><td>1.5%</td><td>2.0</td><td>1.0</td><td>1.5</td><td>None</td><td>20(sp=5)</td><td class="pf-ok">—</td></tr>
           <tr style="opacity:0.6"><td><strong>EURJPY</strong></td><td>❌</td><td>4h</td><td>15</td><td>150</td><td>2.0%</td><td>2.5</td><td>1.5</td><td><strong>0.0</strong></td><td>None</td><td>20(sp=5)</td><td class="pf-good">3.673</td></tr>
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin-top:6px">ATR trail PF: sma_squeeze_exit_bt.py 415runs (atr_trail_mult=0.5, trail_start_mult=0.0, keep_tp=True)。EURJPYはbaseline(trail無効)が最優。<br>
+    <p style="font-size:12px;color:var(--muted);margin-top:6px"><strong>v4.5 ATRトレーリング無効化 (2026-06-02・実稼働WR~0% n=20 -19,285円の真因):</strong> 乖離分析(optimizer/sma_squeeze_divergence_bt.py)で、実機の決済スタック（ATRトレール0.5×を60秒毎・tick.bidでイントラバーにラチェット）がSLを~0.5×ATR／建値まで締め上げ、RR=2.0-2.5のTP到達前にストップアウトと特定。低WR・高RR型のため数少ない大勝ちを刈ると優位性が消滅。実トレード指紋: TP到達0件・多数の「pnl≒0 [sl]」。<br>
+    棄却仮説: 次バーopen執行(PF 1.642→1.645、無影響)、スクイーズ解放トリガー(n=0-1でシグナル消滅→「圧縮中」ゲートは意図的設計)、スプレッド(PF -3〜7%)。対策: atr_trail_mult 0.5→0.0（USDJPY/EURUSD）。<strong>GBPJPY: trail無しでもBT PF=0.999&lt;1.2 + 実稼働最大損失 → 停止・再設計。</strong> 注意: sma_squeeze_exit_bt.py のtrail検証(旧PF 4.441等)はバー終値のみでイントラバー未考慮→信頼不可。<br>
     <strong>EURJPY停止理由 (v4.3):</strong> 実稼働WR=0%（n=2, -9,900円）。94.6h保有でSL到達。BT PF=3.673だが実稼働と乖離が大きいため一時停止。<br>
     <strong>USDJPY squeeze_th変更 (v4.4):</strong> 2.0→1.5。BT PF=1.972 WR=46.2%（現行2.0: PF=1.815）。実稼働直近3M月平均0.94件/月（&lt;1.0閾値）のため緩和。EURUSD は2.0が最適PF=2.670のため維持。<br>
     <strong>T_max=24h:</strong> USDJPY/GBPJPY/EURUSDで保有24時間超過→成行強制決済。ログ: <code>[TMAX] symbol SIDE hold=Xh&gt;24h force-close</code></p>
@@ -604,11 +605,11 @@ SELL: diff >= +0.0007</pre>
           <tr><td>強制決済</td><td>SMA長逆ブレイク (LONG→終値&lt;SMA長)</td><td><strong>最優先</strong></td></tr>
           <tr><td><strong>T_max強制決済 (v4.3)</strong></td><td>tmax_hours超過で成行決済 <code>[TMAX]</code> ログ出力</td><td>slope-exitより優先</td></tr>
           <tr><td>slope-exit (A-1)</td><td>SMA長傾き反転 slope_exit=3本連続</td><td>次優先</td></tr>
-          <tr><td>ATR-adaptive trail (v4)</td><td>trail_dist=ATR14×atr_trail_mult、SLをラチェット更新</td><td>常時監視(60秒)</td></tr>
+          <tr style="opacity:0.6"><td>ATR-adaptive trail (v4/v4.5無効)</td><td>trail_dist=ATR14×atr_trail_mult、SLをラチェット更新。<strong>v4.5で全有効ペア atr_trail_mult=0.0（無効化）</strong></td><td>常時監視(60秒)</td></tr>
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted);margin-top:6px">ATR trail: trail_start_mult=0.0（即時開始）がBT最適。EURJPY: atr_trail_mult=0.0（trail無効）。</p>
+    <p style="font-size:12px;color:var(--muted);margin-top:6px">v4.5: 全有効ペアで atr_trail_mult=0.0（無効化）。固定TP/SL + SMA_long割れ + slope-exit(3) + T_max で決済。コード機構は将来のペア別調整用に保持。</p>
   </div>
 </div>
 
