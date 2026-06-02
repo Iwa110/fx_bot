@@ -910,12 +910,18 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 
 ### 起動方法
 
-```bat
-REM 個別ペア・ブローカー起動例
+**正式: restart_grid.ps1**（grid_monitor.bat は廃止済み）。全デーモンをキルして全ペア×ブローカーを再起動・起動確認まで実施。
+
+```powershell
+cd C:\Users\Administrator\fx_bot
+git pull origin main
+powershell -ExecutionPolicy Bypass -File C:\Users\Administrator\fx_bot\vps\restart_grid.ps1
+REM オプション: -IncludeNZDUSD（停止中ペアも起動） / -WhatIf（ドライラン）
+```
+
+個別起動が必要な場合のみ:
+```powershell
 pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory
-pythonw.exe grid_monitor.py --pair CHFJPY --broker exness
-pythonw.exe grid_monitor.py --pair NZDJPY --broker axiory
-pythonw.exe grid_monitor.py --pair AUDCAD --broker axiory
 ```
 
 ### ログファイル / Stateファイル

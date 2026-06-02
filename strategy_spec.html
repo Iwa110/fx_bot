@@ -1107,14 +1107,17 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
     <p style="font-size:12px;color:var(--muted)">IS=2024-04〜2025-04 / OOS=2025-04〜2026-04。両期間で net&gt;0 &amp; PF≥1.2 &amp; 損失イベント実発生（過適合候補は除外）。</p>
 
     <h3>起動方法</h3>
-    <pre>REM 個別起動例
-pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory
-pythonw.exe grid_monitor.py --pair CHFJPY --broker exness
-pythonw.exe grid_monitor.py --pair NZDJPY --broker axiory
-pythonw.exe grid_monitor.py --pair AUDCAD --broker axiory</pre>
+    <p style="font-size:12px;color:var(--muted)">正式: <code>restart_grid.ps1</code>（grid_monitor.bat は廃止済み）。全デーモンをキル→全ペア×ブローカー再起動→起動確認まで実施。</p>
+    <pre>cd C:\Users\Administrator\fx_bot
+git pull origin main
+powershell -ExecutionPolicy Bypass -File C:\Users\Administrator\fx_bot\vps\restart_grid.ps1
+REM オプション: -IncludeNZDUSD / -WhatIf
+
+REM 個別起動が必要な場合のみ:
+pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory</pre>
 
     <h3>ログ出力仕様</h3>
-    <pre>entry LONG lot=0.01 price=... grid_width=... level=X/7
+    <pre>entry LONG lot=1.00 price=... grid_width=... level=X/N  (N=max_levels per pair)
 tp_close LONG price=... pnl=+XXXX JPY hold=Xh
 b48_close LONG positions=X total_pnl=+XXXX JPY
 filter_block ci=XX.X (threshold=65.0)  REM ペア別 61.8 or 65.0
