@@ -20,7 +20,7 @@
 11. [トレーリングストップ共通仕様](#11-トレーリングストップ共通仕様-trail_monitorpy)
 12. [共通リスク管理](#12-共通リスク管理-risk_managerpy)
 13. [COT極値×日足トレンド](#13-cot極値日足トレンド-cot_monitorpy-v1)
-14. [グリッド戦略](#14-グリッド戦略-grid_monitorpy-v2)
+14. [グリッド戦略](#14-グリッド戦略-grid_monitorpy-v6)
 
 ---
 
@@ -815,29 +815,32 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 
 ---
 
-## 14. グリッド戦略 (grid_monitor.py v5)
+## 14. グリッド戦略 (grid_monitor.py v6)
 
 ### 概要
-双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が高い時のみエントリー。最大7レベルに達した後48時間タイマーで強制決済する B48 Exit を採用。
+双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が高い時のみエントリー。max_levels に達した後48時間タイマーで強制決済する B48 Exit を採用。
+
+**v6（2026-06-02 パラメータ最適化）**: float-stop込み2年BTで CHFJPY/NZDJPY が負エッジと判明。真因は `max_levels=7` で含み損が深く積まれ、48hを待たず float-stop(-1.5M) が先に発動 → **B48がデッド**。対策として **max_levels を 7→3/5 に浅化 + ci_threshold を 61.8→65 に厳格化**。浅いラダーで B48（マイルドな時間決済）が float-stop より先に効き、単発損・DDが激減しPFも改善。IS/OOS分割（2024-04〜2026-04）で両期間 net>0 & PF≥1.2 & 損失イベント実発生を確認（過適合候補は除外）。
 
 ### 対象ペアと確定パラメータ
 
-| ペア | Magic | atr_mult | max_levels | CI_threshold | Exit | BT PF | BT n | LOT | 備考 |
-|------|-------|----------|------------|--------------|------|-------|------|-----|------|
-| NZDUSD | 20260030 | 2.0 | 7 | 61.8 | B48h | — | — | 0.01 | 停止中 |
-| GBPJPY | 20260031 | 1.5 | 7 | 61.8 | B48h | Full:3.857 | 218 | 1.00 | demo |
-| CHFJPY | 20260032 | 2.0 | 7 | 61.8 | B48h | OOS:1.521 | 38 | 1.00 | demo |
-| NZDJPY | 20260033 | 1.0 | 7 | 61.8 | B48h | OOS:3.405 | 132 | **1.00** | v5追加(demo) |
-| AUDCAD | 20260034 | 1.0 | 7 | 61.8 | B48h | Full:3.311 | 156 | **1.00** | v5追加(demo) |
+| ペア | Magic | atr_mult | max_levels | CI_threshold | Exit | BT PF(net) | BT net | LOT | 備考 |
+|------|-------|----------|------------|--------------|------|-----------|--------|-----|------|
+| NZDUSD | 20260030 | 2.0 | 7 | 61.8 | B48h | 1.81 | +16k | 0.01 | 停止中(micro) |
+| GBPJPY | 20260031 | 1.5 | 7 | 61.8 | B48h | 1.96 | +5.97M | 1.00 | demo / v6据置(最良) |
+| CHFJPY | 20260032 | **1.0** | **3** | **65.0** | B48h | **1.51** | **+1.41M** | 1.00 | demo / **v6で反転**(旧PF0.70/-3.76M) |
+| NZDJPY | 20260033 | **1.5** | **5** | **65.0** | B48h | **1.65** | **+1.92M** | 1.00 | demo / **v6で反転**(旧PF0.96/-0.43M) |
+| AUDCAD | 20260034 | 1.0 | **3** | **65.0** | B48h | **2.75** | **+4.28M** | 1.00 | demo / v6改善(旧PF1.26/+2.63M) |
 
-- NZDJPY BT根拠: grid_new_pairs_bt.py / IS70%/OOS30% / atr_mult=1.0 lv=7
-- AUDCAD BT根拠: grid_new_pairs_bt.py / full_PF=3.31 / CI>61.8率=28.1%（全ペア最高）
+- BT根拠: grid_floatstop_bt.py（float-stop込みフル2年）+ grid_param_sweep.py / grid_param_validate.py（IS/OOS頑健性検証）。net円はlot1.0換算、AUDCADはCADJPY≈108想定（PFはレート不感）。
+- GBPJPY: LIVE(lv7/atr1.5)がPF1.96で純益最良・IS/OOS両正のため据置。浅化(atr3.0/lv3)はDD3.4M→1.74M圧縮可だがPF1.26に低下（任意）。
+- 注意: B48=48h据置（短縮は無効、効くのはラダー浅化）。worst単発はギャップで float_stop 閾値を超過しうる。
 
 ### 基本情報
 
 | 項目 | 値 |
 |------|-----|
-| スクリプト | grid_monitor.py v5 |
+| スクリプト | grid_monitor.py v6 |
 | TF | H1（ATR計算）/ D1 resample（CI計算）|
 | ロット | ペア別（LOT_PER_PAIR 参照） |
 | ループ間隔 | 60秒 |
@@ -867,48 +870,43 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 ### B48 Exit（最大レベル到達後タイマー決済）
 
 - Long / Short それぞれ独立したタイマー
-- max_levels（7）到達時刻を記録
+- max_levels（ペア別 3/5/7）到達時刻を記録
 - 48時間経過 → その方向の全ポジションを成行決済
 - TP が発火してカウントが max_levels を下回ると → タイマーリセット
+- **v6設計意図**: ラダーを浅く（lv3/5）することで、最大深度の含み損が浅くなり B48 が float-stop より先に発動 → 単発損を緩やかに限定する主決済として機能（旧lv7では float-stop が先行し B48 はデッドだった）
 
 ### Float Stop（v4〜）
 
 - 方向ごとの含み損が FLOAT_STOP_JPY を下回った場合、B48タイマーを待たず即時成行決済
+- **v6注**: CHFJPY/NZDJPY/AUDCAD は浅化により B48 が主決済化、float-stop はテールのバックストップ（稀発動）
 
-### バックテスト結果詳細
+### バックテスト結果詳細（v6 / grid_floatstop_bt.py: float-stop込みフル2年 2024-04〜2026-04）
 
-**GBPJPY（IS/OOS検証）**
+旧BT（grid_levels_bt.py / 旧仕様）は float-stop 未実装・lot0.02 のため過大評価だった。以下は float-stop を実装しライブlotで回した結果（net=PF, 損切り込み）。
 
-| 期間 | PF | n |
-|------|----|---|
-| Full | 3.857 | 218 |
-| IS（前半） | 2.741 | — |
-| OOS WF1 | 1.542 | — |
+| ペア | 構成(ci/atr/lv) | PF | net円 | n_tp | n_b48 | worst単発 | max_dd | 判定 |
+|------|-----------------|----|-------|------|-------|-----------|--------|------|
+| GBPJPY | 61.8/1.5/7 | 1.96 | +5,965,956 | 269 | 0 | -1.62M | 3.40M | 据置(最良) |
+| CHFJPY | 65/1.0/3 | 1.51 | +1,412,119 | 146 | 9 | -0.65M | 0.61M | **v6で反転** |
+| NZDJPY | 65/1.5/5 | 1.65 | +1,915,527 | 190 | 1 | -0.58M | 0.66M | **v6で反転** |
+| AUDCAD | 65/1.0/3 | 2.75 | +4,275,296 | 303 | 15 | -0.31M | 0.31M | v6改善 |
+| NZDUSD | 61.8/2.0/7 | 1.81 | +15,905 | 121 | 0 | -0.02M | 0.02M | micro/停止中 |
 
-**CHFJPY（IS/OOS検証）**
+**旧構成（lv7・float-stop込み）との比較（反転の証跡）**
 
-| 期間 | PF | n |
-|------|----|---|
-| IS | 1.023 | — |
-| OOS | 1.521 | 38 |
+| ペア | 旧PF | 旧net | → 新PF | 新net |
+|------|------|-------|--------|-------|
+| CHFJPY | 0.70 | -3,757,313 | 1.51 | +1,412,119 |
+| NZDJPY | 0.96 | -428,291 | 1.65 | +1,915,527 |
+| AUDCAD | 1.26 | +2,625,094 | 2.75 | +4,275,296 |
 
-**NZDJPY（IS70%/OOS30%, atr_mult=1.0, lv=7）**
+**IS/OOS頑健性（grid_param_validate.py / 2024-04〜2025-04 vs 2025-04〜2026-04, 推奨構成）**
 
-| 期間 | PF | n | max_dd | n_b48 |
-|------|----|---|--------|-------|
-| Full | 1.798 | 557 | 10,910 | 3 |
-| IS | 1.563 | 425 | — | — |
-| OOS | 3.405 | 132 | 13,836 | 1 |
-
-**AUDCAD（IS70%/OOS30%, atr_mult=1.0, lv=7）**
-
-| 期間 | PF | n | max_dd | n_b48 |
-|------|----|---|--------|-------|
-| Full | 3.311 | 587 | 0 | 0 |
-| IS | 4.082 | 431 | — | — |
-| OOS | inf | 156 | 0 | 0 |
-
-- AUDCAD OOS inf = OOS期間（2025/9〜）でB48ゼロ。CI>61.8=28.1%（全ペア最高）が背景
+| ペア | IS PF/net | OOS PF/net | 損失イベント数(IS+OOS) |
+|------|-----------|------------|----------------------|
+| CHFJPY 65/1.0/3 | 1.34 / +736k | 2.22 / +676k | 9 |
+| NZDJPY 65/1.5/5 | 1.28 / +590k | 2.57 / +1.33M | 6 |
+| AUDCAD 65/1.0/3 | 2.71 / +2.28M | 2.79 / +2.00M | 15 |
 
 ### 起動方法
 
@@ -930,10 +928,10 @@ pythonw.exe grid_monitor.py --pair AUDCAD --broker axiory
 ### ログ出力仕様
 
 ```
-entry LONG lot=0.01 price=... grid_width=... level=X/7
+entry LONG lot=1.00 price=... grid_width=... level=X/N  (N=max_levels per pair)
 tp_close LONG price=... pnl=+XXXX JPY hold=Xh
 b48_close LONG positions=X total_pnl=+XXXX JPY
-filter_block ci=XX.X (threshold=61.8)
+filter_block ci=XX.X (threshold=65.0)  (ペア別: 61.8 or 65.0)
 heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X
 loop_error ...
 ```

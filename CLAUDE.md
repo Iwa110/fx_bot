@@ -67,7 +67,60 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-05-28 更新）
+## Top of mind（2026-06-02 更新）
+
+### Grid CHFJPY 実残高ベース評価（2026-06-02）★最優先タスクの結論
+- **判定: 実マネー・エッジは未確認。demo口座の小サンプル × トレンド順行窓での額面利益にすぎず、スケール不可。**
+- history.csv の額面 +187,768円（magic=20260032 / WR100% / n=8）の内訳:
+  - 実ロット(1.0)は **5/28 21:03以降の約3.5日・実質5決済のみ**（それ以前は0.01の検証ロットで損益ほぼ0）
+  - 期間中 CHFJPY は 201.9→204+ の上昇トレンド。buyが上昇を捕捉、sellは押し目の平均回帰で小利確 → **逆行トレンドでfloat-stopが発動した実績はゼロ（生存者バイアス）**
+- WR=100%はグリッドの構造的必然（TPだけ計上、含み損は B48/float-stop まで保有）。実残高評価には**不利トレンドで損切りが発動する局面のデータが必須**だが未取得。
+- **テールリスク（grid_monitor.py コメント記載値）**:
+  - CHFJPY 1.0lot: FLOAT_STOP=**-1,500,000円/方向**、B48両建て最悪ケース **約-2,250,000円**
+  - つまり実現+18.8万円に対し最悪-150〜225万円 → 実現益:テール ≈ 1:8〜1:12 の「ペニー拾い」プロファイル
+- **結論アクション**: 実マネー移行は保留。最低でも(a)float-stop/B48が一度発動する不利局面を含むdemoデータ、(b)その損切り後も実現エッジが残るか、を確認するまでスケール禁止。NZDJPY/AUDCAD(lv7/1.0lot追加分)も同様に未検証。
+
+### Grid float-stop込み2年BT 全5ペア（2026-06-02 / grid_floatstop_bt.py）★(a)(b)を過去データで実施
+- ライブ設定(LOT_PER_PAIR / atr_mult / max_levels=7 / B48=48h / FLOAT_STOP_PER_PAIR)に忠実、各ペア_1h 2024-04〜2026-04(約12,330本)で検証。非JPYは quote_jpy 係数でJPY換算(NZDUSD≈155, AUDCAD CADJPY≈108)。検知=バー逆行extreme(保守的)。
+- **(a)達成**: float-stopが全ペアで複数回発動(下表)= 不利トレンド局面を十分に内包。
+- **(b)結論（PF=net・float-stop損込み）**:
+
+| ペア | lot | PF | 2年net円 | TP | float-stop | worst単発 | maxDD | 判定 |
+|------|----:|---:|---------:|---:|-----------:|----------:|------:|------|
+| GBPJPY | 1.0 | **1.96** | +5,965,956 | 269 | 4回-6.20M | -1.62M | 3.40M | ✅生存(最良) |
+| AUDCAD | 1.0 | **1.26** | +2,625,094 | 585 | 19回-10.27M | -0.60M | 1.08M | ✅生存(要CADJPY前提) |
+| NZDUSD | 0.01 | 1.81 | +15,905 | 121 | 1回 | -0.02M | 0.02M | △microロット・額僅少 |
+| NZDJPY | 1.0 | **0.96** | -428,291 | 562 | 18回-10.02M | **-0.75M** | 2.03M | ❌均衡〜負 |
+| CHFJPY | 1.0 | **0.70** | -3,757,313 | 164 | 8回-12.46M | -1.62M | 5.72M | ❌非生存(最悪) |
+
+- **PFはquote_jpy(FXレート想定)にほぼ不感**（TP/float-stop両方が同係数でスケールしgross比は不変）→ AUDCAD/NZDUSDの正エッジ判定は頑健。net円額のみレート想定で変動。
+- NZDJPYは float_stop=-500k 設定だが worst単発-749k → **逆行extreme/ギャップで閾値を超過**。実機の単発損は閾値で完全には止まらない点に注意。
+- B48は全ペアn=0（float-stopが先に発動）。
+- 旧BT(CHFJPY IS PF=1.023/OOS 1.521)はfloat-stop未実装・lot0.02 → **float-stop現実でCHFJPY負に反転、過大評価だった**。
+- **次アクション**: ①CHFJPY grid停止 or 再設計（負エッジ確定）②NZDJPY停止検討（均衡〜負）③Grid実マネー候補は GBPJPY最優先、AUDCAD次点（いずれもDD吸収資金が前提）。
+
+### Grid パラメータ最適化（2026-06-02 / grid_param_sweep.py + grid_param_validate.py）★B48デッド対策
+- **「B48 n=0」の真因**: max_levels=7 で最大深度の累積含み損が深く、48hを待たず float-stop(-1.5M) が先に発動 → B48デッド。b48_hours短縮(24/36h)はほぼ無効。
+- **本丸の修正 = max_levels 7→3/5（+ ci_threshold 61.8→65）**: ラダーを浅くすると B48(マイルドな時間決済)が float-stop より先に効き(n_b48 が 0→8〜15)、**単発損とDDが激減・PFも改善**。負けペアが正に反転。
+- IS/OOS 半々分割で両期間 net>0 & PF≥1.2 & 損失イベント実発生(過適合除外)を満たす頑健構成を選定。推奨（フル2年）:
+
+| ペア | 変更(ci/atr/lv) | PF | net円 | n_tp | n_b48 | worst単発 | maxDD | vs LIVE |
+|------|-----------------|---:|------:|-----:|------:|----------:|------:|---------|
+| CHFJPY | 61.8→65 / 2.0→1.0 / 7→3 | **1.51** | +1,412,119 | 146 | 9 | -0.65M | 0.61M | -3.76M→+1.41M ✅反転 |
+| NZDJPY | 61.8→65 / 1.0→1.5 / 7→5 | **1.65** | +1,915,527 | 190 | 1 | -0.58M | 0.66M | -0.43M→+1.92M ✅反転 |
+| AUDCAD | 61.8→65 / 1.0 / 7→3 | **2.75** | +4,275,296 | 303 | 15 | -0.31M | 0.31M | +2.63M→+4.28M ✅大幅改善 |
+| GBPJPY | — | 1.96 | +5,965,956 | 269 | 0 | -1.62M | 3.40M | LIVE維持が最良(PF最高) |
+
+- **GBPJPY注意**: LIVE(lv7/atr1.5)が既にPF1.96で最良・IS/OOS両正。浅化(atr3.0/lv3)はDD 3.4M→1.74Mに圧縮できるがPFは1.26に低下 → **純益重視ならLIVE維持、DD抑制重視なら浅化**の選択（任意）。
+- 検証注意: B48=48h据置(短縮効果なし)。worst単発はギャップで閾値超過しうる。AUDCAD net円はCADJPY想定でスケール(PFは不感)。
+- **次アクション**: vps/grid_monitor.py の PAIR_CONFIG を CHFJPY/NZDJPY/AUDCAD で上記に変更 → demo再蓄積で前方検証。
+
+### 取引実績集計（2026-06-02 / history.csv 4/24-6/1, 418決済）
+- **実マネーで黒字エッジ確認は BB USDJPY 1本のみ**（PF1.42 / WR82.8% / n=64 / +11,960円）
+- BB GBPJPY: PF0.95 / WR84.0% / n=25（σ=2.0後もまだPF<1.0、均衡圏）
+- BB停止ペア(EURUSD/GBPUSD/USDCAD)の4月歴史的損失 -130k が総額を圧迫（現行非稼働）
+- **SMA Squeeze: WR=0%・全敗 -19,285円（n=20）** → v4.5トレール無効化の真因がデータ確定。n=10程度で正転しなければ全停止検討
+- 月次額面: 4月-67.5k / 5月+74.5k / 6月(1日)+71.5k だが、5月後半以降の黒字は**Grid CHFJPY(demo)が実体**。実マネー実体は概ね月±1万円台
 
 ### 現在の稼働状態（2026-05-28時点）
 - **sma_squeeze**: v4.4 / axiory/exness（oanda停止中）
@@ -75,7 +128,8 @@ C:\Users\Administrator\fx_bot\
 - **bb_monitor**: v27 / 3ブローカー（Task Scheduler毎分実行）
   **【VPS未反映】git pull → bb_monitor再起動が必要**
 - **trail_monitor**: v15 / axiory/exness・oanda（独立プロセス）
-- **grid_monitor**: v2 / axiory/exness（GBPJPY=20260031, CHFJPY=20260032）
+- **grid_monitor**: v6 / axiory/exness（NZDUSD停止 / GBPJPY 20260031 / CHFJPY 20260032 / NZDJPY 20260033 / AUDCAD 20260034）
+  **【VPS未反映】v6 param最適化 push → git pull → 全grid再起動が必要**（CHFJPY ci65/atr1.0/lv3, NZDJPY ci65/atr1.5/lv5, AUDCAD ci65/atr1.0/lv3）
 - **news_monitor**: v1 / 未起動（news_monitor.bat 起動待ち）
 - MT5端末起動順: OANDA→(60秒後)Axiory→Exness
 
@@ -89,11 +143,11 @@ C:\Users\Administrator\fx_bot\
   - → BT SL/TP は実機より約4倍小さい（BT sl=2.5 ≈ 実機 sl=10倍相当）
   - → 実稼働WR=82%は「H1 ATR基準の大きなSLが早期にストップされにくい」ため
 
-### Phase1判定進捗（BB 全期間, 2026-05-26時点, magic=20250001）
+### Phase1判定進捗（BB 全期間, 2026-06-02時点, magic=20250001）
 | ペア   |    PF | 勝率  | n  | 総合  |
 |--------|------:|------:|---:|-------|
-| USDJPY | 1.355 | 82.3% | 62 | ✅ PF合格（蓄積継続）、σ=2.0維持 |
-| GBPJPY | 0.840 | 81.0% | 21 | ❌（n不足・PF未達）→v27でσ=2.0に変更 |
+| USDJPY | 1.42  | 82.8% | 64 | ⚠️ PF合格・n不足のみ（n=100まであと36件≈3〜4週）、σ=2.0維持 |
+| GBPJPY | 0.95  | 84.0% | 25 | ❌（PF未達/均衡圏）σ=2.0後も<1.0、PF>1.2転換 or 停止を7月判断 |
 | EURUSD | — | — | — | enabled=False（BT PF<0.7/v20停止） |
 | GBPUSD | — | — | — | enabled=False（実稼働PF=0.294/v20停止） |
 
@@ -118,8 +172,19 @@ C:\Users\Administrator\fx_bot\
 - [x] strategy_spec.md / strategy_spec.html 更新（2026-05-28完了）
 - [ ] **VPS**: `git pull origin main` → bb_monitor.bat 再起動（v27反映）
 - [ ] **VPS**: `news_monitor.bat` 起動（axiory/exness）
-- [ ] Phase1 USDJPY: n=100超えたら再判定（目安あと3〜4週間）
+- [ ] Phase1 USDJPY: n=100超えたら再判定（あと36件≈3〜4週間）
 - [ ] backtest.py BT精度向上: simulate_with_stage2をH1足ATRに切り替え（任意）
+- [x] **Grid CHFJPY 実残高ベース評価（2026-06-02完了）**: demo小サンプル・トレンド順行窓・テール-1.5〜2.25M円 → 実マネー移行保留
+- [x] **Grid float-stop込み2年BT 全5ペア（2026-06-02完了 / grid_floatstop_bt.py）**: GBPJPY PF1.96✅ / AUDCAD PF1.26✅ / NZDUSD PF1.81(micro) / NZDJPY PF0.96❌ / CHFJPY PF0.70❌
+- [ ] **Grid CHFJPY**: 停止 or lv/atr_mult再設計を判断（PF0.70・net-3.76M負エッジ確定）
+- [ ] **Grid NZDJPY**: 停止検討（PF0.96・均衡〜負、float-stop閾値超過の単発損あり）
+- [ ] **Grid 実マネー候補選定**: GBPJPY最優先・AUDCAD次点。DD(3.4M/1.1M)・単発損(-1.62M/-0.60M)を吸収できる資金計画を策定
+- [x] **Grid パラメータ最適化（2026-06-02完了 / grid_param_sweep.py + grid_param_validate.py）**: 真因=lv7でfloat-stop先行→B48デッド。lv7→3/5+ci65でCHFJPY/NZDJPY反転・AUDCAD改善（IS/OOS頑健確認）
+- [x] **vps/grid_monitor.py v6 実装（2026-06-02完了）**: CHFJPY(ci65/atr1.0/lv3)・NZDJPY(ci65/atr1.5/lv5)・AUDCAD(ci65/atr1.0/lv3)。per-pair ci_threshold追加(CI_TH)。strategy_spec.md/html同時更新済み
+- [ ] **VPS**: v6 push → `git pull origin main` → grid_monitor 全ペア再起動 → demo前方検証
+- [ ] **GBPJPY浅化(任意)**: DD抑制重視なら atr3.0/lv3 化を検討（PFは1.96→1.26に低下）
+- [ ] **SMA Squeeze 存続判定**: v4.5でn=10到達まで蓄積、正転しなければ全停止しGrid/BBへリソース集約
+- [ ] **BB GBPJPY**: 7月までにPF>1.2転換なければ停止、Phase1をUSDJPY単独合格で締める判断
 
 ## 作業スタイル
 - 作業時間: 夜まとめて1〜2時間

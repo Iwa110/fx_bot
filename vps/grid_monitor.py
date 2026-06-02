@@ -1,6 +1,22 @@
 """
-grid_monitor.py - Multi-pair Grid Strategy monitor v5
+grid_monitor.py - Multi-pair Grid Strategy monitor v6
 Bi-directional grid: Long and Short run concurrently.
+
+v6 changes (param optimization 2026-06-02; see optimizer/grid_param_*.py):
+  - Root cause of "B48 never fires": at max_levels=7 the accumulated unrealized
+    loss at full depth is so deep that FLOAT_STOP (-1.5M) always triggers before
+    the 48h timer -> B48 was dead, and float-stop did all loss control. Shortening
+    b48_hours did not help; SHALLOWING the ladder does.
+  - Fix = lower max_levels (7->3/5) + raise ci_threshold (61.8->65). Shallow ladder
+    lets B48 (gentler time-exit) fire before float-stop, slashing single-event loss
+    and drawdown while improving PF. Verified robust on IS/OOS split (2024-04..2026-04).
+  - Per-pair ci_threshold added to PAIR_CONFIG (CI_TH runtime global).
+  - New configs (full-2yr float-stop BT, lot as live):
+      CHFJPY: ci65/atr1.0/lv3 -> PF 1.51 net +1.41M (was PF0.70 -3.76M) [edge flipped]
+      NZDJPY: ci65/atr1.5/lv5 -> PF 1.65 net +1.92M (was PF0.96 -0.43M) [edge flipped]
+      AUDCAD: ci65/atr1.0/lv3 -> PF 2.75 net +4.28M (was PF1.26 +2.63M) [improved]
+      GBPJPY: unchanged (ci61.8/atr1.5/lv7 PF1.96 +5.97M already best on net)
+      NZDUSD: unchanged (0.01 micro lot, not optimized)
 
 v5 changes:
   - Add NZDJPY (magic=20260033, atr_mult=1.0, max_levels=7, lot=0.01)
@@ -24,21 +40,21 @@ v3 changes:
   - CHFJPY: 1.00 lot (demo account)
   - NZDUSD: 0.01 lot (not running, preserve original)
 
-Supported pairs and magic numbers:
-  NZDUSD: magic=20260030, tag=GRID_NZD, atr_mult=2.0, max_levels=7
-  GBPJPY: magic=20260031, tag=GRID_GBP, atr_mult=1.5, max_levels=7
-  CHFJPY: magic=20260032, tag=GRID_CHF, atr_mult=2.0, max_levels=7
-  NZDJPY: magic=20260033, tag=GRID_NZJ, atr_mult=1.0, max_levels=7
-  AUDCAD: magic=20260034, tag=GRID_AUC, atr_mult=1.0, max_levels=7
+Supported pairs and magic numbers (atr_mult/max_levels/ci_threshold per pair):
+  NZDUSD: magic=20260030, tag=GRID_NZD, atr_mult=2.0, max_levels=7, ci=61.8
+  GBPJPY: magic=20260031, tag=GRID_GBP, atr_mult=1.5, max_levels=7, ci=61.8
+  CHFJPY: magic=20260032, tag=GRID_CHF, atr_mult=1.0, max_levels=3, ci=65.0 (v6)
+  NZDJPY: magic=20260033, tag=GRID_NZJ, atr_mult=1.5, max_levels=5, ci=65.0 (v6)
+  AUDCAD: magic=20260034, tag=GRID_AUC, atr_mult=1.0, max_levels=3, ci=65.0 (v6)
 
 Strategy:
   tf: H1
   grid_width = ATR(H1, 14) x atr_mult (per pair)
-  max_levels = 7 per direction
+  max_levels = per pair (3/5/7); shallower ladders let B48 fire before float-stop
   TP = entry +/- grid_width (1 step), SL = none
 
 Entry filter (range market required):
-  Choppiness Index(D1, 14) > 61.8
+  Choppiness Index(D1, 14) > ci_threshold (per pair: 61.8 or 65.0)
   CI = 100 * log10(SUM_TR14 / (High14_max - Low14_min)) / log10(14)
   D1 data resampled from H1 bars.
 
@@ -85,12 +101,13 @@ from broker_utils import connect_mt5, disconnect_mt5, build_symbol_map, is_live_
 # ══════════════════════════════════════════
 # Pair configuration
 # ══════════════════════════════════════════
+# ci_threshold default 61.8; v6 raised CHFJPY/NZDJPY/AUDCAD to 65.0 (param opt).
 PAIR_CONFIG = {
-    'NZDUSD': {'magic': 20260030, 'tag': 'GRID_NZD', 'atr_mult': 2.0, 'max_levels': 7},
-    'GBPJPY': {'magic': 20260031, 'tag': 'GRID_GBP', 'atr_mult': 1.5, 'max_levels': 7},
-    'CHFJPY': {'magic': 20260032, 'tag': 'GRID_CHF', 'atr_mult': 2.0, 'max_levels': 7},
-    'NZDJPY': {'magic': 20260033, 'tag': 'GRID_NZJ', 'atr_mult': 1.0, 'max_levels': 7},
-    'AUDCAD': {'magic': 20260034, 'tag': 'GRID_AUC', 'atr_mult': 1.0, 'max_levels': 7},
+    'NZDUSD': {'magic': 20260030, 'tag': 'GRID_NZD', 'atr_mult': 2.0, 'max_levels': 7, 'ci_threshold': 61.8},
+    'GBPJPY': {'magic': 20260031, 'tag': 'GRID_GBP', 'atr_mult': 1.5, 'max_levels': 7, 'ci_threshold': 61.8},
+    'CHFJPY': {'magic': 20260032, 'tag': 'GRID_CHF', 'atr_mult': 1.0, 'max_levels': 3, 'ci_threshold': 65.0},
+    'NZDJPY': {'magic': 20260033, 'tag': 'GRID_NZJ', 'atr_mult': 1.5, 'max_levels': 5, 'ci_threshold': 65.0},
+    'AUDCAD': {'magic': 20260034, 'tag': 'GRID_AUC', 'atr_mult': 1.0, 'max_levels': 3, 'ci_threshold': 65.0},
 }
 
 # ══════════════════════════════════════════
@@ -125,10 +142,13 @@ DD_WEEK_PER_PAIR = {
 }
 
 # Per-pair float stop: unrealized loss per direction triggers immediate close.
-# GBPJPY 1.00 lot: gw~50k JPY/level, 7lv filled=-1.05M, fires ~3gw below 7th level.
-# CHFJPY 1.00 lot: gw~54k JPY/level, similar profile.
-# NZDJPY 1.00 lot: gw~17.6k JPY/level, 7lv filled~370k, fires ~3gw below 7th=-452k -> -500k
-# AUDCAD 1.00 lot: gw~20k JPY/level (CADJPY~102), 7lv filled~418k, fires ~3gw below=-478k -> -500k
+# v6 note: CHFJPY/NZDJPY/AUDCAD now use shallow ladders (lv3/5), so the B48 timer
+# (gentler time-exit) generally fires BEFORE float-stop -> float-stop is a tail
+# backstop, not the primary exit. Values kept as safety caps.
+# GBPJPY 1.00 lot (lv7): gw~50k JPY/level, 7lv filled=-1.05M, fires ~3gw below 7th level.
+# CHFJPY 1.00 lot (lv3): float-stop rarely reached; B48 caps single-event ~-0.65M in BT.
+# NZDJPY 1.00 lot (lv5): single-event capped ~-0.58M in BT.
+# AUDCAD 1.00 lot (lv3, CADJPY~108): single-event capped ~-0.31M in BT.
 FLOAT_STOP_PER_PAIR = {
     'GBPJPY': -1_500_000.0,
     'CHFJPY': -1_500_000.0,
@@ -161,6 +181,7 @@ STRATEGY_TAG = 'GRID_NZD'
 SYMBOL       = 'NZDUSD'
 ATR_MULT     = 2.0
 MAX_LEVELS   = 7
+CI_TH        = CI_THRESHOLD   # per-pair, set in main() from cfg['ci_threshold']
 BROKER_KEY   = 'axiory'
 _SYMBOL_MAP: dict = {}
 
@@ -448,11 +469,13 @@ def check_tp_closes(from_dt: datetime, b48_tickets: set) -> None:
 # Main loop
 # ══════════════════════════════════════════
 def main_loop() -> None:
-    log('grid_monitor v4 started  pair=' + SYMBOL +
+    log('grid_monitor v6 started  pair=' + SYMBOL +
         '  broker=' + BROKER_KEY +
         '  magic=' + str(MAGIC) +
         '  lot=' + str(LOT) +
         '  atr_mult=' + str(ATR_MULT) +
+        '  max_levels=' + str(MAX_LEVELS) +
+        '  ci_th=' + str(CI_TH) +
         '  dd_day=' + str(int(DD_DAY_JPY)) +
         '  dd_week=' + str(int(DD_WEEK_JPY)) +
         '  float_stop=' + str(int(FLOAT_STOP_JPY)) +
@@ -619,9 +642,9 @@ def main_loop() -> None:
             entry_blocked  = False
             block_reasons  = []
             dd_force_close = False
-            if ci <= CI_THRESHOLD:
+            if ci <= CI_TH:
                 entry_blocked = True
-                block_reasons.append('ci=' + ci_str + ' (threshold=' + str(CI_THRESHOLD) + ')')
+                block_reasons.append('ci=' + ci_str + ' (threshold=' + str(CI_TH) + ')')
             if day_pnl < DD_DAY_JPY:
                 entry_blocked = True
                 dd_force_close = True
@@ -701,11 +724,11 @@ def main_loop() -> None:
 # Entry point
 # ══════════════════════════════════════════
 def main() -> None:
-    global MAGIC, STRATEGY_TAG, SYMBOL, ATR_MULT, MAX_LEVELS
+    global MAGIC, STRATEGY_TAG, SYMBOL, ATR_MULT, MAX_LEVELS, CI_TH
     global BROKER_KEY, LOG_FILE, _STATE_FILE
     global LOT, DD_DAY_JPY, DD_WEEK_JPY, FLOAT_STOP_JPY
 
-    parser = argparse.ArgumentParser(description='Grid Strategy monitor v5 (multi-pair)')
+    parser = argparse.ArgumentParser(description='Grid Strategy monitor v6 (multi-pair)')
     parser.add_argument('--pair', default='NZDUSD',
                         choices=list(PAIR_CONFIG.keys()),
                         help='trading pair')
@@ -721,6 +744,7 @@ def main() -> None:
     STRATEGY_TAG = cfg['tag']
     ATR_MULT     = cfg['atr_mult']
     MAX_LEVELS   = cfg['max_levels']
+    CI_TH        = cfg.get('ci_threshold', CI_THRESHOLD)
     BROKER_KEY   = args.broker
 
     # Per-pair lot, DD limits, float stop
