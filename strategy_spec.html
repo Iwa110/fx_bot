@@ -1013,28 +1013,29 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
 <!-- §14 Grid -->
 <div class="section" id="s14">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>14. グリッド戦略 <small style="font-size:11px;color:var(--muted)">grid_monitor.py v6</small></h2>
+    <h2>14. グリッド戦略 <small style="font-size:11px;color:var(--muted)">grid_monitor.py v7</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
     <h3>概要</h3>
     <p>双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が高い時のみエントリー。max_levels 到達後 48時間タイマー（B48 Exit）で強制決済。</p>
-    <p><strong>v6（2026-06-02 パラメータ最適化）</strong>：float-stop込み2年BTで CHFJPY/NZDJPY が負エッジと判明。真因は <code>max_levels=7</code> で含み損が深く積まれ、48hを待たず float-stop(-1.5M) が先に発動し <strong>B48がデッド</strong>だったこと。対策として <strong>max_levels を 7→3/5 に浅化 + ci_threshold を 61.8→65 に厳格化</strong>。浅いラダーで B48 が float-stop より先に効き、単発損・DDが激減しPFも改善（CHFJPY/NZDJPY が黒字に反転）。IS/OOS分割で頑健性を確認済み。</p>
+    <p><strong>v6（2026-06-02 パラメータ最適化）</strong>：float-stop込み2年BTで CHFJPY/NZDJPY が負エッジと判明。真因は <code>max_levels=7</code> で含み損が深く積まれ float-stop が先発動し <strong>B48がデッド</strong>だったこと。max_levels 浅化 + ci_threshold 厳格化で B48 を主決済化。</p>
+    <p><strong>v7（2026-06-02 float_stop結合最適化）</strong>：float_stop自体を最適化変数に追加。知見＝<strong>float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定が正解</strong>（きつくすると回復可能ポジを切りPF・DD悪化）。<strong>NZDJPYは float_stop を-500k→-1.0Mに緩めると lv7 が復活し純益2.4倍</strong>。AUDCADは lv5/fs-750k に改善。CHFJPY/GBPJPYはv6据置。</p>
 
-    <h3>対象ペアと確定パラメータ（v6 / float-stop込みフル2年BT）</h3>
+    <h3>対象ペアと確定パラメータ（v7 / float-stop込みフル2年BT）</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>Magic</th><th>atr_mult</th><th>max_levels</th><th>CI_th</th><th>Exit</th><th>BT PF(net)</th><th>net円</th><th>LOT</th><th>備考</th></tr></thead>
+        <thead><tr><th>ペア</th><th>Magic</th><th>atr_mult</th><th>max_levels</th><th>CI_th</th><th>FLOAT_STOP</th><th>BT PF(net)</th><th>net円</th><th>LOT</th><th>備考</th></tr></thead>
         <tbody>
-          <tr><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0</td><td>7</td><td>61.8</td><td>B48h</td><td>1.81</td><td>+16k</td><td>0.01</td><td>停止中(micro)</td></tr>
-          <tr><td>GBPJPY</td><td class="magic-num">20260031</td><td>1.5</td><td>7</td><td>61.8</td><td>B48h</td><td class="pf-good">1.96</td><td>+5.97M</td><td><strong>1.00</strong></td><td>demo / v6据置(最良)</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>CHFJPY</td><td class="magic-num">20260032</td><td><strong>1.0</strong></td><td><strong>3</strong></td><td><strong>65.0</strong></td><td>B48h</td><td class="pf-good">1.51</td><td>+1.41M</td><td><strong>1.00</strong></td><td>demo / <strong>v6反転</strong>(旧0.70/-3.76M)</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>NZDJPY</td><td class="magic-num">20260033</td><td><strong>1.5</strong></td><td><strong>5</strong></td><td><strong>65.0</strong></td><td>B48h</td><td class="pf-good">1.65</td><td>+1.92M</td><td><strong>1.00</strong></td><td>demo / <strong>v6反転</strong>(旧0.96/-0.43M)</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>AUDCAD</td><td class="magic-num">20260034</td><td>1.0</td><td><strong>3</strong></td><td><strong>65.0</strong></td><td>B48h</td><td class="pf-good">2.75</td><td>+4.28M</td><td><strong>1.00</strong></td><td>demo / v6改善(旧1.26/+2.63M)</td></tr>
+          <tr><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0</td><td>7</td><td>61.8</td><td>-15k</td><td>1.81</td><td>+16k</td><td>0.01</td><td>停止中(micro)</td></tr>
+          <tr><td>GBPJPY</td><td class="magic-num">20260031</td><td>1.5</td><td>7</td><td>61.8</td><td>-1.5M</td><td class="pf-good">1.96</td><td>+5.97M</td><td><strong>1.00</strong></td><td>demo / 据置(最良)</td></tr>
+          <tr><td>CHFJPY</td><td class="magic-num">20260032</td><td>1.0</td><td>3</td><td>65.0</td><td>-1.5M</td><td class="pf-good">1.51</td><td>+1.41M</td><td><strong>1.00</strong></td><td>demo / v6反転・v7据置</td></tr>
+          <tr style="background:var(--highlight,#fffbe6)"><td>NZDJPY</td><td class="magic-num">20260033</td><td>1.5</td><td><strong>7</strong></td><td><strong>61.8</strong></td><td><strong>-1.0M</strong></td><td class="pf-good">2.36</td><td>+4.55M</td><td><strong>1.00</strong></td><td>demo / <strong>v7改善</strong>(v6:1.65/+1.92M)</td></tr>
+          <tr style="background:var(--highlight,#fffbe6)"><td>AUDCAD</td><td class="magic-num">20260034</td><td>1.0</td><td><strong>5</strong></td><td>65.0</td><td><strong>-750k</strong></td><td class="pf-good">4.01</td><td>+5.50M</td><td><strong>1.00</strong></td><td>demo / <strong>v7改善</strong>(v6:2.75/+4.28M)</td></tr>
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted)">BT根拠: grid_floatstop_bt.py（float-stop込み）+ grid_param_sweep.py / grid_param_validate.py（IS/OOS頑健性）。net円はlot1.0換算（AUDCADはCADJPY≈108想定、PFはレート不感）。GBPJPYはLIVE構成が純益最良のため据置。</p>
+    <p style="font-size:12px;color:var(--muted)">BT根拠: grid_floatstop_bt.py + grid_floatstop_sweep.py（float_stop結合・IS/OOS頑健性）。net円はlot1.0換算（AUDCADはCADJPY≈108想定、PFはレート不感）。v7代償: NZDJPYテール-576k→-1.05M、AUDCAD -315k→-445k。NZDJPY/AUDCADは新float_stopに合わせDD上限も緩和。</p>
 
     <div class="info-grid">
       <div class="info-item"><div class="info-label">TF</div><div class="info-value">H1(ATR) / D1 resample(CI)</div></div>
@@ -1050,8 +1051,8 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
           <tr><td>GBPJPY</td><td>1.00</td><td>-500,000</td><td>-1,500,000</td><td>-1,500,000</td></tr>
           <tr><td>CHFJPY</td><td>1.00</td><td>-500,000</td><td>-1,500,000</td><td>-1,500,000</td></tr>
           <tr><td>NZDUSD</td><td>0.01</td><td>-5,000</td><td>-15,000</td><td>-15,000</td></tr>
-          <tr><td>NZDJPY</td><td><strong>1.00</strong></td><td>-500,000</td><td>-1,500,000</td><td>-500,000</td></tr>
-          <tr><td>AUDCAD</td><td><strong>1.00</strong></td><td>-500,000</td><td>-1,500,000</td><td>-500,000</td></tr>
+          <tr><td>NZDJPY</td><td><strong>1.00</strong></td><td><strong>-1,000,000</strong></td><td><strong>-2,000,000</strong></td><td><strong>-1,000,000</strong></td></tr>
+          <tr><td>AUDCAD</td><td><strong>1.00</strong></td><td><strong>-750,000</strong></td><td>-1,500,000</td><td><strong>-750,000</strong></td></tr>
         </tbody>
       </table>
     </div>
@@ -1076,35 +1077,36 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
       <li>max_levels（ペア別 3/5/7）到達時刻を記録 → 48時間経過で全ポジション成行決済</li>
       <li>TP 発火でカウントが max_levels 未満に → タイマーリセット</li>
       <li>Float Stop: 方向ごとの含み損が FLOAT_STOP を下回った場合、タイマー待たず即時決済</li>
-      <li><strong>v6設計意図</strong>: ラダー浅化(lv3/5)で B48 が float-stop より先に発動 → 単発損を緩やかに限定する主決済として機能（旧lv7では float-stop 先行で B48 デッド）。float-stop はテールのバックストップに。</li>
+      <li><strong>v6設計意図</strong>: ラダー浅化(lv3/5)で B48 が float-stop より先に発動 → 単発損を緩やかに限定する主決済として機能（旧lv7では float-stop 先行で B48 デッド）。</li>
+      <li><strong>v7知見</strong>: float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定（非発動）が最適で、きつくすると回復可能ポジを切りPF・DD悪化。NZDJPYは緩めてlv7復活。</li>
     </ul>
 
-    <h3>バックテスト結果（v6 / grid_floatstop_bt.py: float-stop込みフル2年 2024-04〜2026-04）</h3>
-    <p style="font-size:12px;color:var(--muted)">旧BT（grid_levels_bt.py）は float-stop 未実装・lot0.02で過大評価。以下は float-stop実装・ライブlotでの net 値。</p>
+    <h3>バックテスト結果（v7 / grid_floatstop_bt.py + grid_floatstop_sweep.py: float-stop込みフル2年 2024-04〜2026-04）</h3>
+    <p style="font-size:12px;color:var(--muted)">旧BT（grid_levels_bt.py）は float-stop 未実装・lot0.02で過大評価。以下は float-stop実装・ライブlotでの net 値（v7確定構成）。</p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>構成(ci/atr/lv)</th><th>PF</th><th>net円</th><th>n_tp</th><th>n_b48</th><th>worst単発</th><th>max_dd</th></tr></thead>
+        <thead><tr><th>ペア</th><th>構成(ci/atr/lv/fs)</th><th>PF</th><th>net円</th><th>n_tp</th><th>n_b48</th><th>worst単発</th><th>max_dd</th></tr></thead>
         <tbody>
-          <tr><td>GBPJPY</td><td>61.8/1.5/7</td><td class="pf-good">1.96</td><td>+5,965,956</td><td>269</td><td>0</td><td>-1.62M</td><td>3.40M</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>CHFJPY</td><td>65/1.0/3</td><td class="pf-good">1.51</td><td>+1,412,119</td><td>146</td><td>9</td><td>-0.65M</td><td>0.61M</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>NZDJPY</td><td>65/1.5/5</td><td class="pf-good">1.65</td><td>+1,915,527</td><td>190</td><td>1</td><td>-0.58M</td><td>0.66M</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>AUDCAD</td><td>65/1.0/3</td><td class="pf-good">2.75</td><td>+4,275,296</td><td>303</td><td>15</td><td>-0.31M</td><td>0.31M</td></tr>
-          <tr><td>NZDUSD</td><td>61.8/2.0/7</td><td>1.81</td><td>+15,905</td><td>121</td><td>0</td><td>-0.02M</td><td>0.02M</td></tr>
+          <tr><td>GBPJPY</td><td>61.8/1.5/7/-1.5M</td><td class="pf-good">1.96</td><td>+5,965,956</td><td>269</td><td>0</td><td>-1.62M</td><td>3.40M</td></tr>
+          <tr><td>CHFJPY</td><td>65/1.0/3/-1.5M</td><td class="pf-good">1.51</td><td>+1,412,119</td><td>146</td><td>9</td><td>-0.65M</td><td>0.61M</td></tr>
+          <tr style="background:var(--highlight,#fffbe6)"><td>NZDJPY</td><td>61.8/1.5/7/-1.0M</td><td class="pf-good">2.36</td><td>+4,546,370</td><td>307</td><td>2</td><td>-1.05M</td><td>1.05M</td></tr>
+          <tr style="background:var(--highlight,#fffbe6)"><td>AUDCAD</td><td>65/1.0/5/-750k</td><td class="pf-good">4.01</td><td>+5,499,879</td><td>332</td><td>5</td><td>-0.45M</td><td>0.45M</td></tr>
+          <tr><td>NZDUSD</td><td>61.8/2.0/7/-15k</td><td>1.81</td><td>+15,905</td><td>121</td><td>0</td><td>-0.02M</td><td>0.02M</td></tr>
         </tbody>
       </table>
     </div>
-    <h3>旧構成(lv7)→新構成 反転の証跡 / IS-OOS頑健性</h3>
+    <h3>バージョン別 純益の推移 / float_stop感応度</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>旧PF/net</th><th>新PF/net</th><th>IS PF/net</th><th>OOS PF/net</th><th>損失イベント(IS+OOS)</th></tr></thead>
+        <thead><tr><th>ペア</th><th>旧(lv7原型)</th><th>v6</th><th>v7(float_stop最適)</th></tr></thead>
         <tbody>
-          <tr><td>CHFJPY</td><td>0.70 / -3.76M</td><td class="pf-good">1.51 / +1.41M</td><td>1.34 / +736k</td><td>2.22 / +676k</td><td>9</td></tr>
-          <tr><td>NZDJPY</td><td>0.96 / -0.43M</td><td class="pf-good">1.65 / +1.92M</td><td>1.28 / +590k</td><td>2.57 / +1.33M</td><td>6</td></tr>
-          <tr><td>AUDCAD</td><td>1.26 / +2.63M</td><td class="pf-good">2.75 / +4.28M</td><td>2.71 / +2.28M</td><td>2.79 / +2.00M</td><td>15</td></tr>
+          <tr><td>CHFJPY</td><td>0.70 / -3.76M</td><td>1.51 / +1.41M</td><td>1.51 / +1.41M（据置）</td></tr>
+          <tr><td>NZDJPY</td><td>0.96 / -0.43M</td><td>1.65 / +1.92M</td><td class="pf-good">2.36 / +4.55M</td></tr>
+          <tr><td>AUDCAD</td><td>1.26 / +2.63M</td><td>2.75 / +4.28M</td><td class="pf-good">4.01 / +5.50M</td></tr>
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted)">IS=2024-04〜2025-04 / OOS=2025-04〜2026-04。両期間で net&gt;0 &amp; PF≥1.2 &amp; 損失イベント実発生（過適合候補は除外）。</p>
+    <p style="font-size:12px;color:var(--muted)">CHFJPY float_stop感応度（ci65/atr1.0/lv3）: -300k→PF0.98/DD980k, -500k→PF1.03, -1.0M〜-2.0M→PF1.51/DD608k（緩め=非発動が最適の証跡）。IS/OOS頑健性: NZDJPY IS2.19/OOS2.65・AUDCAD IS5.61/OOS2.92（両期間 PF≥1.2・損失イベント実発生）。</p>
 
     <h3>起動方法</h3>
     <p style="font-size:12px;color:var(--muted)">正式: <code>restart_grid.ps1</code>（grid_monitor.bat は廃止済み）。全デーモンをキル→全ペア×ブローカー再起動→起動確認まで実施。</p>

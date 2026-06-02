@@ -1,6 +1,21 @@
 """
-grid_monitor.py - Multi-pair Grid Strategy monitor v6
+grid_monitor.py - Multi-pair Grid Strategy monitor v7
 Bi-directional grid: Long and Short run concurrently.
+
+v7 changes (float_stop joint optimization 2026-06-02; optimizer/grid_floatstop_sweep.py):
+  - Added float_stop itself to the optimization grid (was fixed in v6).
+  - Key finding: float_stop is only a meaningful lever for DEEP ladders. For
+    shallow ladders B48 governs and float_stop should stay LOOSE/non-binding;
+    tightening it cuts recoverable positions and worsens BOTH PF and DD
+    (CHFJPY lv3 fs-300k -> PF0.98/DD980k vs fs-1.0M -> PF1.51/DD608k).
+  - NZDJPY: loosening float_stop -500k -> -1.0M REVIVES lv7 (positions recover
+    instead of being cut early). ci61.8/atr1.5/lv7/fs-1.0M -> PF 1.65->2.36,
+    net +1.92M -> +4.55M (IS PF2.19 / OOS PF2.65). Tail -576k -> -1.05M.
+  - AUDCAD: ci65/atr1.0/lv5/fs-750k -> PF 2.75->4.01, net +4.28M -> +5.50M
+    (IS PF5.61 / OOS PF2.92). Tail -315k -> -445k.
+  - CHFJPY / GBPJPY: kept v6 (float_stop non-binding at lv3 / lv7 best on net).
+  - DD_DAY/DD_WEEK for NZDJPY/AUDCAD widened to match new float_stop so the
+    daily/weekly circuit breaker does not pre-empt the BT-validated exits.
 
 v6 changes (param optimization 2026-06-02; see optimizer/grid_param_*.py):
   - Root cause of "B48 never fires": at max_levels=7 the accumulated unrealized
@@ -44,8 +59,8 @@ Supported pairs and magic numbers (atr_mult/max_levels/ci_threshold per pair):
   NZDUSD: magic=20260030, tag=GRID_NZD, atr_mult=2.0, max_levels=7, ci=61.8
   GBPJPY: magic=20260031, tag=GRID_GBP, atr_mult=1.5, max_levels=7, ci=61.8
   CHFJPY: magic=20260032, tag=GRID_CHF, atr_mult=1.0, max_levels=3, ci=65.0 (v6)
-  NZDJPY: magic=20260033, tag=GRID_NZJ, atr_mult=1.5, max_levels=5, ci=65.0 (v6)
-  AUDCAD: magic=20260034, tag=GRID_AUC, atr_mult=1.0, max_levels=3, ci=65.0 (v6)
+  NZDJPY: magic=20260033, tag=GRID_NZJ, atr_mult=1.5, max_levels=7, ci=61.8 (v7, fs=-1.0M)
+  AUDCAD: magic=20260034, tag=GRID_AUC, atr_mult=1.0, max_levels=5, ci=65.0 (v7, fs=-750k)
 
 Strategy:
   tf: H1
@@ -101,13 +116,14 @@ from broker_utils import connect_mt5, disconnect_mt5, build_symbol_map, is_live_
 # ══════════════════════════════════════════
 # Pair configuration
 # ══════════════════════════════════════════
-# ci_threshold default 61.8; v6 raised CHFJPY/NZDJPY/AUDCAD to 65.0 (param opt).
+# ci_threshold default 61.8; v6 raised CHFJPY/NZDJPY/AUDCAD to 65.0; v7 reverted
+# NZDJPY to 61.8/lv7 (float_stop loosened to -1.0M) and AUDCAD lv3->5.
 PAIR_CONFIG = {
     'NZDUSD': {'magic': 20260030, 'tag': 'GRID_NZD', 'atr_mult': 2.0, 'max_levels': 7, 'ci_threshold': 61.8},
     'GBPJPY': {'magic': 20260031, 'tag': 'GRID_GBP', 'atr_mult': 1.5, 'max_levels': 7, 'ci_threshold': 61.8},
     'CHFJPY': {'magic': 20260032, 'tag': 'GRID_CHF', 'atr_mult': 1.0, 'max_levels': 3, 'ci_threshold': 65.0},
-    'NZDJPY': {'magic': 20260033, 'tag': 'GRID_NZJ', 'atr_mult': 1.5, 'max_levels': 5, 'ci_threshold': 65.0},
-    'AUDCAD': {'magic': 20260034, 'tag': 'GRID_AUC', 'atr_mult': 1.0, 'max_levels': 3, 'ci_threshold': 65.0},
+    'NZDJPY': {'magic': 20260033, 'tag': 'GRID_NZJ', 'atr_mult': 1.5, 'max_levels': 7, 'ci_threshold': 61.8},
+    'AUDCAD': {'magic': 20260034, 'tag': 'GRID_AUC', 'atr_mult': 1.0, 'max_levels': 5, 'ci_threshold': 65.0},
 }
 
 # ══════════════════════════════════════════
@@ -126,35 +142,36 @@ LOT_PER_PAIR = {
 }
 
 # Per-pair daily/weekly DD limits scaled to lot size (vs original 0.01 lot baseline)
+# v7: NZDJPY/AUDCAD widened so the daily breaker does not fire before the new
+# float_stop (NZDJPY -1.0M / AUDCAD -750k) completes a single-direction exit.
 DD_DAY_PER_PAIR = {
     'GBPJPY': -500000.0,
     'CHFJPY': -500000.0,
     'NZDUSD':   -5000.0,
-    'NZDJPY': -500000.0,
-    'AUDCAD': -500000.0,
+    'NZDJPY': -1000000.0,
+    'AUDCAD': -750000.0,
 }
 DD_WEEK_PER_PAIR = {
     'GBPJPY': -1500000.0,
     'CHFJPY': -1500000.0,
     'NZDUSD':   -15000.0,
-    'NZDJPY': -1500000.0,
+    'NZDJPY': -2000000.0,
     'AUDCAD': -1500000.0,
 }
 
 # Per-pair float stop: unrealized loss per direction triggers immediate close.
-# v6 note: CHFJPY/NZDJPY/AUDCAD now use shallow ladders (lv3/5), so the B48 timer
-# (gentler time-exit) generally fires BEFORE float-stop -> float-stop is a tail
-# backstop, not the primary exit. Values kept as safety caps.
-# GBPJPY 1.00 lot (lv7): gw~50k JPY/level, 7lv filled=-1.05M, fires ~3gw below 7th level.
-# CHFJPY 1.00 lot (lv3): float-stop rarely reached; B48 caps single-event ~-0.65M in BT.
-# NZDJPY 1.00 lot (lv5): single-event capped ~-0.58M in BT.
-# AUDCAD 1.00 lot (lv3, CADJPY~108): single-event capped ~-0.31M in BT.
+# v7 finding: float_stop only matters as a tail backstop for DEEP ladders; too
+# tight a value cuts recoverable positions and worsens PF+DD. Keep loose.
+# GBPJPY 1.00 lot (lv7, -1.5M): gw~50k/lvl; backstop, B48 dominates in BT.
+# CHFJPY 1.00 lot (lv3, -1.5M): non-binding; B48 caps single-event ~-0.65M in BT.
+# NZDJPY 1.00 lot (lv7, -1.0M): v7 loosened from -500k -> revives lv7; tail ~-1.05M BT.
+# AUDCAD 1.00 lot (lv5, -750k, CADJPY~108): v7; single-event ~-0.45M in BT.
 FLOAT_STOP_PER_PAIR = {
     'GBPJPY': -1_500_000.0,
     'CHFJPY': -1_500_000.0,
     'NZDUSD':    -15_000.0,
-    'NZDJPY':  -500_000.0,
-    'AUDCAD':  -500_000.0,
+    'NZDJPY': -1_000_000.0,
+    'AUDCAD':  -750_000.0,
 }
 
 # ══════════════════════════════════════════
@@ -469,7 +486,7 @@ def check_tp_closes(from_dt: datetime, b48_tickets: set) -> None:
 # Main loop
 # ══════════════════════════════════════════
 def main_loop() -> None:
-    log('grid_monitor v6 started  pair=' + SYMBOL +
+    log('grid_monitor v7 started  pair=' + SYMBOL +
         '  broker=' + BROKER_KEY +
         '  magic=' + str(MAGIC) +
         '  lot=' + str(LOT) +
@@ -728,7 +745,7 @@ def main() -> None:
     global BROKER_KEY, LOG_FILE, _STATE_FILE
     global LOT, DD_DAY_JPY, DD_WEEK_JPY, FLOAT_STOP_JPY
 
-    parser = argparse.ArgumentParser(description='Grid Strategy monitor v6 (multi-pair)')
+    parser = argparse.ArgumentParser(description='Grid Strategy monitor v7 (multi-pair)')
     parser.add_argument('--pair', default='NZDUSD',
                         choices=list(PAIR_CONFIG.keys()),
                         help='trading pair')

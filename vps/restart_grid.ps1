@@ -1,4 +1,4 @@
-# restart_grid.ps1 - Kill and restart all grid_monitor.py daemons (v6)
+# restart_grid.ps1 - Kill and restart all grid_monitor.py daemons (v7)
 #
 # Stops every running grid_monitor.py pythonw daemon, then relaunches all
 # active pairs x brokers as hidden background processes. Parameters are
@@ -11,7 +11,7 @@
 #   -IncludeNZDUSD   also launch NZDUSD (default: excluded - stopped/micro lot)
 #   -WhatIf          show what would happen without killing/starting
 #
-# Active pairs (v6, demo): GBPJPY / CHFJPY / NZDJPY / AUDCAD on axiory + exness
+# Active pairs (v7, demo): GBPJPY / CHFJPY / NZDJPY / AUDCAD on axiory + exness
 #   GBPJPY=20260031  CHFJPY=20260032  NZDJPY=20260033  AUDCAD=20260034
 #   NZDUSD=20260030 (stopped)
 #
@@ -58,7 +58,7 @@ if (-not $running) {
 if (-not $WhatIf) { Start-Sleep -Seconds 2 }   # let MT5/handles release
 
 # 2) Relaunch all active pairs x brokers
-Write-Host "=== Starting v6 grid daemons ===" -ForegroundColor Cyan
+Write-Host "=== Starting v7 grid daemons ===" -ForegroundColor Cyan
 foreach ($pair in $pairs) {
     foreach ($broker in $brokers) {
         Write-Host ("  start: --pair {0} --broker {1}" -f $pair, $broker)

@@ -113,7 +113,14 @@ C:\Users\Administrator\fx_bot\
 
 - **GBPJPY注意**: LIVE(lv7/atr1.5)が既にPF1.96で最良・IS/OOS両正。浅化(atr3.0/lv3)はDD 3.4M→1.74Mに圧縮できるがPFは1.26に低下 → **純益重視ならLIVE維持、DD抑制重視なら浅化**の選択（任意）。
 - 検証注意: B48=48h据置(短縮効果なし)。worst単発はギャップで閾値超過しうる。AUDCAD net円はCADJPY想定でスケール(PFは不感)。
-- **次アクション**: vps/grid_monitor.py の PAIR_CONFIG を CHFJPY/NZDJPY/AUDCAD で上記に変更 → demo再蓄積で前方検証。
+- **次アクション**: vps/grid_monitor.py の PAIR_CONFIG を CHFJPY/NZDJPY/AUDCAD で上記に変更 → demo再蓄積で前方検証。【v7で実装済み・下記参照】
+
+### Grid float_stop結合最適化（2026-06-02 / grid_floatstop_sweep.py）★v7実装済み
+- float_stop自体を最適化変数に追加。**知見: float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定が正解**（きつくすると回復可能ポジを切りPF・DD悪化: CHFJPY lv3 fs-300k→PF0.98/DD980k vs fs-1.0M→PF1.51/DD608k）。
+- **NZDJPY: float_stop -500k→-1.0M に緩めると lv7 が復活** → PF1.65→2.36 / net +1.92M→+4.55M（ci 65→61.8, lv 5→7）。テール -576k→-1.05M。
+- **AUDCAD: lv3→5 / fs-500k→-750k** → PF2.75→4.01 / net +4.28M→+5.50M。テール -315k→-445k。
+- CHFJPY/GBPJPY は v6据置（float_stop非発動/純益最良）。IS/OOS頑健性確認済み（NZDJPY IS2.19/OOS2.65, AUDCAD IS5.61/OOS2.92）。
+- NZDJPY/AUDCAD は新float_stopに合わせ DD_DAY/DD_WEEK も緩和（ブレーカーが検証済み決済を先回りしないため）: NZDJPY DD_DAY-1.0M/DD_WEEK-2.0M, AUDCAD DD_DAY-750k。
 
 ### 取引実績集計（2026-06-02 / history.csv 4/24-6/1, 418決済）
 - **実マネーで黒字エッジ確認は BB USDJPY 1本のみ**（PF1.42 / WR82.8% / n=64 / +11,960円）
@@ -128,8 +135,9 @@ C:\Users\Administrator\fx_bot\
 - **bb_monitor**: v27 / 3ブローカー（Task Scheduler毎分実行）
   **【VPS未反映】git pull → bb_monitor再起動が必要**
 - **trail_monitor**: v15 / axiory/exness・oanda（独立プロセス）
-- **grid_monitor**: v6 / axiory/exness（NZDUSD停止 / GBPJPY 20260031 / CHFJPY 20260032 / NZDJPY 20260033 / AUDCAD 20260034）
-  **【VPS未反映】v6 param最適化 push → git pull → 全grid再起動が必要**（CHFJPY ci65/atr1.0/lv3, NZDJPY ci65/atr1.5/lv5, AUDCAD ci65/atr1.0/lv3）
+- **grid_monitor**: v7 / axiory/exness（NZDUSD停止 / GBPJPY 20260031 / CHFJPY 20260032 / NZDJPY 20260033 / AUDCAD 20260034）
+  **【VPS未反映】v7 push → git pull → restart_grid.ps1 で全grid再起動が必要**
+  v7確定: GBPJPY(61.8/1.5/7/-1.5M) CHFJPY(65/1.0/3/-1.5M) NZDJPY(61.8/1.5/7/**-1.0M**) AUDCAD(65/1.0/**5**/**-750k**)
 - **news_monitor**: v1 / 未起動（news_monitor.bat 起動待ち）
 - MT5端末起動順: OANDA→(60秒後)Axiory→Exness
 
@@ -181,6 +189,7 @@ C:\Users\Administrator\fx_bot\
 - [ ] **Grid 実マネー候補選定**: GBPJPY最優先・AUDCAD次点。DD(3.4M/1.1M)・単発損(-1.62M/-0.60M)を吸収できる資金計画を策定
 - [x] **Grid パラメータ最適化（2026-06-02完了 / grid_param_sweep.py + grid_param_validate.py）**: 真因=lv7でfloat-stop先行→B48デッド。lv7→3/5+ci65でCHFJPY/NZDJPY反転・AUDCAD改善（IS/OOS頑健確認）
 - [x] **vps/grid_monitor.py v6 実装（2026-06-02完了）**: CHFJPY(ci65/atr1.0/lv3)・NZDJPY(ci65/atr1.5/lv5)・AUDCAD(ci65/atr1.0/lv3)。per-pair ci_threshold追加(CI_TH)。strategy_spec.md/html同時更新済み
+- [x] **vps/grid_monitor.py v7 実装（2026-06-02完了）**: float_stop結合最適化。NZDJPY(61.8/1.5/7/-1.0M)・AUDCAD(65/1.0/5/-750k)更新+DD緩和。CHFJPY/GBPJPY据置。spec md/html・restart_grid.ps1同時更新
 - [ ] **VPS**: v6 push → `git pull origin main` → grid_monitor 全ペア再起動 → demo前方検証
 - [ ] **GBPJPY浅化(任意)**: DD抑制重視なら atr3.0/lv3 化を検討（PFは1.96→1.26に低下）
 - [ ] **SMA Squeeze 存続判定**: v4.5でn=10到達まで蓄積、正転しなければ全停止しGrid/BBへリソース集約
