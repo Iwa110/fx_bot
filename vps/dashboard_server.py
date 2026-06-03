@@ -156,7 +156,11 @@ def index():
         html = generate_html(trades, open_positions, broker, days, generated_at, yesterday,
                              pending_closed=pending_closed)
 
-        return Response(html, status=200, mimetype='text/html; charset=utf-8')
+        resp = Response(html, status=200, mimetype='text/html; charset=utf-8')
+        resp.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, max-age=0'
+        resp.headers['Pragma'] = 'no-cache'
+        resp.headers['Expires'] = '0'
+        return resp
 
     except Exception as exc:
         log.exception('unhandled error: %s', exc)
