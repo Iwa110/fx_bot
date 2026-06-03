@@ -915,14 +915,14 @@ function buildOpenPositions() {
   PENDING_CLOSED.forEach(function(p) {
     var color   = STRATEGY_COLORS[p.strategy] || '#aaaaaa';
     var cls     = colorClass(p.profit);
-    var elapsed = (p.time_open) ? fmtElapsed(p.time_open) : '-';
+    var elapsed = (p.time_open > 0) ? fmtElapsed(p.time_open) : '-';
     html += '<div class="op-card" style="border:1px solid #e3b341;opacity:0.8">' +
       '<span class="op-symbol">' + p.symbol + '</span>' +
       '<span class="op-tag op-strat" style="border-color:' + color + '">' + p.strategy + '</span>' +
       '<span class="op-tag">' + p.type + '</span>' +
       '<span class="op-tag">lots=' + p.lots.toFixed(2) + '</span>' +
       '<span class="op-tag">open=' + p.open.toFixed(5) + '</span>' +
-      (p.time_open ? '<span class="op-tag op-elapsed" data-ts="' + p.time_open + '" style="color:#8b949e">⏱ ' + elapsed + '</span>' : '') +
+      (p.time_open > 0 ? '<span class="op-tag op-elapsed" data-ts="' + p.time_open + '" style="color:#8b949e">⏱ ' + elapsed + '</span>' : '') +
       '<span class="op-tag" style="color:#e3b341;font-weight:bold">&#9203; 決済確認中</span>' +
       '<span class="op-pnl ' + cls + '">' + fmt2(p.profit) + '</span>' +
       '</div>';
@@ -932,7 +932,7 @@ function buildOpenPositions() {
   OPEN_POSITIONS.forEach(function(p) {
     var color   = STRATEGY_COLORS[p.strategy] || '#aaaaaa';
     var cls     = colorClass(p.profit);
-    var elapsed = (p.time_open) ? fmtElapsed(p.time_open) : '-';
+    var elapsed = (p.time_open > 0) ? fmtElapsed(p.time_open) : '-';
     html += '<div class="op-card">' +
       '<span class="op-symbol">' + p.symbol + '</span>' +
       '<span class="op-tag op-strat" style="border-color:' + color + '">' + p.strategy + '</span>' +
@@ -940,7 +940,7 @@ function buildOpenPositions() {
       '<span class="op-tag">lots=' + p.lots.toFixed(2) + '</span>' +
       '<span class="op-tag">open=' + p.open.toFixed(5) + '</span>' +
       '<span class="op-tag">now=' + p.current.toFixed(5) + '</span>' +
-      (p.time_open ? '<span class="op-tag op-elapsed" data-ts="' + p.time_open + '" style="color:#8b949e">⏱ ' + elapsed + '</span>' : '') +
+      (p.time_open > 0 ? '<span class="op-tag op-elapsed" data-ts="' + p.time_open + '" style="color:#8b949e">⏱ ' + elapsed + '</span>' : '') +
       '<span class="op-pnl ' + cls + '">' + fmt2(p.profit) + '</span>' +
       '</div>';
   });

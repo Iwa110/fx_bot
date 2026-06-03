@@ -184,7 +184,8 @@ def fetch_open_positions() -> list[dict]:
             'current':   float(p.price_current),
             'profit':    float(p.profit),
             'strategy':  strategy,
-            'time_open': int(p.time),
+            'time_open': (int(p.time_msc) // 1000) if (getattr(p, 'time_msc', 0) or 0) > 0
+                         else (int(p.time.timestamp()) if hasattr(p.time, 'timestamp') else int(p.time)),
         })
     return result
 
