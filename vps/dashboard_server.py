@@ -37,21 +37,13 @@ VALID_BROKERS = {'axiory', 'oanda', 'exness'}
 VALID_DAYS    = {7, 30, 0}
 
 os.makedirs(LOG_DIR, exist_ok=True)
-_log_handlers = [logging.StreamHandler(sys.stdout)]
-try:
-    _log_handlers.insert(0, logging.FileHandler(
-        os.path.join(LOG_DIR, 'dashboard_server.log'), encoding='utf-8'))
-except PermissionError:
-    try:
-        _log_handlers.insert(0, logging.FileHandler(
-            os.path.join(LOG_DIR, 'dashboard_server2.log'), encoding='utf-8'))
-    except PermissionError:
-        pass  # stdout only
-
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s %(levelname)s %(message)s',
-    handlers=_log_handlers,
+    handlers=[
+        logging.FileHandler(os.path.join(LOG_DIR, 'dashboard.log'), encoding='utf-8'),
+        logging.StreamHandler(sys.stdout),
+    ],
 )
 log = logging.getLogger(__name__)
 
