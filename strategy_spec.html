@@ -259,7 +259,7 @@
 
 <header>
   <h1>FX Bot 戦略仕様書</h1>
-  <p>生成日: 2026-05-28 &nbsp;|&nbsp; VPS: C:\Users\Administrator\fx_bot\vps\</p>
+  <p>最終更新日: 2026-06-03 &nbsp;|&nbsp; VPS: C:\Users\Administrator\fx_bot\vps\</p>
 </header>
 
 <!-- TOC -->
@@ -1018,98 +1018,222 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
   </div>
   <div class="section-body">
     <h3>概要</h3>
-    <p>双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が高い時のみエントリー。max_levels 到達後 48時間タイマー（B48 Exit）で強制決済。</p>
+    <p>双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が閾値以上の時のみエントリー。各ポジションに TP のみ設定（SL なし）。最大段数（max_levels）到達後 48時間経過で強制決済（B48 Exit）。方向別の含み損が FLOAT_STOP を下回った場合は即時強制決済（Float Stop）。</p>
     <p><strong>v6（2026-06-02 パラメータ最適化）</strong>：float-stop込み2年BTで CHFJPY/NZDJPY が負エッジと判明。真因は <code>max_levels=7</code> で含み損が深く積まれ float-stop が先発動し <strong>B48がデッド</strong>だったこと。max_levels 浅化 + ci_threshold 厳格化で B48 を主決済化。</p>
     <p><strong>v7（2026-06-02 float_stop結合最適化）</strong>：float_stop自体を最適化変数に追加。知見＝<strong>float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定が正解</strong>（きつくすると回復可能ポジを切りPF・DD悪化）。<strong>NZDJPYは float_stop を-500k→-1.0Mに緩めると lv7 が復活し純益2.4倍</strong>。AUDCADは lv5/fs-750k に改善。CHFJPY/GBPJPYはv6据置。</p>
+
+    <h3>用語解説（略語一覧）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>略語</th><th>正式名称</th><th>説明</th></tr></thead>
+        <tbody>
+          <tr><td><strong>ATR</strong></td><td>Average True Range（平均真の値幅）</td><td>直近14本のローソク足の値動き幅の平均。grid_width の計算基準に使用</td></tr>
+          <tr><td><strong>CI</strong></td><td>Choppiness Index（チョピネス指数）</td><td>市場がレンジかトレンドかを示す指標（0〜100）。100に近いほどレンジ。エントリーフィルターとして CI &gt; CI_th のときのみエントリー可</td></tr>
+          <tr><td><strong>H1 / D1</strong></td><td>Hourly 1 / Daily 1（1時間足 / 日足）</td><td>ATR は H1 足で計算。CI は H1 データを日次リサンプリング（D1）して計算</td></tr>
+          <tr><td><strong>TF</strong></td><td>Timeframe（時間軸）</td><td>ローソク足の時間単位</td></tr>
+          <tr><td><strong>grid_width</strong></td><td>グリッド幅</td><td>= ATR(H1,14) × atr_mult。グリッドの1段の幅であり、TP までの距離でもある</td></tr>
+          <tr><td><strong>atr_mult</strong></td><td>ATR 乗数</td><td>grid_width を決めるために ATR に掛ける倍率。ペア別に最適化（1.0〜2.0）</td></tr>
+          <tr><td><strong>max_levels</strong><br><small>（lv）</small></td><td>最大段数（ラダー段数）</td><td>Long/Short それぞれが保有できる最大ポジション数（3/5/7）。この数に達すると B48 タイマー起動。構成表記例: lv3 = 最大3段</td></tr>
+          <tr><td><strong>CI_th</strong></td><td>CI 閾値（Choppiness Index threshold）</td><td>エントリーを許可する CI の下限値。ペア別に設定（61.8 または 65.0）。値が高いほど厳格なレンジ判定</td></tr>
+          <tr><td><strong>B48</strong></td><td>48-hour Batch Exit（48時間強制決済）</td><td>max_levels 到達から48時間経過でその方向の全ポジションを成行決済するタイムアウト機構</td></tr>
+          <tr><td><strong>FLOAT_STOP</strong><br><small>（fs）</small></td><td>フロートストップ（浮動含み損上限）</td><td>方向別の含み損合計がこの値を下回ると即時全決済。JPY 建て。テールリスク保険。構成表記例: fs-1.5M = -150万円</td></tr>
+          <tr><td><strong>TP</strong></td><td>Take Profit（利益確定価格）</td><td>エントリー価格 ± grid_width に設定。MT5 が自動執行（個別ポジションごと）</td></tr>
+          <tr><td><strong>SL</strong></td><td>Stop Loss（損切り価格）</td><td>このグリッド戦略では設定しない。B48 / Float Stop が代替</td></tr>
+          <tr><td><strong>DD_DAY</strong></td><td>Daily Drawdown（日次ドローダウン上限）</td><td>当日の確定損益合計がこの値を下回ると全ポジション決済 ＋ 新規エントリー停止</td></tr>
+          <tr><td><strong>DD_WEEK</strong></td><td>Weekly Drawdown（週次ドローダウン上限）</td><td>当週の確定損益合計がこの値を下回ると全ポジション決済 ＋ 新規エントリー停止</td></tr>
+          <tr><td><strong>PF</strong></td><td>Profit Factor（プロフィットファクター）</td><td>= 総利益 ÷ 総損失。1.0 以上でトータルプラス期待。2.0 で利益が損失の2倍</td></tr>
+          <tr><td><strong>WR</strong></td><td>Win Rate（勝率）</td><td>決済したポジション中、利益になった割合</td></tr>
+          <tr><td><strong>BT</strong></td><td>Backtest（バックテスト）</td><td>過去データで戦略を模擬取引して結果を検証すること</td></tr>
+          <tr><td><strong>IS / OOS</strong></td><td>In-Sample / Out-of-Sample（サンプル内 / サンプル外）</td><td>データを訓練用(IS)と検証用(OOS)に分割。OOS で性能確認することで過学習を検出</td></tr>
+          <tr><td><strong>DD</strong></td><td>Drawdown（ドローダウン）</td><td>資産が高値から谷底まで落ちた最大幅</td></tr>
+          <tr><td><strong>n_tp / n_b48</strong></td><td>TP 決済件数 / B48 決済件数</td><td>バックテスト中に各決済タイプが発生した件数</td></tr>
+          <tr><td><strong>net 円</strong></td><td>純損益（日本円）</td><td>全 TP 利益 − 全 B48/Float-Stop 損失の合計（JPY 換算）</td></tr>
+          <tr><td><strong>lot</strong></td><td>ロット数</td><td>取引単位。1.00 lot = 100,000 通貨（FX 標準）</td></tr>
+          <tr><td><strong>magic</strong></td><td>マジックナンバー（MT5 識別番号）</td><td>MT5 が戦略ごとにポジションを区別する番号。同一口座で複数戦略を並行稼働可能にする</td></tr>
+          <tr><td><strong>demo</strong></td><td>デモ口座（demo account）</td><td>仮想資金で取引するテスト口座。実マネー移行前の前方検証に使用</td></tr>
+        </tbody>
+      </table>
+    </div>
 
     <h3>対象ペアと確定パラメータ（v7 / float-stop込みフル2年BT）</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>Magic</th><th>atr_mult</th><th>max_levels</th><th>CI_th</th><th>FLOAT_STOP</th><th>BT PF(net)</th><th>net円</th><th>LOT</th><th>備考</th></tr></thead>
+        <thead><tr><th>ペア</th><th>Magic</th><th>atr_mult<br><small>ATR乗数</small></th><th>max_levels<br><small>最大段数</small></th><th>CI_th<br><small>レンジ閾値</small></th><th>FLOAT_STOP<br><small>含み損上限/方向</small></th><th>BT PF</th><th>net 円</th><th>LOT</th><th>備考</th></tr></thead>
         <tbody>
-          <tr><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0</td><td>7</td><td>61.8</td><td>-15k</td><td>1.81</td><td>+16k</td><td>0.01</td><td>停止中(micro)</td></tr>
-          <tr><td>GBPJPY</td><td class="magic-num">20260031</td><td>1.5</td><td>7</td><td>61.8</td><td>-1.5M</td><td class="pf-good">1.96</td><td>+5.97M</td><td><strong>1.00</strong></td><td>demo / 据置(最良)</td></tr>
-          <tr><td>CHFJPY</td><td class="magic-num">20260032</td><td>1.0</td><td>3</td><td>65.0</td><td>-1.5M</td><td class="pf-good">1.51</td><td>+1.41M</td><td><strong>1.00</strong></td><td>demo / v6反転・v7据置</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>NZDJPY</td><td class="magic-num">20260033</td><td>1.5</td><td><strong>7</strong></td><td><strong>61.8</strong></td><td><strong>-1.0M</strong></td><td class="pf-good">2.36</td><td>+4.55M</td><td><strong>1.00</strong></td><td>demo / <strong>v7改善</strong>(v6:1.65/+1.92M)</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>AUDCAD</td><td class="magic-num">20260034</td><td>1.0</td><td><strong>5</strong></td><td>65.0</td><td><strong>-750k</strong></td><td class="pf-good">4.01</td><td>+5.50M</td><td><strong>1.00</strong></td><td>demo / <strong>v7改善</strong>(v6:2.75/+4.28M)</td></tr>
+          <tr style="opacity:0.55"><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0</td><td>7</td><td>61.8</td><td>-15k</td><td>1.81</td><td>+16k</td><td>0.01</td><td>停止中(micro lot)</td></tr>
+          <tr><td><strong>GBPJPY</strong></td><td class="magic-num">20260031</td><td>1.5</td><td>7</td><td>61.8</td><td>-150万円</td><td class="pf-good">1.96</td><td>+5.97M</td><td><strong>1.00</strong></td><td>demo / 据置(最良)</td></tr>
+          <tr><td><strong>CHFJPY</strong></td><td class="magic-num">20260032</td><td>1.0</td><td>3</td><td>65.0</td><td>-150万円(非発動)</td><td class="pf-good">1.51</td><td>+1.41M</td><td><strong>1.00</strong></td><td>demo / v6反転・v7据置</td></tr>
+          <tr><td><strong>NZDJPY</strong></td><td class="magic-num">20260033</td><td>1.5</td><td>7</td><td>61.8</td><td><strong>-100万円</strong></td><td class="pf-good">2.36</td><td>+4.55M</td><td><strong>1.00</strong></td><td>demo / v7改善(v6:1.65)</td></tr>
+          <tr><td><strong>AUDCAD</strong></td><td class="magic-num">20260034</td><td>1.0</td><td>5</td><td>65.0</td><td><strong>-75万円</strong></td><td class="pf-good">4.01</td><td>+5.50M</td><td><strong>1.00</strong></td><td>demo / v7改善(v6:2.75)</td></tr>
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted)">BT根拠: grid_floatstop_bt.py + grid_floatstop_sweep.py（float_stop結合・IS/OOS頑健性）。net円はlot1.0換算（AUDCADはCADJPY≈108想定、PFはレート不感）。v7代償: NZDJPYテール-576k→-1.05M、AUDCAD -315k→-445k。NZDJPY/AUDCADは新float_stopに合わせDD上限も緩和。</p>
+    <p style="font-size:12px;color:var(--muted)">BT 根拠: grid_floatstop_bt.py + grid_floatstop_sweep.py（float_stop 結合・IS/OOS 頑健性確認）。net 円は lot1.0 換算（AUDCAD は CADJPY≈108 想定、PF はレート不感）。v7 代償: NZDJPY テール -576k→-1.05M、AUDCAD -315k→-445k。</p>
+
+    <h3>ペア別 エントリー条件</h3>
+    <p style="font-size:12px;color:var(--muted)">CI フィルターは新規エントリーにのみ適用。既存ポジションの保有は CI に関わらず継続。Long と Short は独立して同時保有可能。</p>
+    <div class="table-wrap">
+      <table>
+        <thead>
+          <tr>
+            <th>ペア</th>
+            <th>①エントリーフィルター<br><small>（新規エントリー許可条件）</small></th>
+            <th>②グリッド幅<br><small>（grid_width）</small></th>
+            <th>③初回エントリー条件</th>
+            <th>④グリッド追加条件<br><small>（Long）</small></th>
+            <th>④グリッド追加条件<br><small>（Short）</small></th>
+            <th>⑤最大保有<br><small>Long / Short 各</small></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><strong>GBPJPY</strong></td>
+            <td>CI(D1,14) &gt; <strong>61.8</strong></td>
+            <td>ATR(H1,14) × <strong>1.5</strong></td>
+            <td>その方向のポジション数 = 0 → 成行エントリー</td>
+            <td>現在値 ≤ 最安エントリー − grid_width</td>
+            <td>現在値 ≥ 最高エントリー + grid_width</td>
+            <td><strong>7</strong> ポジション</td>
+          </tr>
+          <tr>
+            <td><strong>CHFJPY</strong></td>
+            <td>CI(D1,14) &gt; <strong>65.0</strong> <small>（厳格）</small></td>
+            <td>ATR(H1,14) × <strong>1.0</strong></td>
+            <td>〃</td>
+            <td>〃</td>
+            <td>〃</td>
+            <td><strong>3</strong> ポジション <small>（浅ラダー）</small></td>
+          </tr>
+          <tr>
+            <td><strong>NZDJPY</strong></td>
+            <td>CI(D1,14) &gt; <strong>61.8</strong></td>
+            <td>ATR(H1,14) × <strong>1.5</strong></td>
+            <td>〃</td>
+            <td>〃</td>
+            <td>〃</td>
+            <td><strong>7</strong> ポジション</td>
+          </tr>
+          <tr>
+            <td><strong>AUDCAD</strong></td>
+            <td>CI(D1,14) &gt; <strong>65.0</strong> <small>（厳格）</small></td>
+            <td>ATR(H1,14) × <strong>1.0</strong></td>
+            <td>〃</td>
+            <td>〃</td>
+            <td>〃</td>
+            <td><strong>5</strong> ポジション</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:12px;color:var(--muted)">現在値は (Ask+Bid)/2 のミッドプライスで判定。エントリー注文は Long=Ask、Short=Bid で成行発注。同時保有の最悪ケース: Long が max_levels ＋ Short が max_levels → GBPJPY で最大14ポジション同時保有（lot=1.00 × 14）。</p>
+
+    <h3>エントリーフロー（60秒ループ、毎サイクル実行）</h3>
+    <ol style="line-height:2.4;padding-left:22px">
+      <li>
+        <strong>フィルター判定</strong><br>
+        CI(D1,14) を計算 → <code>CI &gt; CI_th（ペア別）</code> を満たさない場合は <code>filter_block ci=XX.X</code> ログを出力してエントリーをスキップ
+      </li>
+      <li>
+        <strong>初回エントリー</strong><br>
+        フィルター通過 ＋ その方向のポジション数 = 0 → 成行注文（Long は Ask、Short は Bid）。<br>
+        TP = エントリー価格 ± grid_width を同時設定。SL = 設定なし
+      </li>
+      <li>
+        <strong>グリッド追加エントリー</strong><br>
+        フィルター通過 ＋ ポジション数 ≥ 1 かつ &lt; max_levels の場合：<br>
+        &emsp;Long: 現在値（Mid） ≤ 最安エントリー価格 − grid_width → 成行 Buy 追加（平均取得単価の分散）<br>
+        &emsp;Short: 現在値（Mid） ≥ 最高エントリー価格 + grid_width → 成行 Sell 追加
+      </li>
+      <li>
+        <strong>最大段数到達</strong><br>
+        ポジション数 ≥ max_levels → 追加エントリーは行わず B48 タイマーを起動
+      </li>
+    </ol>
+
+    <h3>決済フロー（優先順位順）</h3>
+    <ol style="line-height:2.4;padding-left:22px">
+      <li>
+        <strong>TP（個別・最優先）</strong><br>
+        各ポジションの TP 価格 = エントリー ± grid_width に到達 → MT5 が自動執行（個別）。1段分の利益を確定。<br>
+        TP 発火でカウントが max_levels を下回ると B48 タイマーをリセット（回復チャンスを確保）
+      </li>
+      <li>
+        <strong>Float Stop（方向別・緊急決済）</strong><br>
+        毎サイクル最初にチェック。方向別の含み損合計 &lt; FLOAT_STOP_JPY → その方向の全ポジションを即時成行決済 ＋ B48 タイマーリセット。<br>
+        <em>設計意図：</em>深いラダー（lv7）向けテール保険。浅いラダー（CHFJPY lv3）では -1.5M 設定で非発動が最良設計（きつくすると回復可能ポジを切り PF・DD 悪化）
+      </li>
+      <li>
+        <strong>B48 Exit（方向別・時間決済）</strong><br>
+        max_levels 到達時刻から 48 時間経過 → その方向の全ポジションを成行決済。<br>
+        <em>設計意図：</em>損切りではなく「時間制限のある保有」。ラダーを浅く（lv3/5）することで Float Stop より先に B48 が発動し、単発損が緩やかに収まる（v6の核心）
+      </li>
+      <li>
+        <strong>DD_DAY / DD_WEEK サーキットブレーカー（全方向）</strong><br>
+        当日の確定損益 &lt; DD_DAY、または当週の確定損益 &lt; DD_WEEK → Long/Short 両方の全ポジションを成行決済 ＋ 以降のエントリーを当日/当週ブロック。<br>
+        <em>注意：</em>v7 で NZDJPY/AUDCAD の DD_DAY/DD_WEEK 値を緩和済み（新 float_stop の正常決済が完了する前にブレーカーが先行しないよう調整）
+      </li>
+    </ol>
 
     <div class="info-grid">
-      <div class="info-item"><div class="info-label">TF</div><div class="info-value">H1(ATR) / D1 resample(CI)</div></div>
+      <div class="info-item"><div class="info-label">TF（時間軸）</div><div class="info-value">H1（ATR計算）/ D1 resample（CI計算）</div></div>
       <div class="info-item"><div class="info-label">ループ間隔</div><div class="info-value">60秒</div></div>
       <div class="info-item"><div class="info-label">稼働ブローカー</div><div class="info-value">axiory / exness</div></div>
     </div>
 
-    <h3>リスク設定（per-pair）</h3>
+    <h3>ペア別リスク設定</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>LOT</th><th>DD_DAY</th><th>DD_WEEK</th><th>FLOAT_STOP</th></tr></thead>
+        <thead>
+          <tr>
+            <th>ペア</th>
+            <th>LOT<br><small>取引ロット</small></th>
+            <th>DD_DAY<br><small>日次DD上限（円）</small></th>
+            <th>DD_WEEK<br><small>週次DD上限（円）</small></th>
+            <th>FLOAT_STOP<br><small>含み損上限/方向（円）</small></th>
+            <th>最悪B48両建て<br><small>参考：両方向同時発動時</small></th>
+          </tr>
+        </thead>
         <tbody>
-          <tr><td>GBPJPY</td><td>1.00</td><td>-500,000</td><td>-1,500,000</td><td>-1,500,000</td></tr>
-          <tr><td>CHFJPY</td><td>1.00</td><td>-500,000</td><td>-1,500,000</td><td>-1,500,000</td></tr>
-          <tr><td>NZDUSD</td><td>0.01</td><td>-5,000</td><td>-15,000</td><td>-15,000</td></tr>
-          <tr><td>NZDJPY</td><td><strong>1.00</strong></td><td><strong>-1,000,000</strong></td><td><strong>-2,000,000</strong></td><td><strong>-1,000,000</strong></td></tr>
-          <tr><td>AUDCAD</td><td><strong>1.00</strong></td><td><strong>-750,000</strong></td><td>-1,500,000</td><td><strong>-750,000</strong></td></tr>
+          <tr><td>GBPJPY</td><td>1.00</td><td>-500,000</td><td>-1,500,000</td><td>-1,500,000</td><td>約 -2,100,000</td></tr>
+          <tr><td>CHFJPY</td><td>1.00</td><td>-500,000</td><td>-1,500,000</td><td>-1,500,000（非発動）</td><td>約 -2,250,000</td></tr>
+          <tr style="opacity:0.55"><td>NZDUSD</td><td>0.01</td><td>-5,000</td><td>-15,000</td><td>-15,000</td><td>参考値</td></tr>
+          <tr><td>NZDJPY</td><td>1.00</td><td>-1,000,000</td><td>-2,000,000</td><td>-1,000,000</td><td>約 -2,100,000</td></tr>
+          <tr><td>AUDCAD</td><td>1.00</td><td>-750,000</td><td>-1,500,000</td><td>-750,000</td><td>約 -1,500,000</td></tr>
         </tbody>
       </table>
     </div>
+    <p style="font-size:12px;color:var(--muted)">最悪 B48 両建てはどちらの方向も max_levels に達して 48h 経過で決済される極端なケース（BT では稀）。DD_DAY/DD_WEEK は B48/FLOAT_STOP の正常決済シーケンスを先回りしないよう v7 で NZDJPY/AUDCAD を緩和済み。</p>
 
-    <h3>グリッドロジック</h3>
+    <h3>バックテスト結果（v7確定構成 / float-stop込みフル2年 2024-04〜2026-04）</h3>
+    <p style="font-size:12px;color:var(--muted)">旧 BT（grid_levels_bt.py）は float-stop 未実装・lot0.02 で過大評価。以下は float-stop 実装・ライブ lot での net 値（grid_floatstop_bt.py + grid_floatstop_sweep.py）。</p>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>項目</th><th>詳細</th></tr></thead>
-        <tbody>
-          <tr><td>grid_width</td><td>ATR(H1,14) × atr_mult</td></tr>
-          <tr><td>Long追加</td><td>最安エントリーから grid_width 下落時</td></tr>
-          <tr><td>Short追加</td><td>最高エントリーから grid_width 上昇時</td></tr>
-          <tr><td>TP</td><td>エントリー ± grid_width（1ステップ先）</td></tr>
-          <tr><td>SL</td><td>なし</td></tr>
-        </tbody>
-      </table>
-    </div>
-
-    <h3>B48 Exit / Float Stop</h3>
-    <ul>
-      <li>Long / Short それぞれ独立タイマー</li>
-      <li>max_levels（ペア別 3/5/7）到達時刻を記録 → 48時間経過で全ポジション成行決済</li>
-      <li>TP 発火でカウントが max_levels 未満に → タイマーリセット</li>
-      <li>Float Stop: 方向ごとの含み損が FLOAT_STOP を下回った場合、タイマー待たず即時決済</li>
-      <li><strong>v6設計意図</strong>: ラダー浅化(lv3/5)で B48 が float-stop より先に発動 → 単発損を緩やかに限定する主決済として機能（旧lv7では float-stop 先行で B48 デッド）。</li>
-      <li><strong>v7知見</strong>: float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定（非発動）が最適で、きつくすると回復可能ポジを切りPF・DD悪化。NZDJPYは緩めてlv7復活。</li>
-    </ul>
-
-    <h3>バックテスト結果（v7 / grid_floatstop_bt.py + grid_floatstop_sweep.py: float-stop込みフル2年 2024-04〜2026-04）</h3>
-    <p style="font-size:12px;color:var(--muted)">旧BT（grid_levels_bt.py）は float-stop 未実装・lot0.02で過大評価。以下は float-stop実装・ライブlotでの net 値（v7確定構成）。</p>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ペア</th><th>構成(ci/atr/lv/fs)</th><th>PF</th><th>net円</th><th>n_tp</th><th>n_b48</th><th>worst単発</th><th>max_dd</th></tr></thead>
+        <thead><tr><th>ペア</th><th>構成(ci/atr/lv/fs)</th><th>PF</th><th>net 円</th><th>n_tp<br><small>TP決済件数</small></th><th>n_b48<br><small>B48決済件数</small></th><th>worst単発</th><th>max_dd<br><small>最大DD</small></th></tr></thead>
         <tbody>
           <tr><td>GBPJPY</td><td>61.8/1.5/7/-1.5M</td><td class="pf-good">1.96</td><td>+5,965,956</td><td>269</td><td>0</td><td>-1.62M</td><td>3.40M</td></tr>
           <tr><td>CHFJPY</td><td>65/1.0/3/-1.5M</td><td class="pf-good">1.51</td><td>+1,412,119</td><td>146</td><td>9</td><td>-0.65M</td><td>0.61M</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>NZDJPY</td><td>61.8/1.5/7/-1.0M</td><td class="pf-good">2.36</td><td>+4,546,370</td><td>307</td><td>2</td><td>-1.05M</td><td>1.05M</td></tr>
-          <tr style="background:var(--highlight,#fffbe6)"><td>AUDCAD</td><td>65/1.0/5/-750k</td><td class="pf-good">4.01</td><td>+5,499,879</td><td>332</td><td>5</td><td>-0.45M</td><td>0.45M</td></tr>
-          <tr><td>NZDUSD</td><td>61.8/2.0/7/-15k</td><td>1.81</td><td>+15,905</td><td>121</td><td>0</td><td>-0.02M</td><td>0.02M</td></tr>
+          <tr><td>NZDJPY</td><td>61.8/1.5/7/-1.0M</td><td class="pf-good">2.36</td><td>+4,546,370</td><td>307</td><td>2</td><td>-1.05M</td><td>1.05M</td></tr>
+          <tr><td>AUDCAD</td><td>65/1.0/5/-750k</td><td class="pf-good">4.01</td><td>+5,499,879</td><td>332</td><td>5</td><td>-0.45M</td><td>0.45M</td></tr>
+          <tr style="opacity:0.55"><td>NZDUSD</td><td>61.8/2.0/7/-15k</td><td>1.81</td><td>+15,905</td><td>121</td><td>0</td><td>-0.02M</td><td>0.02M</td></tr>
         </tbody>
       </table>
     </div>
-    <h3>バージョン別 純益の推移 / float_stop感応度</h3>
+
+    <h3>バージョン別 純益の推移（float_stop感応度）</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>旧(lv7原型)</th><th>v6</th><th>v7(float_stop最適)</th></tr></thead>
+        <thead><tr><th>ペア</th><th>旧（lv7原型）</th><th>v6（ラダー浅化）</th><th>v7（float_stop最適化）</th></tr></thead>
         <tbody>
-          <tr><td>CHFJPY</td><td>0.70 / -3.76M</td><td>1.51 / +1.41M</td><td>1.51 / +1.41M（据置）</td></tr>
-          <tr><td>NZDJPY</td><td>0.96 / -0.43M</td><td>1.65 / +1.92M</td><td class="pf-good">2.36 / +4.55M</td></tr>
-          <tr><td>AUDCAD</td><td>1.26 / +2.63M</td><td>2.75 / +4.28M</td><td class="pf-good">4.01 / +5.50M</td></tr>
+          <tr><td>CHFJPY</td><td>PF0.70 / -3.76M</td><td class="pf-good">PF1.51 / +1.41M</td><td>PF1.51 / +1.41M（v6据置）</td></tr>
+          <tr><td>NZDJPY</td><td>PF0.96 / -0.43M</td><td>PF1.65 / +1.92M</td><td class="pf-good">PF2.36 / +4.55M</td></tr>
+          <tr><td>AUDCAD</td><td>PF1.26 / +2.63M</td><td>PF2.75 / +4.28M</td><td class="pf-good">PF4.01 / +5.50M</td></tr>
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted)">CHFJPY float_stop感応度（ci65/atr1.0/lv3）: -300k→PF0.98/DD980k, -500k→PF1.03, -1.0M〜-2.0M→PF1.51/DD608k（緩め=非発動が最適の証跡）。IS/OOS頑健性: NZDJPY IS2.19/OOS2.65・AUDCAD IS5.61/OOS2.92（両期間 PF≥1.2・損失イベント実発生）。</p>
+    <p style="font-size:12px;color:var(--muted)">CHFJPY float_stop 感応度（ci65/atr1.0/lv3）: -300k→PF0.98/DD980k、-500k→PF1.03、-1.0M以上→PF1.51/DD608k（緩め＝非発動が最適）。IS/OOS 頑健性: NZDJPY IS2.19/OOS2.65、AUDCAD IS5.61/OOS2.92（両期間 PF≥1.2・損失イベント実発生）。</p>
 
     <h3>起動方法</h3>
-    <p style="font-size:12px;color:var(--muted)">正式: <code>restart_grid.ps1</code>（grid_monitor.bat は廃止済み）。全デーモンをキル→全ペア×ブローカー再起動→起動確認まで実施。</p>
+    <p style="font-size:12px;color:var(--muted)">正式: <code>restart_grid.ps1</code>（grid_monitor.bat は廃止済み）。全デーモンをキル → 全ペア × ブローカー再起動 → 起動確認まで実施。</p>
     <pre>cd C:\Users\Administrator\fx_bot
 git pull origin main
 powershell -ExecutionPolicy Bypass -File C:\Users\Administrator\fx_bot\vps\restart_grid.ps1
@@ -1119,13 +1243,13 @@ REM 個別起動が必要な場合のみ:
 pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory</pre>
 
     <h3>ログ出力仕様</h3>
-    <pre>entry LONG lot=1.00 price=... grid_width=... level=X/N  (N=max_levels per pair)
-tp_close LONG price=... pnl=+XXXX JPY hold=Xh
-b48_close LONG positions=X total_pnl=+XXXX JPY
-filter_block ci=XX.X (threshold=65.0)  REM ペア別 61.8 or 65.0
-heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X</pre>
-
-    <p>ログ: <code>grid_log_{PAIR}_{broker}.txt</code> / State: <code>grid_monitor_state_{PAIR}.json</code></p>
+    <pre>entry LONG lot=1.00 price=... grid_width=... level=X/N      (N = max_levels per pair)
+tp_close LONG price=... pnl=+XXXX JPY hold=Xh               (TP個別決済)
+b48_close LONG positions=X total_pnl=+XXXX JPY              (B48強制決済)
+float_stop LONG unrealized=XXXX JPY  closed=X               (Float Stop緊急決済)
+filter_block ci=XX.X (threshold=65.0)                       (ペア別 61.8 or 65.0)
+heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X float_l=XXXX float_s=XXXX</pre>
+    <p>ログ: <code>grid_log_{PAIR}_{broker}.txt</code> &nbsp;|&nbsp; State: <code>grid_monitor_state_{PAIR}.json</code></p>
   </div>
 </div>
 
