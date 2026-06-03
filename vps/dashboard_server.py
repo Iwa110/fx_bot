@@ -1,7 +1,7 @@
 """
 dashboard_server.py - FX Dashboard Flask server (port=5000)
 
-Usage: python vps\dashboard_server.py
+Usage: python vps/dashboard_server.py
   GET /?broker=axiory&days=7
 """
 
