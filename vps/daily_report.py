@@ -176,14 +176,15 @@ def fetch_open_positions() -> list[dict]:
         strategy = MAGIC_MAP.get(p.magic, f'magic={p.magic}')
         is_buy   = (p.type == mt5.POSITION_TYPE_BUY)
         result.append({
-            'ticket':   p.ticket,
-            'symbol':   p.symbol,
-            'type':     'BUY' if is_buy else 'SELL',
-            'lots':     float(p.volume),
-            'open':     float(p.price_open),
-            'current':  float(p.price_current),
-            'profit':   float(p.profit),
-            'strategy': strategy,
+            'ticket':    p.ticket,
+            'symbol':    p.symbol,
+            'type':      'BUY' if is_buy else 'SELL',
+            'lots':      float(p.volume),
+            'open':      float(p.price_open),
+            'current':   float(p.price_current),
+            'profit':    float(p.profit),
+            'strategy':  strategy,
+            'time_open': int(p.time),
         })
     return result
 

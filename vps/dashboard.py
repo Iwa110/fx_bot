@@ -763,6 +763,24 @@ function calcDuration(openDate, openTime, closeDate, closeTime) {
   } catch(e) { return '-'; }
 }
 
+function fmtElapsed(unixSec) {
+  var sec = Math.floor(Date.now() / 1000) - unixSec;
+  if (isNaN(sec) || sec < 0) return '-';
+  var m = Math.floor(sec / 60);
+  var h = Math.floor(m / 60);
+  var d = Math.floor(h / 24);
+  if (d > 0) return d + 'd ' + (h % 24) + 'h';
+  if (h > 0) return h + 'h ' + (m % 60) + 'm';
+  return m + 'm';
+}
+
+function refreshElapsed() {
+  document.querySelectorAll('.op-elapsed').forEach(function(el) {
+    var ts = parseInt(el.getAttribute('data-ts'), 10);
+    if (!isNaN(ts)) el.textContent = '⏱ ' + fmtElapsed(ts);
+  });
+}
+
 function buildAllTradesSection() {
   HIST_SORTED = ALL_TRADES.slice().sort(function(a, b) {
     var ka = a.close_date + a.close_time, kb = b.close_date + b.close_time;
@@ -895,14 +913,16 @@ function buildOpenPositions() {
 
   /* 決済確認中（MT5ヒストリー反映待ち） */
   PENDING_CLOSED.forEach(function(p) {
-    var color = STRATEGY_COLORS[p.strategy] || '#aaaaaa';
-    var cls   = colorClass(p.profit);
+    var color   = STRATEGY_COLORS[p.strategy] || '#aaaaaa';
+    var cls     = colorClass(p.profit);
+    var elapsed = (p.time_open) ? fmtElapsed(p.time_open) : '-';
     html += '<div class="op-card" style="border:1px solid #e3b341;opacity:0.8">' +
       '<span class="op-symbol">' + p.symbol + '</span>' +
       '<span class="op-tag op-strat" style="border-color:' + color + '">' + p.strategy + '</span>' +
       '<span class="op-tag">' + p.type + '</span>' +
       '<span class="op-tag">lots=' + p.lots.toFixed(2) + '</span>' +
       '<span class="op-tag">open=' + p.open.toFixed(5) + '</span>' +
+      (p.time_open ? '<span class="op-tag op-elapsed" data-ts="' + p.time_open + '" style="color:#8b949e">⏱ ' + elapsed + '</span>' : '') +
       '<span class="op-tag" style="color:#e3b341;font-weight:bold">&#9203; 決済確認中</span>' +
       '<span class="op-pnl ' + cls + '">' + fmt2(p.profit) + '</span>' +
       '</div>';
@@ -910,8 +930,9 @@ function buildOpenPositions() {
 
   /* 通常オープンポジション */
   OPEN_POSITIONS.forEach(function(p) {
-    var color = STRATEGY_COLORS[p.strategy] || '#aaaaaa';
-    var cls   = colorClass(p.profit);
+    var color   = STRATEGY_COLORS[p.strategy] || '#aaaaaa';
+    var cls     = colorClass(p.profit);
+    var elapsed = (p.time_open) ? fmtElapsed(p.time_open) : '-';
     html += '<div class="op-card">' +
       '<span class="op-symbol">' + p.symbol + '</span>' +
       '<span class="op-tag op-strat" style="border-color:' + color + '">' + p.strategy + '</span>' +
@@ -919,6 +940,7 @@ function buildOpenPositions() {
       '<span class="op-tag">lots=' + p.lots.toFixed(2) + '</span>' +
       '<span class="op-tag">open=' + p.open.toFixed(5) + '</span>' +
       '<span class="op-tag">now=' + p.current.toFixed(5) + '</span>' +
+      (p.time_open ? '<span class="op-tag op-elapsed" data-ts="' + p.time_open + '" style="color:#8b949e">⏱ ' + elapsed + '</span>' : '') +
       '<span class="op-pnl ' + cls + '">' + fmt2(p.profit) + '</span>' +
       '</div>';
   });
@@ -1061,6 +1083,7 @@ buildPhase1Panel();
 initDailyNav();
 buildAllTradesSection();
 buildOpenPositions();
+setInterval(refreshElapsed, 30000);
 </script>
 </body>
 </html>'''
