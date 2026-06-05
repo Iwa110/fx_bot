@@ -364,7 +364,7 @@
     <ul>
       <li>ロット: 残高×1.5% ÷ (SL価格差 × 100,000 × レート) → 0.01単位切り捨て</li>
       <li>上限 0.2lot / 下限 0.01lot / JPYペア MAX_JPY_LOT=0.4</li>
-      <li>クールダウン: SL後15分（COOLDOWN_MINUTES=15）</li>
+      <li>クールダウン: SL後 <b>およびT_max強制決済(BB_time_stop)後</b> 15分（COOLDOWN_MINUTES=15）<br><small>v29(2026-06-05)修正: T_max決済(reason=EXPERT)が旧クールダウン判定(reason==SL)を素通りし未反転シグナルへ毎分即時再エントリー（大量エントリー）を発生 → BB_time_stopコメント判定を追加し是正（対象: USDJPY/EURJPY）</small></li>
       <li>GBPJPY/USDJPY: max_pos=2（BT: GBPJPY +0.051, USDJPY +0.127 PF改善確認）</li>
       <li>日次損失上限: -50,000円 → 超過で当日停止</li>
     </ul>

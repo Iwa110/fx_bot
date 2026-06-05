@@ -85,6 +85,12 @@ v26 USDJPY T_max=8h+exp TP Decay / EURJPY T_max=6h 強制決済追加 (2026-05-2
     USDJPY: Baseline OOS PF=1.137 → exp_tau8 OOS PF=1.211 (+6.5%)
     EURJPY: Baseline OOS PF=1.047 → T_max=6h OOS PF=1.137 (+8.7%)
     GBPJPY: T_max追加でOOS PF劣化(1.130→1.079)のため変更なし
+v29 T_max決済後の大量再エントリー修正 (2026-06-05)
+  - 不具合: is_in_cooldown が reason==DEAL_REASON_SL のみクールダウン対象としていたため、
+    T_max強制決済(BB_time_stop, reason=DEAL_REASON_EXPERT)後はクールダウンが効かず、
+    未反転のBBシグナルへ毎分(Task Scheduler)即時再エントリー→T_max決済→再エントリーを反復。
+  - 修正: is_in_cooldown に BB_time_stop コメント判定を追加。SL/T_max いずれの決済後も
+    COOLDOWN_MINUTES(15分)の再エントリー禁止を適用。USDJPY/EURJPY(T_max設定ペア)が対象。
 v28 T_max二重通知防止: deal履歴チェック追加 (2026-05-29)
   - manage_dynamic_exit: T_max強制決済前に1時間以内のBB_time_stopディール履歴を確認
   - デモ口座でRETCODE_DONEだがポジション残存するケースのスキップ処理
@@ -311,11 +317,17 @@ def is_in_cooldown(symbol):
             continue
         if d.entry != mt5.DEAL_ENTRY_OUT:
             continue
-        if d.reason == mt5.DEAL_REASON_SL:
+        # v29: SL決済に加え T_max強制決済(BB_time_stop)もクールダウン対象に追加。
+        #      T_max決済は DEAL_REASON_EXPERT のため従来 reason==SL 判定をすり抜け、
+        #      未反転シグナルへ毎分の即時再エントリー（大量エントリー）を起こしていた。
+        is_sl        = (d.reason == mt5.DEAL_REASON_SL)
+        is_time_stop = ('BB_time_stop' in (d.comment or ''))
+        if is_sl or is_time_stop:
             deal_time = datetime.fromtimestamp(d.time, tz=timezone.utc)
             elapsed   = (now_utc - deal_time).total_seconds() / 60
             if elapsed <= COOLDOWN_MINUTES:
-                log(symbol + ': クールダウン中 SL後' + f'{elapsed:.1f}' + '分')
+                cause = 'SL' if is_sl else 'T_max'
+                log(symbol + ': クールダウン中 ' + cause + '後' + f'{elapsed:.1f}' + '分')
                 return True
     return False
 

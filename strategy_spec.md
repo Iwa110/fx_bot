@@ -115,7 +115,8 @@
 - JPYペア: MAX_JPY_LOT=0.4 超過はスキップ
 
 ### その他のリスク管理
-- クールダウン: SL後15分間同ペアのエントリーをスキップ（COOLDOWN_MINUTES=15）
+- クールダウン: SL後 **および T_max強制決済(BB_time_stop)後** 15分間、同ペアのエントリーをスキップ（COOLDOWN_MINUTES=15）
+  - v29(2026-06-05)修正: T_max決済は reason=DEAL_REASON_EXPERT のため旧 is_in_cooldown(reason==SL判定)を素通りし、未反転シグナルへ毎分の即時再エントリー（大量エントリー）を発生させていた。BB_time_stopコメント判定を追加し是正（対象: T_max設定ペアのUSDJPY/EURJPY）
 - 同一ペア複数ポジション: GBPJPY/USDJPY は max_pos=2（BBタッチは独立イベント。BT: GBPJPY +0.051, USDJPY +0.127 PF改善確認）
 - 日次損失上限: -50,000円 (BB戦略合計) → 超過で当日停止
 
