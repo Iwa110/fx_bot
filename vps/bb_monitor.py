@@ -1,5 +1,5 @@
 """
-bb_monitor.py  - BB逆張り戦略（5分毎実行）v28
+bb_monitor.py  - BB逆張り戦略（5分毎実行）v29
 v14:
   - ALLOWED_HOURS_UTC辞書を追加（ペア別UTC時間帯フィルター）
   - main()ループに時間帯チェックを追加（空リスト=停止、None=制限なし）
@@ -975,7 +975,7 @@ def manage_dynamic_exit(logf, webhook):
 def main():
     global BROKER_KEY
 
-    parser = argparse.ArgumentParser(description='BB逆張り戦略モニター v21')
+    parser = argparse.ArgumentParser(description='BB逆張り戦略モニター v29')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='使用するブローカーキー')
@@ -1116,7 +1116,7 @@ def main():
             executed += 1
 
     now = datetime.now().strftime('%H:%M')
-    log('[' + now + '] BB v28完了: 発注' + str(executed) + '件 ' +
+    log('[' + now + '] BB v29完了: 発注' + str(executed) + '件 ' +
         'スキップ' + str(skipped) + '件 ' +
         'ポジション' + str(count_total()) + '/' + str(MAX_TOTAL_POS) +
         ' broker=' + BROKER_KEY)
