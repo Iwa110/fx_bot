@@ -1,5 +1,5 @@
 """
-sma_squeeze.py - SMA Squeeze Play strategy monitor v4
+sma_squeeze.py - SMA Squeeze Play strategy monitor v4.6
 Trend-following: SMA200 slope filter + SMA20 squeeze/expansion entry.
 magic: 20260010
 v2 2026-05-12: A-1 SMA_long slope reversal exit + B-1 breakeven SL move
@@ -38,6 +38,11 @@ v4.5 2026-06-02: ATR trailing disabled (root cause of live WR~0%, n=20 -19,285 J
   Fix: atr_trail_mult 0.5->0.0 for USDJPY/EURUSD (BT w/o trail: USDJPY PF 1.34->2.48).
   GBPJPY disabled: PF=0.999<1.2 even w/o trail + worst live loss -> redesign pending.
   NOTE: sma_squeeze_exit_bt.py validated trail at bar-close only (missed intrabar) -> unreliable.
+v4.6 2026-06-05: 強制決済後のクールダウン再武装
+  クールダウン(180min)はエントリー時刻基準のため、T_max(24h)等の長時間保有後に強制決済
+  すると既に失効済みで即再エントリーしうる(BBのT_max再エントリーと同型のギャップ)。
+  manage_positions の各決済成功時(TMAX/force-close/slope-exit)に _last_entry を決済時刻へ
+  更新し、決済起点で COOLDOWN_MIN を効かせる。
 """
 
 import sys, os, time, argparse, ssl, urllib.request
@@ -507,6 +512,9 @@ def manage_positions(broker, webhook):
                         ' force-close  ticket=' + str(p.ticket))
                 log_print(msg)
                 if _close_position(p, is_long, STRATEGY_TAG + '_TMAX'):
+                    # v4.6: 決済時刻からクールダウンを再武装。エントリー時刻基準のままだと
+                    #       長時間保有後の強制決済では180分が失効済みで即再エントリーしうる。
+                    _last_entry[base_sym] = datetime.now()
                     send_discord(msg, webhook)
                 continue
 
@@ -517,6 +525,7 @@ def manage_positions(broker, webhook):
                     ' SMA' + str(cfg['sma_long']) + ' break  ticket=' + str(p.ticket))
             log_print(msg)
             if _close_position(p, is_long, STRATEGY_TAG + '_CLOSE'):
+                _last_entry[base_sym] = datetime.now()  # v4.6: 決済後クールダウン再武装
                 send_discord(msg, webhook)
             continue
 
@@ -532,6 +541,7 @@ def manage_positions(broker, webhook):
                         '  ticket=' + str(p.ticket))
                 log_print(msg)
                 if _close_position(p, is_long, STRATEGY_TAG + '_SLOPE_EXIT'):
+                    _last_entry[base_sym] = datetime.now()  # v4.6: 決済後クールダウン再武装
                     send_discord(msg, webhook)
                 continue
 
@@ -731,7 +741,7 @@ def place_order(symbol, base_sym, direction, sl_pips, tp_pips, broker, cfg):
 # Main loop
 # ══════════════════════════════════════════
 def main_loop(webhook):
-    log_print('sma_squeeze v4 started  broker=' + BROKER_KEY +
+    log_print('sma_squeeze v4.6 started  broker=' + BROKER_KEY +
               '  interval=' + str(LOOP_INTERVAL) + 's')
 
     _cycle = 0
@@ -819,7 +829,7 @@ def main_loop(webhook):
 def main():
     global BROKER_KEY, LOG_FILE, DEBUG
 
-    parser = argparse.ArgumentParser(description='SMA Squeeze Play monitor v4')
+    parser = argparse.ArgumentParser(description='SMA Squeeze Play monitor v4.6')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='broker key')

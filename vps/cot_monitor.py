@@ -1,10 +1,14 @@
 """
-cot_monitor.py - COT Extreme x Daily Trend strategy v1
+cot_monitor.py - COT Extreme x Daily Trend strategy v2
 COT Index (CFTC TFF Leveraged Funds, 156-week rolling) extreme signals
   >90 -> fade longs (short) / <10 -> fade shorts (long)
   + D1 EMA50 direction filter
 
 magic: 20260020
+v2 2026-06-05: 決済後クールダウン追加 (COOLDOWN_HOURS=168=1週間)
+  決済(SL/TP/max_hold)後にクールダウンが無く、週次COT極値が残る限り即再エントリーして
+  負けテーゼ反復・max_hold空回りを起こしていた不具合を修正。is_in_cooldown を
+  deal履歴ベースで実装(再起動後も有効)。1ペア1週間に1エントリーを上限とする。
 v1 2026-05-20: initial implementation
   BT: cot_extreme_bt.py, 2023-07-14~2026-02-27
     EURUSD n=16 WR=75% PF=1.940
@@ -51,6 +55,11 @@ SL_ATR_MULT  = 1.5
 TP_ATR_MULT  = 3.0   # TP2 from BT
 MAX_HOLD_DAYS = 14
 MAX_TOTAL_POS = 3
+# v2: 決済後クールダウン。COTは週次シグナル(>90/<10が週単位で不変)のため、
+#     決済後にクールダウンが無いと SL損切り直後や max_hold決済直後に同方向へ
+#     即再エントリーし、負けテーゼの反復・max_holdの空回りを招いていた。
+#     週次シグナル周期に合わせ「1ペア1週間に1エントリー」を上限とする。
+COOLDOWN_HOURS = 24 * 7
 
 # CFTC contract codes for Leveraged Funds (TFF FutOnly)
 # sign: +1 if pair moves same direction as futures net, -1 if inverse
@@ -252,6 +261,28 @@ def has_open_position(symbol: str) -> bool:
     return any(p.magic == MAGIC for p in pos)
 
 
+def is_in_cooldown(symbol: str) -> bool:
+    """COOLDOWN_HOURS 以内に同銘柄の決済があれば再エントリーを禁止。
+    deal履歴から復元するため決済理由(SL/TP/max_hold)に依存せず、再起動後も有効。"""
+    now_utc = datetime.now(timezone.utc)
+    from_dt = now_utc - timedelta(hours=COOLDOWN_HOURS)
+    deals = mt5.history_deals_get(from_dt, now_utc)
+    if not deals:
+        return False
+    for d in deals:
+        if d.magic != MAGIC or d.symbol != symbol:
+            continue
+        if d.entry != mt5.DEAL_ENTRY_OUT:
+            continue
+        deal_time = datetime.fromtimestamp(d.time, tz=timezone.utc)
+        elapsed_h = (now_utc - deal_time).total_seconds() / 3600.0
+        if elapsed_h <= COOLDOWN_HOURS:
+            log_print(f'{symbol}: cooldown {elapsed_h:.1f}/{COOLDOWN_HOURS}h since last close',
+                      debug=True)
+            return True
+    return False
+
+
 def check_max_hold(webhook: str) -> None:
     """Close positions held longer than MAX_HOLD_DAYS."""
     pos = mt5.positions_get()
@@ -443,6 +474,8 @@ def main_loop(webhook: str) -> None:
                 if has_open_position(symbol):
                     log_print(base_sym + ': position open  skip', debug=True)
                     continue
+                if is_in_cooldown(symbol):
+                    continue
 
                 cot_val = cot_signals.get(base_sym)
                 if cot_val is None:
@@ -478,7 +511,7 @@ def main_loop(webhook: str) -> None:
 def main() -> None:
     global BROKER_KEY, LOG_FILE, DEBUG
 
-    parser = argparse.ArgumentParser(description='COT Monitor v1')
+    parser = argparse.ArgumentParser(description='COT Monitor v2')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='broker key')

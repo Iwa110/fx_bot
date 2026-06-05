@@ -541,16 +541,16 @@ SELL: diff >= +0.0007</pre>
 <!-- §6 SMA Squeeze -->
 <div class="section" id="s6">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>6. SMA Squeeze Play <small style="font-size:11px;color:var(--muted)">sma_squeeze.py v4.5</small></h2>
+    <h2>6. SMA Squeeze Play <small style="font-size:11px;color:var(--muted)">sma_squeeze.py v4.6</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
     <h3>概要</h3>
-    <p>SMA200スロープフィルター + SMA圧縮中の押し目でトレンドフォロー（低WR・高RR型）。v3で日足SMAスロープフィルター追加・COOLDOWN=180分、v4でATR-adaptive trailing stop導入（be_r廃止）、v4.2でtrail_start_mult BT検証、v4.3でEURJPY停止・T_max=24h追加、v4.4でUSDJPY squeeze_th緩和、<strong>v4.5でATRトレーリング無効化（実稼働WR~0%の真因）・GBPJPY停止</strong>。</p>
+    <p>SMA200スロープフィルター + SMA圧縮中の押し目でトレンドフォロー（低WR・高RR型）。v3で日足SMAスロープフィルター追加・COOLDOWN=180分、v4でATR-adaptive trailing stop導入（be_r廃止）、v4.2でtrail_start_mult BT検証、v4.3でEURJPY停止・T_max=24h追加、v4.4でUSDJPY squeeze_th緩和、<strong>v4.5でATRトレーリング無効化（実稼働WR~0%の真因）・GBPJPY停止</strong>、v4.6で強制決済後のクールダウン再武装。</p>
 
     <div class="info-grid">
       <div class="info-item"><div class="info-label">Magic</div><div class="info-value magic-num">20260010</div></div>
-      <div class="info-item"><div class="info-label">クールダウン</div><div class="info-value">180分/ペア</div></div>
+      <div class="info-item"><div class="info-label">クールダウン</div><div class="info-value">180分/ペア（v4.6: 強制決済時に決済時刻起点で再武装）</div></div>
       <div class="info-item"><div class="info-label">最大総Pos</div><div class="info-value">3</div></div>
       <div class="info-item"><div class="info-label">実行間隔</div><div class="info-value">60秒ループ</div></div>
     </div>
@@ -908,7 +908,7 @@ lot = clamp(lot, MIN=0.01, MAX=0.2)</pre>
 <!-- §13 COT -->
 <div class="section" id="s13">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>13. COT極値×日足トレンド <small style="font-size:11px;color:var(--muted)">cot_monitor.py v1</small></h2>
+    <h2>13. COT極値×日足トレンド <small style="font-size:11px;color:var(--muted)">cot_monitor.py v2</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
@@ -920,6 +920,7 @@ lot = clamp(lot, MIN=0.01, MAX=0.2)</pre>
       <div class="info-item"><div class="info-label">ループ間隔</div><div class="info-value">3600秒（1時間）</div></div>
       <div class="info-item"><div class="info-label">最大総Pos</div><div class="info-value">3（1ペアにつき1）</div></div>
       <div class="info-item"><div class="info-label">最大保有</div><div class="info-value">14日</div></div>
+      <div class="info-item"><div class="info-label">クールダウン</div><div class="info-value">v2: 168h(1週間)/ペア（決済後の即再エントリー防止）</div></div>
       <div class="info-item"><div class="info-label">稼働ブローカー</div><div class="info-value">oanda</div></div>
       <div class="info-item"><div class="info-label">コメント</div><div class="info-value"><code>COT_{PAIR}</code></div></div>
     </div>
@@ -1256,7 +1257,7 @@ heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X float_l=XXXX float_s=XXXX</pr
 <!-- 15. 経済指標戦略 -->
 <div class="section" id="s15">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>15. 経済指標戦略 <small style="font-size:11px;color:var(--muted)">news_monitor.py v1</small></h2>
+    <h2>15. 経済指標戦略 <small style="font-size:11px;color:var(--muted)">news_monitor.py v1.2</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
@@ -1269,6 +1270,7 @@ heartbeat alive long_pos=X/7 short_pos=X/7 ci=XX.X float_l=XXXX float_s=XXXX</pr
         <tr><td>ハートビート</td><td>30サイクル毎（約30分）</td></tr>
         <tr><td>稼働ブローカー</td><td>axiory / exness</td></tr>
         <tr><td>データソース</td><td>ForexFactory JSON (今週分)</td></tr>
+        <tr><td>重複防止</td><td>処理済みイベントIDを news_processed_ids.json に永続化（再起動後の同一イベント再トレードを防止／14日超は自動剪定）</td></tr>
       </tbody>
     </table>
 

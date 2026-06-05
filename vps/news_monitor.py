@@ -1,5 +1,5 @@
 """
-news_monitor.py - 経済指標戦略(B+C複合) リアルタイム監視 v1
+news_monitor.py - 経済指標戦略(B+C複合) リアルタイム監視 v1.2
 magic: 20260040
 
 戦略概要:
@@ -43,6 +43,10 @@ v1.1 2026-05-24: 仕様差異修正
   - --dry-run オプション追加 (MT5発注なしでロジック確認)
   - history CSV カラム変更: 仕様書準拠形式
     (datetime, pair, direction, entry, exit, pnl_pips, lot, reason, event, surprise_z)
+v1.2 2026-06-05: 処理済みイベントID(_processed_ids)を永続化
+  - 旧版はメモリのみ → デーモン再起動がイベントのエントリー窓内で起きると
+    同一指標を再トレードしうるギャップを是正。news_processed_ids.json に保存し
+    起動時ロード、mark_processed() で都度保存。14日より古いIDは自動剪定。
 """
 
 import sys, os, ssl, time, json, argparse, urllib.request
@@ -122,6 +126,7 @@ _DATA_DIR = os.path.join(_ROOT_DIR, 'data')
 
 LOG_FILE           = os.path.join(_VPS_DIR, 'news_monitor_log.txt')
 SURPRISE_CACHE_FILE = os.path.join(_VPS_DIR, 'news_surprise_cache.json')
+PROCESSED_IDS_FILE  = os.path.join(_VPS_DIR, 'news_processed_ids.json')
 ENV_FILE           = os.path.join(_VPS_DIR, '.env')
 
 # ForexFactory JSON API
@@ -249,6 +254,35 @@ def save_surprise_cache(cache: dict) -> None:
             json.dump(cache, f, indent=2, ensure_ascii=False)
     except Exception as e:
         log_print('surprise_cache save error: ' + str(e))
+
+
+def load_processed_ids() -> set:
+    """処理済みイベントID集合をロード。デーモン再起動後も重複エントリーを防ぐため永続化。
+    event_id 先頭の 'YYYY-MM-DD' を見て 14日より古いIDは破棄(肥大化防止)。"""
+    try:
+        with open(PROCESSED_IDS_FILE, encoding='utf-8') as f:
+            ids = json.load(f)
+    except Exception:
+        return set()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).strftime('%Y-%m-%d')
+    return {i for i in ids if i[:10] >= cutoff}
+
+
+def save_processed_ids() -> None:
+    """_processed_ids を 14日以内のIDのみに剪定して永続化。"""
+    try:
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=14)).strftime('%Y-%m-%d')
+        pruned = {i for i in _processed_ids if i[:10] >= cutoff}
+        with open(PROCESSED_IDS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(sorted(pruned), f, indent=2, ensure_ascii=False)
+    except Exception as e:
+        log_print('processed_ids save error: ' + str(e))
+
+
+def mark_processed(event_id: str) -> None:
+    """イベントIDを処理済みに記録し、即座に永続化する。"""
+    _processed_ids.add(event_id)
+    save_processed_ids()
 
 
 def compute_z_live(group_key: str, surprise_raw: float, cache: dict, window: int) -> float | None:
@@ -773,7 +807,7 @@ def process_ff_events(calendar: list, cache: dict, webhook: str) -> None:
                             ' z=' + str(round(surprise_z_val, 2)) +
                             ' th=' + str(PARAMS['surprise_z_th'])
                         )
-                        _processed_ids.add(event_id)
+                        mark_processed(event_id)
                         continue
 
                 # direction: サプライズ方向 × sign
@@ -786,7 +820,7 @@ def process_ff_events(calendar: list, cache: dict, webhook: str) -> None:
                 pre_px = get_pre_event_price(_rsym(pair), event_utc)
                 if pre_px is None:
                     log_print('NEWS skip (pre_event price failed): ' + event_id)
-                    _processed_ids.add(event_id)
+                    mark_processed(event_id)
                     continue
 
                 entry_check_time = event_utc + timedelta(minutes=PARAMS['delay_min'])
@@ -825,7 +859,7 @@ def process_ff_events(calendar: list, cache: dict, webhook: str) -> None:
             if now_utc > check_end:
                 # 窓を過ぎた -> 破棄
                 log_print('NEWS expired: ' + event_id)
-                _processed_ids.add(event_id)
+                mark_processed(event_id)
                 del _pending[event_id]
                 continue
 
@@ -854,7 +888,7 @@ def process_ff_events(calendar: list, cache: dict, webhook: str) -> None:
                     ' move=' + str(round(move_pips, 1)) + 'pips' +
                     ' th=' + str(PARAMS['move_th_pips'])
                 )
-                _processed_ids.add(event_id)
+                mark_processed(event_id)
                 del _pending[event_id]
                 continue
 
@@ -902,7 +936,7 @@ def process_ff_events(calendar: list, cache: dict, webhook: str) -> None:
                     webhook,
                 )
 
-            _processed_ids.add(event_id)
+            mark_processed(event_id)
             if event_id in _pending:
                 del _pending[event_id]
 
@@ -913,7 +947,7 @@ def process_ff_events(calendar: list, cache: dict, webhook: str) -> None:
 
 def main_loop(webhook: str) -> None:
     log_print(
-        'news_monitor v1 started  broker=' + BROKER_KEY +
+        'news_monitor v1.2 started  broker=' + BROKER_KEY +
         '  interval=' + str(LOOP_INTERVAL) + 's'
     )
     log_print(
@@ -927,6 +961,10 @@ def main_loop(webhook: str) -> None:
     # サプライズキャッシュをロード (再起動後も Z スコア計算に使用)
     cache = load_surprise_cache()
     log_print('surprise_cache loaded: ' + str(sum(len(v) for v in cache.values())) + ' entries')
+
+    # 処理済みイベントIDをロード (再起動後も同一イベントの再トレードを防止)
+    _processed_ids.update(load_processed_ids())
+    log_print('processed_ids loaded: ' + str(len(_processed_ids)) + ' entries')
 
     _cycle = 0
 
@@ -964,7 +1002,7 @@ def main_loop(webhook: str) -> None:
 def main() -> None:
     global BROKER_KEY, LOG_FILE, DRY_RUN
 
-    parser = argparse.ArgumentParser(description='NEWS monitor v1.1 (economic indicator strategy)')
+    parser = argparse.ArgumentParser(description='NEWS monitor v1.2 (economic indicator strategy)')
     parser.add_argument(
         '--broker', default=BROKER_KEY,
         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
