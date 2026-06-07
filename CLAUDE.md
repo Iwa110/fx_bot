@@ -68,6 +68,21 @@ C:\Users\Administrator\fx_bot\
 
 ## Top of mind（2026-06-07 更新）
 
+### 新規エッジ探索（案α / pre-event / session）3件棚卸し（2026-06-07）★結論
+方針転換: Grid補完(案A/B)Close後、Gridと構造的に独立な領域で新規エッジを探索。3件をローカル2年データ＋現実的執行で再検証。
+
+| 戦略 | 再検証条件 | 結果 | 判定 |
+|------|-----------|------|------|
+| **案α 非JPY三角stat_arb** | EURUSD/GBPUSD/EURGBP, OU平均回帰, IS/OOS, next-bar fill | 全81組合せ IS PF≤0.16/OOS≤0.30, 全Sharpe負 | ❌ **Close** |
+| **pre_event vol_squeeze** | NFP/CPI実日付(news_events.csv)＋ローカル2年1h | 全8sweepセル PF≤0.72/Sharpe全負 | ❌ **Close** |
+| **session_fakeout** | ローカル2年5m(但し5mは~3moのみ存在) | tp_ratio=0.3でfake_pips横断の一貫正エッジ(PF1.15〜1.77) | ⚠️ **継続候補・5mデータ待ち** |
+
+- **案α真因**: 三角恒等式 EURGBP=EURUSD/GBPUSD はclose上ほぼ完全成立。乖離=非同期クォートノイズ(std1.3pip/半減期<1足)。当初「信号バー終値で約定」モデルがPF400+を出したが**バー内ルックアヘッド**。next-bar fillで全崩壊。独立性は完璧(Grid相関≈0)だが領域にエッジ無し→案A/B/αで「相関は狙い通りだがエッジ無し」3例目。スクリプト: `optimizer/stat_arb_nonjpy_bt.py`。
+- **pre_event真因**: 近似カレンダーのズレ由来ではなく**本物の負エッジ**(実日付化でPF0.756→0.694と悪化)。NFP/CPI前ボラ縮小×BB逆張りにエッジ無し。FOMCはnews_events.csv未収録で実日付検証不可(旧FOMC-only PF1.57は近似日×n25×DD174%で未検証のまま放置)。`optimizer/pre_event_vol_squeeze_bt.py` に `--local`/`--real-cal` 追加済み。
+- **session_fakeout知見**: 当初yfinance(58日/n27/PF0.33)はtp_ratio=0.5デフォルト1点のみで見誤り。sweepで「タイトTP(0.3)で素早く回帰を取る/ワイドTP(0.7-1.0)は負ける」単調パターン(4 fake_pips全てで成立=非過適合)。最良 fake_pips=5/tp0.3: PF1.41/WR52%/Sharpe1.94。**但しローカル5mは~3moのみ(16,774本)で最大n=72→採用基準n≥200届かず判定保留**。`optimizer/session_fakeout_bt.py` にリポジトリCSVローダ分岐追加→`--mt5 ../data`で動作。
+- **横断データ知見**: `data/*_1h.csv`=2年だが**`data/*_5m.csv`=約3moのみ**(update_data.pyがyfinance依存=5m遡及不可)。5m依存BTはローカルでは構造的に検証不能。
+- **次アクション**: ①session_fakeoutの本判定には**VPS MT5から2年5m足エクスポートが前提** → `vps/export_5m_history.py`(+`.bat`)新規作成。VPSで`git pull`→bat実行→push→ローカルpull→`session_fakeout_bt.py --mt5 ../data --sweep`でn300+判定。②案α/pre_eventは打ち切り(成果物は再検証用に保持)。
+
 ### Trend補完戦略（案B/D/A）全BT完了 → 打ち切り（2026-06-07）★結論
 - **判定: Grid補完用 Trendレッグ（GBPJPY Donchian/ATRトレイル）は3案すべて不採用。アイデア打ち切り、Grid/BBへ集約。**
 - 動機: GridはトレンドでDDを踏む。負相関のTrendをブレンドすればGrid単体よりPF改善/DD圧縮できるはず、を検証。

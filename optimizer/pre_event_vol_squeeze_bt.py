@@ -198,6 +198,61 @@ def fetch_yfinance(ticker: str, interval: str, days: int) -> pd.DataFrame | None
     return df.sort_index()
 
 
+def load_local_1h(pair: str) -> pd.DataFrame | None:
+    """リポジトリ data/<pair>_1h.csv (2年・無名index列+小文字ohlc) を読む。"""
+    data_dir = os.path.join(os.path.dirname(OUT_DIR), "data")
+    if not os.path.isdir(data_dir):
+        data_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+    path = os.path.join(data_dir, f"{pair}_1h.csv")
+    if not os.path.exists(path):
+        return None
+    df = pd.read_csv(path, index_col=0, parse_dates=True)
+    df.index = pd.to_datetime(df.index, utc=True)
+    df = df[["open", "high", "low", "close"]].rename(columns={
+        "open": "Open", "high": "High", "low": "Low", "close": "Close"
+    }).sort_index().dropna()
+    return df
+
+
+def load_calendar_real(start: str = "2024-01-01",
+                       end: str = "2026-05-31") -> pd.DataFrame:
+    """data/news_events.csv の実発表日時から NFP/CPI カレンダーを構築。
+    時刻はUS/Eastern想定でUTC変換。FOMCは未収録のため対象外。"""
+    from zoneinfo import ZoneInfo
+    data_dir = os.path.join(os.path.dirname(OUT_DIR), "data")
+    path = os.path.join(data_dir, "news_events.csv")
+    ev = pd.read_csv(path)
+    ev = ev[ev["currency"] == "USD"].copy()
+
+    def classify(name):
+        n = str(name).lower()
+        if "non-farm" in n or "nonfarm" in n:
+            return "NFP"
+        if "cpi" in n:
+            return "CPI"
+        return None
+    ev["etype"] = ev["event"].map(classify)
+    ev = ev[ev["etype"].notna()].copy()
+
+    et = ZoneInfo("America/New_York")
+    dts = pd.to_datetime(ev["date"].astype(str) + " " + ev["time"].astype(str))
+    ev["event_dt"] = [pd.Timestamp(x, tz=et).tz_convert("UTC") for x in dts]
+
+    # CPIは y/y, m/m, Core m/m が同日に複数行 -> (etype,日付)で1件に集約
+    ev["d"] = ev["event_dt"].dt.normalize()
+    ev = ev.sort_values("event_dt").drop_duplicates(subset=["etype", "d"], keep="first")
+
+    lo = pd.Timestamp(start, tz="UTC"); hi = pd.Timestamp(end, tz="UTC")
+    ev = ev[(ev["event_dt"] >= lo) & (ev["event_dt"] <= hi)]
+
+    records = [{"event_dt": r["event_dt"], "event": r["etype"],
+                "pair_relevant": ["EURUSD", "USDJPY"]} for _, r in ev.iterrows()]
+    df = pd.DataFrame(records).sort_values("event_dt").reset_index(drop=True)
+    print(f"  [Calendar] REAL (news_events.csv): {len(df)} events "
+          f"({df['event'].value_counts().to_dict()})")
+    return df
+
+
 # =============================================================================
 # ボラ縮小計算
 # =============================================================================
@@ -797,6 +852,10 @@ def main():
                         help="VOL_RATIO_THRESH x BB_STD 感度分析を実行")
     parser.add_argument("--fomc-only", action="store_true",
                         help="FOMC前のみに絞り込んでBT（採用基準 n>=15 に緩和）")
+    parser.add_argument("--local", action="store_true",
+                        help="価格を data/<pair>_1h.csv (ローカル2年) から読む")
+    parser.add_argument("--real-cal", action="store_true",
+                        help="data/news_events.csv の実発表日時を使用 (NFP/CPIのみ)")
     args = parser.parse_args()
 
     # FOMC-only モード設定
@@ -826,7 +885,7 @@ def main():
 
     # ── カレンダー生成 ──────────────────────────────────────────
     print("\n[Calendar]")
-    calendar_df = load_calendar()
+    calendar_df = load_calendar_real() if args.real_cal else load_calendar()
     if fomc_only:
         calendar_df = calendar_df[calendar_df["event"] == "FOMC"].reset_index(drop=True)
         print(f"  FOMC-ONLY filter applied: {len(calendar_df)} events")
@@ -838,8 +897,12 @@ def main():
     pair_data = {}
     for pair in PAIRS:
         cfg = PAIR_CONFIG[pair]
-        print(f"\n[{pair}] fetching 1h data ({HIST_DAYS_1H}d)...")
-        df_1h = fetch_yfinance(cfg["ticker"], "1h", HIST_DAYS_1H)
+        if args.local:
+            print(f"\n[{pair}] loading local data/{pair}_1h.csv ...")
+            df_1h = load_local_1h(pair)
+        else:
+            print(f"\n[{pair}] fetching 1h data ({HIST_DAYS_1H}d)...")
+            df_1h = fetch_yfinance(cfg["ticker"], "1h", HIST_DAYS_1H)
         if df_1h is None:
             print(f"  WARNING: no data for {pair}")
             pair_data[pair] = None

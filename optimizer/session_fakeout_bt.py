@@ -133,6 +133,17 @@ def load_mt5_csv(pair: str, timeframe: str, data_dir: str):
             return df[["Open", "High", "Low", "Close"]]
         except Exception:
             pass
+        try:
+            # リポジトリ形式 (無名index列 + 小文字 open/high/low/close)
+            df = pd.read_csv(path, index_col=0, parse_dates=True)
+            df.index = pd.to_datetime(df.index, utc=True)
+            df = df[["open", "high", "low", "close"]].rename(columns={
+                "open": "Open", "high": "High", "low": "Low", "close": "Close"
+            }).sort_index().dropna()
+            print(f"  [LOCAL] Loaded {path} ({len(df)} bars)")
+            return df
+        except Exception:
+            pass
 
     return None
 
