@@ -1,0 +1,392 @@
+"""
+pullback_trend_bt.py - Pullback trend-following backtest (P1).
+
+Strategy (Grid戦略の補完 = トレンド順行時に効くレッグ):
+  - 方向判定: 日足(D1) close vs SMA200  -> up なら買い専用 / down なら売り専用
+  - エントリー: トレンド方向の押し目で順張り
+      * フィルタ: ADX14 > adx_th かつ Choppiness(14) < CHOP_TH(=50)
+      * 押し目トリガ: 直近 n 本の Low(買い)/High(売り) へのタッチ  OR  RSI14<40(買い)/RSI14>60(売り)
+      * 押し目の深さ: (直近n本swing高 - 当該bar安値) >= atr_mult * ATR14   (売りは符号反転)
+  - 出口: 固定 RR=1.5 (SL=直近n本swing安値/高値±0.1ATRバッファ, TP=entry±1.5*risk)
+          + ATRトレイル(5本遅延発動 / 距離=TRAIL_ATR*ATR_entry)
+  - スプレッド: EURJPY 2pips を往復コストとして控除
+  - 会計: R倍率ベース (risk=entry-SL=1R)。DD% は 1トレード=1%リスク前提の近似値。
+
+期間:
+  - IS : 2024-04-01 .. 2025-08-31
+  - OOS: 2025-09-01 .. 2026-05-31  (P1 IS PF>1.3 のときのみ意味を持つ参考値として常時出力)
+
+探索: n=[3,5,8] x atr_mult=[0.5,0.7,1.0] x adx_th=[20,25,30]  (RR/Chop は固定)
+
+出力:
+  - optimizer/pullback_trend_bt_result.csv   : グリッド x (IS/OOS) の PF/WR/DD/N
+  - optimizer/pullback_trend_bt_trades.csv   : ベスト構成の全トレード台帳(P2のGrid相関用 時系列損益)
+"""
+
+import itertools
+import os
+import warnings
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+warnings.filterwarnings('ignore')
+
+# --- paths (VPS=Windows / ローカル=repo data 両対応) -------------------------
+OUTPUT_DIR = Path(__file__).resolve().parent
+_DATA_CANDIDATES = [
+    os.environ.get('FX_DATA_DIR'),
+    r'C:\Users\Administrator\fx_bot\data',
+    str(OUTPUT_DIR.parent / 'data'),
+]
+DATA_DIR = next((d for d in _DATA_CANDIDATES if d and os.path.isdir(d)), _DATA_CANDIDATES[-1])
+
+RESULT_CSV = str(OUTPUT_DIR / 'pullback_trend_bt_result.csv')
+TRADES_CSV = str(OUTPUT_DIR / 'pullback_trend_bt_trades.csv')
+
+# --- config -----------------------------------------------------------------
+PAIR        = 'EURJPY'
+PIP         = 0.01            # JPYクロス
+SPREAD      = 2 * PIP         # 2pips 往復控除
+SMA_LONG    = 200            # D1 トレンド判定
+RR          = 1.5
+CHOP_TH     = 50.0
+SL_BUF_ATR  = 0.1            # swing からの SL バッファ
+SL_ATR_MIN  = 1.0            # SL最小距離(ATR倍): 押し目bar近接でriskが潰れスプレッド支配になるのを防ぐ
+TRAIL_ATR   = 1.5           # トレイル距離(ATR_entry倍)
+TRAIL_DELAY = 5             # 発動遅延(本)
+RSI_LO      = 40.0
+RSI_HI      = 60.0
+MIN_TRADES  = 15            # セグメント当たり最低トレード数
+
+IS_START,  IS_END  = '2024-04-01', '2025-08-31 23:59'
+OOS_START, OOS_END = '2025-09-01', '2026-05-31 23:59'
+
+GRID = {
+    'n':       [3, 5, 8],
+    'atr_mult': [0.5, 0.7, 1.0],
+    'adx_th':  [20, 25, 30],
+}
+
+
+# --- data loading -----------------------------------------------------------
+def _coalesce_ohlc(df):
+    """大小文字2系統(連結データ)を1系統にまとめる。"""
+    out = {}
+    for col in ['open', 'high', 'low', 'close', 'volume']:
+        cands = [c for c in df.columns if c.lower() == col]
+        if not cands:
+            continue
+        s = df[cands[0]]
+        for c in cands[1:]:
+            s = s.fillna(df[c])
+        out[col] = s
+    return pd.DataFrame(out, index=df.index)
+
+
+def load_h1(pair):
+    path = os.path.join(DATA_DIR, f'{pair}_1h.csv')
+    df = pd.read_csv(path, index_col=0)
+    df.index = pd.to_datetime(df.index, utc=True).tz_convert(None)
+    df = _coalesce_ohlc(df)
+    df = df.dropna(subset=['close']).sort_index()
+    df = df[~df.index.duplicated(keep='last')]
+    return df
+
+
+def load_d1(pair):
+    path = os.path.join(DATA_DIR, f'{pair}_D1.csv')
+    df = pd.read_csv(path)
+    df.columns = [c.lower() for c in df.columns]
+    df['date'] = pd.to_datetime(df['date'])
+    df = df.set_index('date').sort_index()
+    df['sma200'] = df['close'].rolling(SMA_LONG).mean()
+    # 方向: +1=up(買い専用) / -1=down(売り専用) / 0=未確定
+    df['dir'] = np.where(df['close'] > df['sma200'], 1,
+                np.where(df['close'] < df['sma200'], -1, 0))
+    return df
+
+
+# --- indicators -------------------------------------------------------------
+def calc_atr14(df):
+    hl = df['high'] - df['low']
+    hc = (df['high'] - df['close'].shift()).abs()
+    lc = (df['low'] - df['close'].shift()).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+    return tr.ewm(alpha=1/14, min_periods=14, adjust=False).mean(), tr
+
+
+def calc_adx14(df):
+    high, low, close = df['high'], df['low'], df['close']
+    plus_dm = high.diff()
+    minus_dm = low.diff().mul(-1)
+    plus_dm = plus_dm.where((plus_dm > minus_dm) & (plus_dm > 0), 0.0)
+    minus_dm = minus_dm.where((minus_dm > plus_dm) & (minus_dm > 0), 0.0)
+    hl = high - low
+    hc = (high - close.shift()).abs()
+    lc = (low - close.shift()).abs()
+    tr = pd.concat([hl, hc, lc], axis=1).max(axis=1)
+    atr_s = tr.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+    plus_di = 100 * plus_dm.ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_s.replace(0, np.nan)
+    minus_di = 100 * minus_dm.ewm(alpha=1/14, min_periods=14, adjust=False).mean() / atr_s.replace(0, np.nan)
+    dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di).replace(0, np.nan)
+    return dx.ewm(alpha=1/14, min_periods=14, adjust=False).mean()
+
+
+def calc_rsi14(df, period=14):
+    delta = df['close'].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    ag = gain.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    al = loss.ewm(alpha=1/period, min_periods=period, adjust=False).mean()
+    rs = ag / al.replace(0, np.nan)
+    return 100 - 100 / (1 + rs)
+
+
+def calc_choppiness(df, tr, period=14):
+    atr_sum = tr.rolling(period).sum()
+    hh = df['high'].rolling(period).max()
+    ll = df['low'].rolling(period).min()
+    rng = (hh - ll).replace(0, np.nan)
+    return 100 * np.log10(atr_sum / rng) / np.log10(period)
+
+
+def calc_max_dd(equity):
+    eq = np.asarray(equity, dtype=float)
+    if eq.size == 0:
+        return 0.0
+    peak = np.maximum.accumulate(eq)
+    return float((peak - eq).max())
+
+
+# --- feature prep -----------------------------------------------------------
+def prepare(pair):
+    h1 = load_h1(pair)
+    d1 = load_d1(pair)
+
+    atr, tr = calc_atr14(h1)
+    h1['atr'] = atr
+    h1['adx'] = calc_adx14(h1)
+    h1['rsi'] = calc_rsi14(h1)
+    h1['chop'] = calc_choppiness(h1, tr)
+
+    # D1 方向を H1 にマップ: 各H1バー時点で「前日まで」に確定したD1方向を使用(lookahead防止)
+    dmap = d1[['dir']].copy()
+    dmap.index = dmap.index.normalize()
+    # 当日のD1足は未確定 -> 前日のdirを当日に適用
+    dmap_shift = dmap.shift(1)
+    day_key = h1.index.normalize()
+    h1['dir'] = day_key.map(dmap_shift['dir']).values
+    return h1.reset_index(names='time')
+
+
+# --- backtest ---------------------------------------------------------------
+def run_backtest(df, n, atr_mult, adx_th):
+    """全期間をbar順にシミュレートし、トレード台帳(list of dict)を返す。"""
+    high = df['high'].values
+    low = df['low'].values
+    close = df['close'].values
+    atr = df['atr'].values
+    adx = df['adx'].values
+    rsi = df['rsi'].values
+    chop = df['chop'].values
+    direction = df['dir'].values
+    time = df['time'].values
+
+    # 直近n本(当該barを除く)の swing
+    roll_low_n = df['low'].rolling(n).min().shift(1).values
+    roll_high_n = df['high'].rolling(n).max().shift(1).values
+
+    trades = []
+    pos = None  # dict
+    N = len(df)
+    start_i = max(SMA_LONG, 30, n + 1)
+
+    for i in range(start_i, N):
+        # ---- ポジション管理(既存ポジの当該barでの決済判定) ----
+        if pos is not None:
+            pos['bars'] += 1
+            # トレイル更新(発動遅延後)
+            if pos['bars'] >= TRAIL_DELAY:
+                if pos['side'] == 1:
+                    pos['ext'] = max(pos['ext'], high[i])
+                    trail = pos['ext'] - TRAIL_ATR * pos['atr0']
+                    pos['stop'] = max(pos['stop'], trail)
+                else:
+                    pos['ext'] = min(pos['ext'], low[i])
+                    trail = pos['ext'] + TRAIL_ATR * pos['atr0']
+                    pos['stop'] = min(pos['stop'], trail)
+
+            exit_price = None
+            if pos['side'] == 1:
+                hit_sl = low[i] <= pos['stop']
+                hit_tp = high[i] >= pos['tp']
+                if hit_sl and hit_tp:          # 同一bar -> 保守的にSL優先
+                    exit_price = pos['stop']
+                elif hit_sl:
+                    exit_price = pos['stop']
+                elif hit_tp:
+                    exit_price = pos['tp']
+            else:
+                hit_sl = high[i] >= pos['stop']
+                hit_tp = low[i] <= pos['tp']
+                if hit_sl and hit_tp:
+                    exit_price = pos['stop']
+                elif hit_sl:
+                    exit_price = pos['stop']
+                elif hit_tp:
+                    exit_price = pos['tp']
+
+            if exit_price is not None:
+                gross = (exit_price - pos['entry']) * pos['side']
+                net = gross - SPREAD          # 往復スプレッド控除
+                pnl_r = net / pos['risk']
+                trades.append({
+                    'entry_time': pos['entry_time'],
+                    'exit_time': time[i],
+                    'side': pos['side'],
+                    'entry': pos['entry'],
+                    'exit': exit_price,
+                    'risk': pos['risk'],
+                    'pnl_r': pnl_r,
+                    'bars': pos['bars'],
+                })
+                pos = None
+
+        # ---- 新規エントリー(ポジ無し時のみ / MAX_POS=1) ----
+        if pos is not None:
+            continue
+        d = direction[i]
+        if d == 0 or np.isnan(d):
+            continue
+        if not (atr[i] > 0) or np.isnan(atr[i]) or np.isnan(adx[i]) or np.isnan(chop[i]):
+            continue
+        if np.isnan(roll_low_n[i]) or np.isnan(roll_high_n[i]):
+            continue
+        if adx[i] <= adx_th or chop[i] >= CHOP_TH:
+            continue
+
+        if d == 1:  # 買い(上昇トレンドの押し目)
+            touch = low[i] <= roll_low_n[i]
+            rsi_ok = rsi[i] < RSI_LO
+            depth_ok = (roll_high_n[i] - low[i]) >= atr_mult * atr[i]
+            if not ((touch or rsi_ok) and depth_ok):
+                continue
+            entry = close[i] + SPREAD / 2     # ask
+            swing = roll_low_n[i]
+            stop0 = min(swing - SL_BUF_ATR * atr[i], entry - SL_ATR_MIN * atr[i])
+            risk = entry - stop0
+            if risk <= 0:
+                continue
+            tp = entry + RR * risk
+        else:       # 売り(下降トレンドの戻り)
+            touch = high[i] >= roll_high_n[i]
+            rsi_ok = rsi[i] > RSI_HI
+            depth_ok = (high[i] - roll_low_n[i]) >= atr_mult * atr[i]
+            if not ((touch or rsi_ok) and depth_ok):
+                continue
+            entry = close[i] - SPREAD / 2     # bid
+            swing = roll_high_n[i]
+            stop0 = max(swing + SL_BUF_ATR * atr[i], entry + SL_ATR_MIN * atr[i])
+            risk = stop0 - entry
+            if risk <= 0:
+                continue
+            tp = entry - RR * risk
+
+        pos = {
+            'side': int(d), 'entry': entry, 'entry_time': time[i],
+            'stop': stop0, 'tp': tp, 'risk': risk, 'atr0': atr[i],
+            'ext': high[i] if d == 1 else low[i], 'bars': 0,
+        }
+
+    return pd.DataFrame(trades)
+
+
+# --- metrics ----------------------------------------------------------------
+def seg_metrics(tr):
+    if len(tr) == 0:
+        return dict(N=0, WR=np.nan, PF=np.nan, net_R=0.0, avg_R=np.nan,
+                    maxDD_R=np.nan, DD_pct=np.nan)
+    r = tr['pnl_r'].values
+    wins = r[r > 0].sum()
+    losses = -r[r < 0].sum()
+    pf = wins / losses if losses > 0 else np.inf
+    equity = np.cumsum(r)
+    dd = calc_max_dd(equity)
+    return dict(
+        N=len(tr),
+        WR=round(100 * (r > 0).mean(), 1),
+        PF=round(pf, 3),
+        net_R=round(r.sum(), 2),
+        avg_R=round(r.mean(), 3),
+        maxDD_R=round(dd, 2),
+        DD_pct=round(dd, 2),   # 1トレード=1%リスク前提 -> maxDD_R(%)
+    )
+
+
+def split_seg(tr, start, end):
+    if len(tr) == 0:
+        return tr
+    et = pd.to_datetime(tr['entry_time'])
+    return tr[(et >= pd.Timestamp(start)) & (et <= pd.Timestamp(end))]
+
+
+# --- main -------------------------------------------------------------------
+def main():
+    print(f'DATA_DIR = {DATA_DIR}')
+    df = prepare(PAIR)
+    print(f'{PAIR} H1 bars: {len(df)}  ({df["time"].min()} .. {df["time"].max()})')
+
+    rows = []
+    best = None  # (is_pf, params, trades)
+    for n, atr_mult, adx_th in itertools.product(GRID['n'], GRID['atr_mult'], GRID['adx_th']):
+        tr = run_backtest(df, n, atr_mult, adx_th)
+        is_tr = split_seg(tr, IS_START, IS_END)
+        oos_tr = split_seg(tr, OOS_START, OOS_END)
+        m_is = seg_metrics(is_tr)
+        m_oos = seg_metrics(oos_tr)
+        for seg, m in [('IS', m_is), ('OOS', m_oos)]:
+            rows.append({'n': n, 'atr_mult': atr_mult, 'adx_th': adx_th, 'seg': seg, **m})
+
+        # ベスト選定: IS で N>=MIN かつ PF最大
+        if m_is['N'] >= MIN_TRADES and np.isfinite(m_is['PF']):
+            key = m_is['PF']
+            if best is None or key > best[0]:
+                best = (key, dict(n=n, atr_mult=atr_mult, adx_th=adx_th), tr)
+
+    res = pd.DataFrame(rows)
+    res.to_csv(RESULT_CSV, index=False)
+    print(f'\n=== grid result -> {RESULT_CSV} ===')
+    piv = res.pivot_table(index=['n', 'atr_mult', 'adx_th'], columns='seg',
+                          values=['N', 'WR', 'PF', 'net_R', 'DD_pct'])
+    with pd.option_context('display.width', 200, 'display.max_columns', 40):
+        print(piv.to_string())
+
+    if best is not None:
+        bp = best[1]
+        btr = best[2]
+        btr_full = btr.copy()
+        btr_full['entry_time'] = pd.to_datetime(btr_full['entry_time'])
+        btr_full = btr_full.sort_values('entry_time')
+        btr_full['cum_R'] = btr_full['pnl_r'].cumsum()
+        btr_full['seg'] = np.where(
+            btr_full['entry_time'] <= pd.Timestamp(IS_END), 'IS',
+            np.where(btr_full['entry_time'] >= pd.Timestamp(OOS_START), 'OOS', 'GAP'))
+        btr_full.to_csv(TRADES_CSV, index=False)
+        m_is = seg_metrics(split_seg(btr, IS_START, IS_END))
+        m_oos = seg_metrics(split_seg(btr, OOS_START, OOS_END))
+        print(f'\n=== BEST (IS PF) params: {bp} ===')
+        print(f'  IS : {m_is}')
+        print(f'  OOS: {m_oos}')
+        print(f'  trades ledger -> {TRADES_CSV}  (P2 Grid相関用 時系列損益)')
+        if m_is['PF'] is not None and m_is['PF'] >= 1.3:
+            print('  -> IS PF>=1.3 達成: P4 OOS検証へ進む条件を満たす')
+        else:
+            print('  -> IS PF<1.3: P4(OOS本検証)の前提を満たさない(参考値)')
+    else:
+        print('\n[!] IS で MIN_TRADES を満たす構成なし')
+
+
+if __name__ == '__main__':
+    main()
