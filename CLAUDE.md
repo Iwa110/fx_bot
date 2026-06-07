@@ -68,6 +68,21 @@ C:\Users\Administrator\fx_bot\
 
 ## Top of mind（2026-06-07 更新）
 
+### ポートフォリオ・メタ層探索（配分A / レジームB）2026-06-07 ★結論
+信号層が枯渇（BB/CORR/stat_arb三角/London/pullback/pre_event/session 全Close）したため、**既存の黒字エッジの上に乗せるメタ層**でrisk-adjusted return底上げを探索。素材=Grid v7 4ペア＋BB USDJPY。`data/*_1h.csv` 2年(729日)・IS≤2025-06/OOS≥2025-07・next-bar fill・全ウェイト/ゲートt-1のみ。エンジンはv7 PF(1.96/1.51/2.36/4.01)再現済み。
+
+| 案 | 判定 | 根拠 |
+|----|------|------|
+| **A 配分層(vol-target/risk-parity)** | ⚠️**条件付きClose(弱パス)** | FULL/IS で+38%/+62% Sharpe・-26〜35% maxDD と機構は本物。だが**事前登録のOOS Sharpe+20%は未達**(OOSがGridにbenignすぎてbase OOS Sharpe=4.90→+20%=5.88に届かず)。IS最良(risk_parity_L20 IS3.55)はOOS3.39へ崩落=動的スキームの過適合も確認 |
+| **B レジーム層(ADX/ERゲート)** | ❌**Close** | tail(worst単発)を消すにはforce-exitが必要だがnet retain20〜65%で基準割れ。noaddはnet改善(GBPJPY IS net2倍超)だが**worst単発不変**(-1.62M→-1.62M, float-stopは既存ポジで発動しゲート不可)＋2025春GBPJPY単一イベント依存＋OOS検出力ゼロ |
+| C 相関レジーム | 保留 | A段階で**スリーブ間相関≈0**(最大0.27 GBPJPY×CHFJPY、他±0.08)判明→"崩れる相関"前提が薄く優先度低 |
+
+- **最重要前提=相関≈0**: 「全部mean-reversionだからtailが同時に出る」仮説は外れ。各Gridは別ペア・別タイミング発火で分散が効く。**固定1ロットは非効率配分**: 最高Sharpe(2.93)・最低vol(41k)のAUDCADが最低Sharpe(1.06)・最高vol(122k)のGBPJPYと同ロット=GBPJPYにリスク偏重。
+- **BB USDJPY**: 実マネー確定エッジ(PF1.42)だが2年5m無し(yfinance~3mo/MT5 0配信)→1h近似プロキシはPF0.84の負け(WR82%再現不能)。極小volで素朴な逆volだと最低volのBBに最大ウェイト=毒→配分層は正Sharpe4 Gridに限定。
+- **唯一の低リスク示唆(A由来・動的不要)**: `vps/grid_monitor.py` の `LOT_PER_PAIR` を静的inverse-vol寄りに微調整(GBPJPYロット↓・AUDCAD/CHFJPY/NZDJPY↑)。動的リバランス層/新規monitorは過適合・運用複雑化に見合わず不要。OOS厳格基準は未通過のため実行は任意・少額前方検証推奨。
+- 成果物(全保持): `optimizer/portfolio_meta_bt.py`/`portfolio_alloc.py`/`portfolio_regime.py` + `portfolio_meta_sleeves.csv`/`portfolio_alloc_result.csv`/`portfolio_regime_result.csv`。
+- **次アクション**: メタ層探索も一旦終了。信号層・補完層・メタ層すべて新規採用ゼロ→ CLAUDE.md既存方針(Grid GBPJPY最優先・AUDCAD次点 + BB USDJPY実マネー蓄積)へ集約継続。
+
 ### 新規エッジ探索（案α / pre-event / session）3件棚卸し（2026-06-07）★結論
 方針転換: Grid補完(案A/B)Close後、Gridと構造的に独立な領域で新規エッジを探索。3件をローカル2年データ＋現実的執行で再検証。
 
