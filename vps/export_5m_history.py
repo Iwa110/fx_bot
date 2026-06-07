@@ -78,32 +78,40 @@ def resolve_symbol(pair: str) -> str | None:
 
 
 def fetch_deep(sym: str, tf, start: datetime, target_bars: int,
-               tries: int = 10, wait: float = 4.0):
+               tries: int = 12, wait: float = 5.0):
     """履歴DLを能動的に誘発しつつ最深データを取得。
-    copy_rates_range は未DL区間を要求すると端末がサーバから非同期DLを開始するが、
-    初回は空/浅いことがある。本数が増えなくなるか目標到達まで sleep+再試行する。
-    戻り: (rates(numpy) or None, 試行ログ文字列)"""
-    now = datetime.now(tz=UTC)
-    best = None
-    best_n = 0
-    stale = 0
+    要: 最新バー起点の copy_rates_from_pos(0, N)。端末は最新足を必ず保持するため
+    即座に直近分を返しつつ、N を大きくすると過去方向のバックフィルDLを誘発できる
+    (日付起点 copy_rates_from/range はキャッシュ空だと0を返しDLが起動しにくい)。
+    本数が増えなくなるか目標到達まで sleep+再試行。戻り: (rates(numpy) or None, n)。"""
+    # プローブ: 直近10本すら無いなら端末が当該M5を一切保持していない
+    probe = mt5.copy_rates_from_pos(sym, tf, 0, 10)
+    if probe is None or len(probe) == 0:
+        print(f'    probe(直近10本)=0  last_error={mt5.last_error()}  '
+              f'-> 端末がこのM5を未保持')
+    best, best_n, stale = None, 0, 0
     for i in range(tries):
-        # 古い側を起点にした copy_rates_from でも DL を誘発できる(2方向で確実化)
-        mt5.copy_rates_from(sym, tf, start, target_bars)
-        rates = mt5.copy_rates_range(sym, tf, start, now)
+        rates = mt5.copy_rates_from_pos(sym, tf, 0, target_bars)
         n = 0 if rates is None else len(rates)
         if n > best_n:
             best, best_n, stale = rates, n, 0
         else:
             stale += 1
-        oldest = (pd.to_datetime(rates['time'][0], unit='s').date()
-                  if n else 'なし')
-        print(f'    try{i+1}: {n}本 (最古={oldest})')
+        if n:
+            oldest = pd.to_datetime(rates['time'][0], unit='s').date()
+            print(f'    try{i+1}: {n}本 (最古={oldest})')
+        else:
+            print(f'    try{i+1}: 0本  last_error={mt5.last_error()}')
         if best_n >= int(target_bars * 0.95):
             break
-        if stale >= 2:   # 2回連続で増えない=端末の供給上限
+        if stale >= 3:   # 3回連続で増えない=端末の供給上限/DL不可
             break
         time.sleep(wait)
+    # 最新起点で深く取れた後、要求期間に厳密トリミング(古すぎる分を除外)
+    if best is not None and best_n:
+        cutoff = int(start.timestamp())
+        best = best[best['time'] >= cutoff]
+        best_n = len(best)
     return best, best_n
 
 
