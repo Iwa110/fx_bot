@@ -37,3 +37,6 @@ optimizer/grid_isoos_result.csv
 optimizer/grid_ci_sweep_result.csv
 optimizer/news_bt_result.csv
 optimizer/news_bt_quick_trades.csv
+
+# local dukascopy fetch venv
+.venv_dukas/
