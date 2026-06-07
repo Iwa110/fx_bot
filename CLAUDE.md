@@ -66,7 +66,23 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-06-03 更新）
+## Top of mind（2026-06-07 更新）
+
+### Trend補完戦略（案B/D/A）全BT完了 → 打ち切り（2026-06-07）★結論
+- **判定: Grid補完用 Trendレッグ（GBPJPY Donchian/ATRトレイル）は3案すべて不採用。アイデア打ち切り、Grid/BBへ集約。**
+- 動機: GridはトレンドでDDを踏む。負相関のTrendをブレンドすればGrid単体よりPF改善/DD圧縮できるはず、を検証。
+- スクリプト: `optimizer/pullback_trend_bt.py`(案B) / `optimizer/pullback_gated_trend_bt.py`(案D/A) / `optimizer/pullback_grid_complement.py`(補完指標)。IS 2024-04〜2025-06 / OOS 2025-07〜2026-05。
+- 採用基準: IS[Grid DD上位5区間Trend損益>+5R & PF>1.1] / OOS[同>0R]。
+
+| 案 | 設計 | Grid DD窓Trend損益(IS) | 単体PF | 結果 |
+|----|------|----------------------:|-------:|------|
+| B | 常時稼働 Donchian breakout | ≈+1.2R | <1.0 | ❌ DD窓"不在"（corr≈0）で補完不成立 |
+| D | Grid含み損ゲート(残高比-2/-3/-5%) | **+9.6R** | <1.0(最高0.91) | ❌ 窓不在は解消も、単体PF<1.1でブレンドがGrid劣化 |
+| A | ゲート深掘り(-10〜-25%=float-stop近傍) | +4〜6R(減少) | -25%でPF1.12 | ❌ OOS ddwin全0.00 / PF>1.1は開放n=1の過適合 |
+
+- **3案共通の真因: GBPJPY trail-following のTrendレッグ自体に頑健エッジが無い。** ゲートで「いつ入るか」は最適化できてもエッジは作れない。
+- 案A深掘りの知見: ①OOSのGrid DD窓は他ペア(CHF/NZD)主導で浅く、GBPJPY単体の深ゲートはそこで開かず→OOS補完=0.00。②深いDDでのトレンド順行ペイオフは過去2年で**2025春GBPJPYの単一イベント**のみ、OOS再現せず。③ブレンドPFはGrid単体(GBPJPY 1.87 / COMBINED 1.20)を全構成で劣化。相関は最良でも-0.28(目標<-0.3に未達)。
+- **アクション: Trend補完は打ち切り。Grid(GBPJPY最優先・AUDCAD次点)とBB USDJPYにリソース集約**（CLAUDE.md既存方針と整合）。成果物BT/CSVはリポジトリ保持（再検証用）。
 
 ### Grid CHFJPY 実残高ベース評価（2026-06-02）★最優先タスクの結論
 - **判定: 実マネー・エッジは未確認。demo口座の小サンプル × トレンド順行窓での額面利益にすぎず、スケール不可。**
