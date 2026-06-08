@@ -33,6 +33,7 @@ C:\Users\Administrator\fx_bot\
 - USDJPY: bb_sigma=2.0、T_max=8h+exp TP Decay(τ=8h)
 - EURJPY: bb_sigma=1.5、T_max=6h
 - 実RR乖離の原因確定: 実機はH1足ATR(比率≈3.7倍)、BT誤差あり
+- **10年BT(2016-2026, Dukascopy 5m, v29)結論: 全3ペア頑健エッジ無し**（下記Top of mind参照）。IS/OOS両方でPF>1.2の頑健条件を満たすペアは皆無。BBは長期では均衡〜負。実マネーのUSDJPY黒字(PF1.42)は短期窓の現象であり10年では再現しない。
 
 #### ★ EURJPY バグポジション事件（2026-06-05〜06-08）記録
 - **根本原因（v29修正済）**: `is_in_cooldown` が `DEAL_REASON_SL` のみ対象だったため、T_max強制決済（`DEAL_REASON_EXPERT` / comment=`BB_time_stop`）後にクールダウンが発動せず、未反転BBシグナルへ毎分(Task Scheduler)即時再エントリー→T_max決済→再エントリーを反復。
@@ -76,7 +77,85 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-06-07 更新）
+## Top of mind（2026-06-08 更新）
+
+### ★結論: BB戦略 10年BT(2016-2026) → 全3ペア頑健エッジ無し（2026-06-08）
+現行ローカルは約2年のみ。Dukascopyで **5m足10.5年(2015-12〜2026-06, 各≈78万本)** を取得(`data/{GBPJPY,USDJPY,EURJPY}_5m_10y.csv`)し、v29パラメータをIS(2016-2022 7年)/OOS(2023-2026.06 3.5年)分割で検証(`optimizer/bb_10y_bt.py`)。**ATRは1h足ATR14(ewm)＝実機(risk_manager.get_atr)整合**, next-bar fill, JPYスプレッド2.0pip往復差引。
+
+| ペア | IS PF | IS n | OOS PF | OOS n | OOS net(pip) | OOS Sharpe | 判定 |
+|------|---:|---:|---:|---:|---:|---:|---|
+| GBPJPY | 1.048 | 2121 | **0.927** | 1286 | -4,904 | -0.43 | ❌OOS<1.0 |
+| USDJPY | 0.914 | 8105 | **0.904** | 3953 | -6,707 | -1.12 | ❌IS/OOS共<1.0 |
+| EURJPY | 0.935 | 5721 | **0.863** | 2812 | -6,244 | -1.75 | ❌IS/OOS共<1.0 |
+
+- **判定基準(IS/OOS両方 PF>1.2 ∧ n>200)を満たすペアは皆無**。GBPJPYのみIS辛うじてPF1.048だがOOSで0.927へ崩落=エッジ非持続。USDJPY/EURJPYはISすら<1.0。
+- **年次黒字率**: GBPJPY 8/12年・USDJPY 3/12年・EURJPY 1/12年。GBPJPYは「負けない年が多いが利幅が薄く累積で均衡〜負」、USDJPY/EURJPYは構造的に負。
+- **戦略含意**: BB逆張り(5mバンド+1h ATR SL/TP+htf4h方向ゲート)は **10年スケールで頑健な期待値を持たない**。実マネーのBB USDJPY黒字(PF1.42/WR82.8%/n=64)は **短期窓(数ヶ月)の現象**であり長期では再現しない(10年OOS WR47.9%/PF0.90に回帰)。Grid AUDCADの「フル黒字でもWFOで崩落」と同種の過適合構図。
+- **BTの限界(過小評価でない方向)**: 本BTは仕様書に従い **htf4h=方向一致のみ(RSI/BBwidthサブフィルタ省略)** の簡略v29。実機のRSI<60/BBwidth等の追加ゲートは「入る回数を減らす」方向で、母集団PFを劇的に正へ反転させる効果は薄い(既存知見と整合)。よって「フィルタ簡略のせいでPFが低く出た」可能性は低く、**長期エッジ不在の結論は頑健**。
+- **次アクション**: ①Phase1のBB GBPJPY停止判断(7月)は本結果で補強=停止寄り。②USDJPYは実マネーn=100到達で再判定だが、10年BTは継続を支持しない=**過大ロット投入は禁止・現行少額蓄積に留める**。③BB戦略全体のスケールアップは非推奨、リソースはGrid AUDCADへ。
+- 成果物(全保持): `optimizer/bb_10y_bt.py` / `bb_10y_bt_result.csv` / `bb_10y_monthly.csv` / `data/{GBPJPY,USDJPY,EURJPY}_5m_10y.csv`。
+
+### ★結論: Grid実マネー化 検証完了 → Go=AUDCAD単独（2026-06-08）
+Step0→C 完走。真値=Dukascopy 11年。**Go判定はAUDCAD 1ペアのみ**（GBPJPY/CHFJPY/NZDJPY全てNo-Go）。
+
+- **Step0 データ真値（重要な前提修正）**: 同一エンジン・**同一timestamp集合**で yf-bars vs duk-bars 直接比較(`optimizer/grid_data_truth_diagnose.py`):
+  GBPJPY 1.55↔1.58 / NZDJPY 2.37↔2.33 = **JPYペアは matched-bar で yf≈duk(ほぼ同一)**。CHFJPY 1.56↔0.82 / AUDCAD 3.50↔2.51 = データソースで乖離。
+  → **旧『yfはヒゲ過小報告でPF過大』は不正確**: JPYペアのレンジ中央値比 duk/yf=0.96〜0.98でほぼ同等。AUDCADは逆に**yfがレンジを約1.8倍過大報告**(duk/yf=0.565, 下ヒゲ比0.22)=yf AUDCADデータ品質不良。
+  GBPJPY等の「1.96→0.81崩落」の主因は**データ品質でなく窓**(2024-25 benign 2年 vs 11年harsh)。**結論は不変=真値はDukascopy**(JPYで一致・AUDCAD/CHFの過大を是正・常に保守側)。history.csv実約定は中央値乖離~11pip(JPY)でDukascopy価格水準と整合(弱いが矛盾なし)。
+- **StepA 11年WFO(IS4yr→OOS1yr ローリング再最適化)が決定打**(`grid_dukas_stress_wfo.py`):
+
+  | ペア | OOS PF中央値 | OOS PF最小 | OOS累積net | パラメータ安定 | 感応度崖 | 判定 |
+  |------|---:|---:|---:|---|---|---|
+  | **AUDCAD** | **2.04** | **1.33** | **+11.4M** | 概ね安定(atr2.0/lv7中心) | 崖なし(近傍PF1.1〜1.5) | **✅GO** |
+  | NZDJPY | 0.88 | 0.42 | -3.69M | 不安定 | fs-500kでPF0.97 | ❌ |
+  | CHFJPY | 0.89 | 0.72 | -0.25M | 不安定(atr/lv飛ぶ) | atr2.0でPF0.75 | ❌ |
+  | GBPJPY | 1.03 | 0.65 | -0.56M | 4/7 foldでIS適格構成すら無し | 全PF<1 | ❌ |
+
+  - **NZDJPYは11年フルではnet+2.84M(PF1.10)だがWFOでOOS崩壊=典型的過適合**(フル黒字≠頑健)。
+  - AUDCAD v7 年度別: **9/12年 PF≥1.0**(フル年の負けは2018のみ。2015/2026は部分年)。worst単発-825k。
+  - イベント窓ストレス: グリッドはテール局面の大半でCIゲートにより**休眠(無建玉)=テールを自動回避**。被弾は2018VolXmas/2020COVID等の散発のみ。
+  - A4 ギャップ貫通: 全FSイベントで worst単発が float_stop設定を**100%超過**(中央値1.02〜1.05倍, 最大 GBPJPY1.83/NZD1.20/AUDCAD1.10/CHF1.02倍)。
+- **StepB サイジング/破産確率**(`grid_sizing_ruin.py`, 月次ブロックブートストラップ20000回/60ヶ月, lot=1.0, AUDCAD円はCADJPY108概算):
+  **AUDCAD**: 必要資本(破産<1%)=**req_cap_99≈310万円/lot1.0**(MC maxDD99%ile 3.10M が拘束。単発two-sided 1.36M はそれ以下)。req_cap_99.9≈405万。worst単発(gap込)907k。**安全lot=自己資本/310万**。
+  月利30万円目標: AUDCAD **lot≈4.1 / 必要口座≈1,270万円**。他3ペアは負期待値で算定不要。
+- **StepC Go/No-Go ゲート**(`grid_go_nogo.py`, 6ゲート G1 OOS PF中央値>1.2/G2 OOS最小>1.0/G3 OOS累積>0/G4 param安定/G5 崖なし/G6 req_cap<500万): **AUDCAD=oooooo(全通過)。他=全落第**。
+- **AUDCAD 前方検証手順(段階的・少額)**: ①現行live=v7(magic20260034, ci65/atr1.0/lv5/fs-750k)を継続。②**lot=自己資本÷310万**で開始(例:口座100万→lot0.3、310万→lot1.0)。③期間=最低3ヶ月 **かつ TP決済≥30件 かつ float-stop/B48が最低1回発火するまで**(CHFJPY教訓=損切り発火前の黒字は生存者バイアス)。④継続条件: 損切り発火後も実現PF>1.2 ∧ FSスリッページ≤設定1.3倍。⑤撤退: 実現DD>MC中央値 ∨ 発火後PF<1.0 ∨ FS>設定1.5倍。⑥**2026は部分年で現在DD中(-517k)**=投入タイミングは現DD一服を確認後が無難。
+- **任意の改善余地(forward-testで検証, 必須でない)**: AUDCAD ci_threshold 65→61.8 で同PF1.35のままnet約2倍(+4.8M→+10M)。atr_mult 1.0→1.5でPF1.35→1.51・DD低下。WFOはatr2.0/lv7/fs-1.5Mを選好(但しテール増)。
+- **他ペア方針**: GBPJPY/CHFJPY/NZDJPY は実マネーGrid**不可(No-Go確定)**。demo継続は可だがスケール禁止。「GBPJPY最優先」方針は**完全撤回**。
+- 成果物(全保持): `grid_data_truth_diagnose.py`(+_result/_matched.csv)/`grid_dukas_stress_wfo.py`(+events/wfo/wfo_summary/sensitivity/gap_dist.csv)/`grid_sizing_ruin.py`(+result.csv)/`grid_go_nogo.py`(+scorecard.csv)。エンジン`grid_floatstop_bt.py`にfs_events/b48_events返却を追加。
+
+### ★重大: Grid v7 PFはDukascopy高品質データで再現しない（2026-06-08）
+Grid実マネー化検証のため Dukascopy(無料/口座不要/深い履歴)で **1h 11年(2015-06〜2026-06, 各≈68,500本)** を取得(`optimizer/fetch_dukascopy_ohlc.py` 1h/4h/5m/D1汎用, 出力 `data/<pair>_1h_dukas.csv` でyfinance版温存)。確定v7をそのまま回した結果(`optimizer/grid_dukas_reconfirm.py`):
+
+| ペア | yf確定PF | **Duk 2年同窓PF** | **Duk 11年PF** | 11yr net | worst単発(設定比) | 評価 |
+|------|---:|---:|---:|---:|---:|---|
+| GBPJPY | 1.96 | **1.21** | **0.81** | -11.5M | -2.75M(設定-1.5Mの1.83x) | ❌実マネー不可 |
+| CHFJPY | 1.51 | **0.89**(赤字) | 0.95 | -1.3M | -1.53M | ❌均衡〜負 |
+| NZDJPY | 2.36 | **1.20** | 1.10 | +2.84M | -1.19M | △限界的 |
+| AUDCAD | 4.01 | **1.82** | **1.35** | +4.83M | -825k | ✅11年で唯一頑健 |
+
+- **真因(推定確度高)**: yfinanceのFX時間足は**高値/安値(ヒゲ)を過小報告**→TPが綺麗に刺さりfloat-stop発動が過少=PF過大。Dukascopyは実tick由来の正OHLCで**実機MT5(Axiory/Exness)に近い→真値に近い**。確定PF(1.96等)はデータ品質アーティファクトだった疑い濃厚。
+- **戦略判断の反転**: ①**「GBPJPY最優先」は誤り**(yf＋2024-25 benign窓の偶然。11年 PF0.81/net-11.5M)。②**AUDCADが実は最頑健**(11年PF1.35・大半の年黒)→優先順位逆転。③**float-stopは損を止めきれない**(worst単発が設定を最大1.83倍超過=ギャップ貫通)。OOS-benign懸念は実データで裏付け。④CHF unpeg(2015-01)は範囲外(2015-06開始)で最悪テール未捕捉→`--years 12`で再取得余地。
+- **次アクション=プロンプトB(下記)で本格検証**: まず(0)yf↔Dukascopy乖離の真因をバー単位で確定しデータ真値を決める→(A)Dukascopy 11年でv7再最適化＋実テール局面ストレス→(B)テール→必要証拠金/安全lot/破産確率→(C)go/no-go。**実マネー投入は本検証完了まで全ペア保留**(特にGBPJPY)。
+- 成果物保持: `fetch_dukascopy_ohlc.py`/`grid_dukas_reconfirm.py`/`grid_dukas_reconfirm_result.csv`/`data/*_1h_dukas.csv`(GBPJPY/CHFJPY/NZDJPY/AUDCAD/USDJPY)。
+
+### Grid不感症ウィンドウ補完探索（案A CI逆ゲート / 案B bleedヘッジ）2026-06-08 ★結論
+角度を変えた探索: 「Gridが効かない局面=不感症」に条件づけて稼ぐ補完スリーブを探す。Grid v7 4ペア(GBPJPY/CHFJPY/NZDJPY/AUDCAD)で `data/*_1h.csv` 2年・IS≤2025-06/OOS≥2025-07・next-bar fill。
+
+**不感症ウィンドウ定義**(`optimizer/grid_insensitivity.py`, t-1のみ): idle=Grid建玉ゼロ&TPなし(完全休眠) / bleed=float-stop/B48発火 or 含み損が float_stop の30%超過 / flat=20日ローリングGrid損益の傾き≈0(非discriminating→union除外・診断用)。union=idle|bleed。
+- **判明: Gridは大半の日が不感症**(idle|bleed: GBPJPY IS307/348・CHFJPY 333/348・NZDJPY 284・AUDCAD 218; OOS 175-231)。GridはCI>閾値のレンジ稀少バーストでのみ建て、純益はnormal(レンジ)日に集中。**不感症日のGrid IS損益はむしろ負**(GBPJPY -1.57M / CHFJPY -1.15M = bleed日のドラッグ)。→補完が稼ぐ余地は構造的にある。
+
+| 案 | 設計 | 結果 | 判定 |
+|----|------|------|------|
+| **A CI逆ゲート・マルチペア trend** | 4ペアDonchian breakout+ATRトレイル, CI≤閾値(=トレンド)のみ稼働, next-bar | 全16構成 net_R負・PF0.54〜0.79・Sharpe全負(IS/OOS)。Grid相関≈0(0.05)だがエッジ無し。ブレンドはGrid劣化(IS PF1.85→1.50 / OOS5.20→2.32 @200k) | ❌**Close** |
+| **B bleedヘッジ** | Grid建玉が含み損trig接近時に同トレンド方向へ小ロット建て梯子の損失相殺(grid+hedge同一ループ) | hedge_net 全ペア/全構成/IS&OOSで負(平均-77k〜-391k)。maxDD/worst単発は微減するがPF低下(GBPJPY1.23→1.16 / AUDCAD3.99→2.57) | ❌**Close** |
+| C 金利差モメンタム | 外部FRED/VIX依存＋案Aと同根 | 未実施(A/B同根で結論不変・外部データ不要方針) | — 不採用 |
+
+- **A真因**: 平均回帰ペアでtrend/breakoutレッグ自体に頑健エッジ無し(pullback案B/D/A単一GBPJPYのClose結論が**マルチペアでも不変**と確認)。CI逆ゲートで「いつ入るか(トレンド時のみ)」は制御できてもエッジは作れない。comp_normR=0=ゲートは機能(全PnLが不感症日に着地)するが負。
+- **B真因**: 深いDD(価格が逆行伸長)でトレンド方向ヘッジ→直後に**平均回帰(=Gridが本来稼ぐ動き)でヘッジが踏まれる**。テールは機械的に圧縮できるが負EV。「DD圧縮を負EV保険で買う」典型。採用基準(DD縮小**かつ**Sharpe維持)を両立せず。
+- **総括=「相関は狙い通り≈0だがエッジ無し」4例目**(配分A/レジームB/α三角/今回trend)。信号層・補完層・メタ層・不感症条件づけ層すべて新規採用ゼロ。Gridの稼ぎはレンジ稀少バーストに構造依存し、その隙間(トレンド)を埋める頑健エッジはこの平均回帰ペア群に存在しない。
+- 成果物(全保持): `optimizer/grid_insensitivity.py`/`grid_insensitivity_complement.py`/`grid_bleed_hedge.py` + `grid_insensitivity_complement_result.csv`/`grid_insensitivity_complement_trades.csv`/`grid_bleed_hedge_result.csv`。
+- **次アクション**: 不感症補完探索も終了。CLAUDE.md既存方針(Grid GBPJPY最優先・AUDCAD次点 + BB USDJPY実マネー蓄積)へ集約継続。
 
 ### ポートフォリオ・メタ層探索（配分A / レジームB）2026-06-07 ★結論
 信号層が枯渇（BB/CORR/stat_arb三角/London/pullback/pre_event/session 全Close）したため、**既存の黒字エッジの上に乗せるメタ層**でrisk-adjusted return底上げを探索。素材=Grid v7 4ペア＋BB USDJPY。`data/*_1h.csv` 2年(729日)・IS≤2025-06/OOS≥2025-07・next-bar fill・全ウェイト/ゲートt-1のみ。エンジンはv7 PF(1.96/1.51/2.36/4.01)再現済み。
