@@ -34,6 +34,16 @@ C:\Users\Administrator\fx_bot\
 - EURJPY: bb_sigma=1.5、T_max=6h
 - 実RR乖離の原因確定: 実機はH1足ATR(比率≈3.7倍)、BT誤差あり
 
+#### ★ EURJPY バグポジション事件（2026-06-05〜06-08）記録
+- **根本原因（v29修正済）**: `is_in_cooldown` が `DEAL_REASON_SL` のみ対象だったため、T_max強制決済（`DEAL_REASON_EXPERT` / comment=`BB_time_stop`）後にクールダウンが発動せず、未反転BBシグナルへ毎分(Task Scheduler)即時再エントリー→T_max決済→再エントリーを反復。
+- **発生日時**: 2026-06-05 UTC 11〜12時（NFP発表時間帯）
+- **被害**: EURJPY magic=20250001 で71件・-549,300円（同日USDJPY+1,660円で実質-547,638円）
+- **バグポジション決済**: 2026-06-08 JST 00:12 に magic=0（手動/外部決済）で59件・+1,331,620円として決済
+  - 1件あたり22,320〜22,980円の均一利益（sellグリッドが相場下落でTP一斉ヒット）
+  - この利益は実力ではなく偶発的な相場動向による回収
+- **v29修正内容**: `is_in_cooldown` に `BB_time_stop` コメント判定を追加。SL/T_max どちらの決済後も `COOLDOWN_MINUTES(15分)` の再エントリー禁止を適用。2026-06-05 実装・push済み。
+- **EURJPY nリセット**: バグ71件は評価対象外として除外。**正常サンプル n=9（PF=0.254, WR=66.7%）からリセット**。Phase1は n=9 から再蓄積。
+
 ### trail_monitor v15
 - STR/MOM_JPYペア別設定分離済み
 - SMC_GBPAUD追加(activate=1.0, distance=0.7, Sell専用)
@@ -196,11 +206,12 @@ C:\Users\Administrator\fx_bot\
   - → BT SL/TP は実機より約4倍小さい（BT sl=2.5 ≈ 実機 sl=10倍相当）
   - → 実稼働WR=82%は「H1 ATR基準の大きなSLが早期にストップされにくい」ため
 
-### Phase1判定進捗（BB 全期間, 2026-06-02時点, magic=20250001）
+### Phase1判定進捗（BB 全期間, 2026-06-08更新, magic=20250001）
 | ペア   |    PF | 勝率  | n  | 総合  |
 |--------|------:|------:|---:|-------|
-| USDJPY | 1.42  | 82.8% | 64 | ⚠️ PF合格・n不足のみ（n=100まであと36件≈3〜4週）、σ=2.0維持 |
-| GBPJPY | 0.95  | 84.0% | 25 | ❌（PF未達/均衡圏）σ=2.0後も<1.0、PF>1.2転換 or 停止を7月判断 |
+| USDJPY | 1.479 | 83.3% | 66 | ⚠️ PF合格・n不足のみ（n=100まであと34件≈3週）、σ=2.0維持 |
+| GBPJPY | 0.950 | 84.0% | 25 | ❌（PF未達/均衡圏）σ=2.0後も<1.0、PF>1.2転換 or 停止を7月判断 |
+| EURJPY | 0.254 | 66.7% | **9** | ❌ **バグn=71除外・n=9からリセット（2026-06-08）**。正常サンプル蓄積中。バグ事件記録は上記参照 |
 | EURUSD | — | — | — | enabled=False（BT PF<0.7/v20停止） |
 | GBPUSD | — | — | — | enabled=False（実稼働PF=0.294/v20停止） |
 
@@ -208,14 +219,16 @@ C:\Users\Administrator\fx_bot\
 - BT全データ PF=1.159（5m ATR基準）→ H1 ATR補正後は実稼働 PF=1.355 が正
 - bb_sigma=2.0の妥当性: σ=1.5(PF=0.835) vs σ=2.0(PF=1.161) → σ=2.0が優位
 - T_max=8h+exp Decay: OOS PF=1.137→1.211 (+6.5%)、v26実装根拠確認済み
-- → n=100到達まで蓄積継続（現在n=62、目安あと3〜4週間）
+- → n=100到達まで蓄積継続（現在n=66、目安あと3週間）
 
 ### 翌日確認事項
 - **【最優先】VPS**: `git pull origin main` → bb_monitor.bat 再起動（v27反映）
 - **【要対応】VPS**: `news_monitor.bat` 起動（axiory/exness）
 - bb_monitor v27 動作確認: GBPJPY の `シグナル確定` ログで `BB_σ=2.0` を確認
-- Phase1 USDJPY: n=100超えたら再判定（目安あと3〜4週間）
+- Phase1 USDJPY: n=100超えたら再判定（目安あと3週間）
+- **EURJPY バグ後の正常稼働確認**: v29クールダウン修正が効いているか（15分以内の再エントリーが抑制されているか）ログ確認
 - backtest.py BT精度向上（任意）: simulate_with_stage2をH1足ATRに切り替え
+- **BB戦略 10年バックテスト**: ローカルClaudeCodeに依頼中（Dukascopyデータ取得 + 全ペアIS/OOS評価）
 
 ## 直近タスク
 - [x] BB戦略 実稼働vsET乖離分析（2026-05-28: H1/5m ATR比率定量化）
@@ -239,6 +252,8 @@ C:\Users\Administrator\fx_bot\
 - [ ] **GBPJPY浅化(任意)**: DD抑制重視なら atr3.0/lv3 化を検討（PFは1.96→1.26に低下）
 - [ ] **SMA Squeeze 存続判定**: v4.5（trailing無効・GBPJPY停止）で新サンプルn=10到達まで蓄積、正転しなければ全停止しGrid/BBへリソース集約
 - [ ] **BB GBPJPY**: 7月までにPF>1.2転換なければ停止、Phase1をUSDJPY単独合格で締める判断
+- [x] **EURJPY BBバグポジション決済・nリセット（2026-06-08完了）**: バグ71件を除外、正常n=9からPhase1再蓄積。バグ事件・v29修正をCLAUDE.md/strategy_specに記録済み
+- [ ] **BB戦略 10年バックテスト**: ローカルClaudeCodeに依頼。Dukascopyで10年5mデータ取得→現行v29パラメータ（GBPJPY/USDJPY/EURJPY）でIS/OOS評価。結果をもとにPhase1判定基準・パラメータの頑健性検証
 
 ## 作業スタイル
 - 作業時間: 夜まとめて1〜2時間
