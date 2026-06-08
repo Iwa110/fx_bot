@@ -71,9 +71,14 @@ OOS_END   = pd.Timestamp('2026-06-01 23:59:59')
 # データ読込・インジケーター
 # ─────────────────────────────────────────────────────────────
 def load_5m(sym: str, suffix: str) -> pd.DataFrame:
+    # 生CSV優先(高速)、無ければ gzip 版(リポジトリ同梱)を透過読込。
     path = DATA_DIR / f'{sym}{suffix}.csv'
     if not path.exists():
-        raise FileNotFoundError(path)
+        gz = DATA_DIR / f'{sym}{suffix}.csv.gz'
+        if gz.exists():
+            path = gz
+        else:
+            raise FileNotFoundError(f'{path} (.gz も無し)')
     df = pd.read_csv(path, parse_dates=['datetime'])
     df = df.dropna(subset=['open', 'high', 'low', 'close']).sort_values('datetime')
     df = df.drop_duplicates(subset=['datetime'], keep='first').reset_index(drop=True)

@@ -93,7 +93,10 @@ C:\Users\Administrator\fx_bot\
 - **戦略含意**: BB逆張り(5mバンド+1h ATR SL/TP+htf4h方向ゲート)は **10年スケールで頑健な期待値を持たない**。実マネーのBB USDJPY黒字(PF1.42/WR82.8%/n=64)は **短期窓(数ヶ月)の現象**であり長期では再現しない(10年OOS WR47.9%/PF0.90に回帰)。Grid AUDCADの「フル黒字でもWFOで崩落」と同種の過適合構図。
 - **BTの限界(過小評価でない方向)**: 本BTは仕様書に従い **htf4h=方向一致のみ(RSI/BBwidthサブフィルタ省略)** の簡略v29。実機のRSI<60/BBwidth等の追加ゲートは「入る回数を減らす」方向で、母集団PFを劇的に正へ反転させる効果は薄い(既存知見と整合)。よって「フィルタ簡略のせいでPFが低く出た」可能性は低く、**長期エッジ不在の結論は頑健**。
 - **次アクション**: ①Phase1のBB GBPJPY停止判断(7月)は本結果で補強=停止寄り。②USDJPYは実マネーn=100到達で再判定だが、10年BTは継続を支持しない=**過大ロット投入は禁止・現行少額蓄積に留める**。③BB戦略全体のスケールアップは非推奨、リソースはGrid AUDCADへ。
-- 成果物(全保持): `optimizer/bb_10y_bt.py` / `bb_10y_bt_result.csv` / `bb_10y_monthly.csv` / `data/{GBPJPY,USDJPY,EURJPY}_5m_10y.csv`。
+- 成果物(全保持): `optimizer/bb_10y_bt.py` / `bb_10y_bt_result.csv` / `bb_10y_monthly.csv`。
+- **データ資産(再利用可・リポジトリ同梱)**: `data/{GBPJPY,USDJPY,EURJPY}_5m_10y.csv.gz`(各≈11MB, gzip, `data/`はgitignoreだが`git add -f`で強制追加済)。10.5年5m足の貴重な長期データ(再DLは約18分)。今後の5m依存BTはこれを流用すること。
+  - 読込: `bb_10y_bt.py` の `load_5m()` は生CSV優先→無ければ`.gz`を透過読込(`pd.read_csv`が自動解凍)。他スクリプトからも `pd.read_csv('data/<SYM>_5m_10y.csv.gz', parse_dates=['datetime'])` で直接読める。
+  - 再生成(必要時): `.venv_dukas/bin/python optimizer/fetch_dukascopy_ohlc.py --tf 5m --years 10.5 --pairs GBPJPY USDJPY EURJPY --suffix _10y`。
 
 ### ★結論: Grid実マネー化 検証完了 → Go=AUDCAD単独（2026-06-08）
 Step0→C 完走。真値=Dukascopy 11年。**Go判定はAUDCAD 1ペアのみ**（GBPJPY/CHFJPY/NZDJPY全てNo-Go）。
