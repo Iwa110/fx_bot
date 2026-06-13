@@ -953,12 +953,20 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 cd C:\Users\Administrator\fx_bot
 git pull origin main
 powershell -ExecutionPolicy Bypass -File C:\Users\Administrator\fx_bot\vps\restart_grid.ps1
-REM オプション: -IncludeNZDUSD（停止中ペアも起動） / -WhatIf（ドライラン）
+REM オプション: -IncludeLegacy（GBPJPY/CHFJPY も起動） / -IncludeNZDUSD / -WhatIf
 ```
 
 個別起動が必要な場合のみ:
 ```powershell
-pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory
+pythonw.exe grid_monitor.py --pair AUDCAD --broker axiory
+```
+
+**ドレイン（close-only）モード — No-Goペアの既存ポジション解消用**:
+GBPJPY/CHFJPY 等を v8 で非起動にすると既存ポジションが無管理（B48/float-stop/cull が効かず）になる。`--close-only` で**新規建てを一切行わず、TP/B48/float-stop/cull の元ロジックだけで既存ラダーを自然解消**できる（含み損ポジは反転TPを待ち、逆行時は float-stop が上限）。全決済後は heartbeat に `close_only flat` が出るのでデーモン停止可。
+```powershell
+REM 既存GBPJPYポジションを建てているブローカー全てで起動（例: axiory + exness）
+pythonw.exe grid_monitor.py --pair GBPJPY --broker axiory --close-only
+pythonw.exe grid_monitor.py --pair GBPJPY --broker exness --close-only
 ```
 
 ### ログファイル / Stateファイル

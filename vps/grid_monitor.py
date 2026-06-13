@@ -183,6 +183,7 @@ ATR_MULT       = 2.0
 MAX_LEVELS     = 7
 CI_TH          = CI_THRESHOLD
 BROKER_KEY     = 'axiory'
+CLOSE_ONLY     = False   # --close-only: manage exits only, never open new entries (drain mode)
 # v8 feature globals
 DIR_MODE       = 'both'
 SMA_PERIOD     = None
@@ -559,6 +560,7 @@ def main_loop() -> None:
         ('  taper=' + str(TAPER) if TAPER else '') +
         ('  short_lot=' + str(SHORT_LOT_MULT) if SHORT_LOT_MULT != 1.0 else '') +
         ('  tp_mult=' + str(TP_MULT) if TP_MULT != 1.0 else '') +
+        ('  CLOSE_ONLY(drain)' if CLOSE_ONLY else '') +
         '  float_stop=' + str(int(FLOAT_STOP_JPY)) +
         '  interval=' + str(LOOP_INTERVAL) + 's')
 
@@ -843,8 +845,12 @@ def main_loop() -> None:
                         log('filter_block ' + reason)
                     _last_filter_block = _cycle
 
-            # ── Execute entries ──
-            if not entry_blocked:
+            # ── Execute entries (skipped entirely in CLOSE_ONLY drain mode) ──
+            if CLOSE_ONLY:
+                if long_count == 0 and short_count == 0 and _cycle % HB_CYCLES == 0:
+                    log('close_only flat: no GBPJPY/grid positions remain '
+                        '(safe to stop this daemon)')
+            elif not entry_blocked:
                 if long_gated:
                     place_order('LONG', grid_width, long_count + 1)
                     longs, _ = get_positions()
@@ -866,6 +872,7 @@ def main() -> None:
     global BROKER_KEY, LOG_FILE, _STATE_FILE
     global LOT, DD_DAY_JPY, DD_WEEK_JPY, FLOAT_STOP_JPY
     global DIR_MODE, SMA_PERIOD, MOM_THR, MOM120_THR, CULL_FRAC, TAPER, SHORT_LOT_MULT, TP_MULT, H1_BARS
+    global CLOSE_ONLY
 
     parser = argparse.ArgumentParser(description='Grid Strategy monitor v8 (multi-pair)')
     parser.add_argument('--pair', default='AUDCAD',
@@ -874,7 +881,11 @@ def main() -> None:
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['axiory', 'exness', 'oanda', 'oanda_demo'],
                         help='broker key')
+    parser.add_argument('--close-only', action='store_true',
+                        help='drain mode: manage exits (TP/B48/float-stop/cull) only, '
+                             'never open new entries. Use to unwind a No-Go pair (e.g. GBPJPY).')
     args = parser.parse_args()
+    CLOSE_ONLY = args.close_only
 
     # Apply pair config
     cfg          = PAIR_CONFIG[args.pair]
