@@ -20,7 +20,7 @@
 11. [トレーリングストップ共通仕様](#11-トレーリングストップ共通仕様-trail_monitorpy)
 12. [共通リスク管理](#12-共通リスク管理-risk_managerpy)
 13. [COT極値×日足トレンド](#13-cot極値日足トレンド-cot_monitorpy-v2)
-14. [グリッド戦略](#14-グリッド戦略-grid_monitorpy-v7)
+14. [グリッド戦略](#14-グリッド戦略-grid_monitorpy-v8)
 
 ---
 
@@ -737,6 +737,9 @@ lot = clamp(lot, MIN=0.01, MAX=0.2)
 | Grid CHFJPY | 20260032 | `GRID_CHF` | grid_monitor.py |
 | Grid NZDJPY | 20260033 | `GRID_NZJ` | grid_monitor.py |
 | Grid AUDCAD | 20260034 | `GRID_AUC` | grid_monitor.py |
+| Grid EURGBP | 20260035 | `GRID_EUG` | grid_monitor.py |
+| Grid AUDNZD | 20260036 | `GRID_AUN` | grid_monitor.py |
+| Grid USDJPY | 20260037 | `GRID_USJ` | grid_monitor.py |
 
 ---
 
@@ -823,35 +826,44 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 
 ---
 
-## 14. グリッド戦略 (grid_monitor.py v7)
+## 14. グリッド戦略 (grid_monitor.py v8)
 
 ### 概要
 双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が高い時のみエントリー。max_levels に達した後48時間タイマーで強制決済する B48 Exit を採用。
 
 **v6（2026-06-02 パラメータ最適化）**: float-stop込み2年BTで CHFJPY/NZDJPY が負エッジと判明。真因は `max_levels=7` で含み損が深く積まれ、48hを待たず float-stop(-1.5M) が先に発動 → **B48がデッド**。対策として max_levels 浅化 + ci_threshold 厳格化で B48 を主決済化。
 
-**v7（2026-06-02 float_stop結合最適化）**: float_stop自体を最適化変数に追加。知見=**float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定が正解**（きつくすると回復可能ポジを切りPF・DD悪化: CHFJPY lv3 fs-300k→PF0.98/DD980k vs fs-1.0M→PF1.51/DD608k）。**NZDJPYは float_stop を-500k→-1.0Mに緩めると lv7 が復活し純益2.4倍**。AUDCADは lv5/fs-750k に改善。
+**v7（2026-06-02 float_stop結合最適化）**: float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定が正解。NZDJPY -500k→-1.0M で lv7 復活、AUDCAD lv5/fs-750k に改善。
 
-### 対象ペアと確定パラメータ
+**v8（2026-06-13 改善ツールキット導入・Dukascopy 11年BT）**: PF期待値バー（IS-selectable ∧ OOS>1.2 ∧ wfoMin>1.0）を超えた全ペアを推奨設定でフォワードテスト可能に。新per-pairノブ（既定OFF=v7挙動）:
+- **mom_thr**: 24h ATR正規化リターン(t-1)が不利方向>閾値なら新規/追加建て見送り（long: ret24≤-thr / short: ret24≥+thr）。診断「不利トレンドへの追加=ナイフ掴み」を遮断。
+- **mom120_thr**: 同ゲートを120h(5日)地平線で（EURGBP）。
+- **cull_frac**: ラダー含み損が cull_frac×float_stop を下回ると最悪レッグ1本のみ成行決済（一斉float-stop前の段階減量）。
+- **taper**: レベルkのロット=base×taper^(k-1)（深い逆行追加のロットを構造的に縮小）。
+- **dir_mode**: `both`/`long_only`(carryグリッド=USDJPY/NZDJPY, short構造的壊滅)/`regime_short`(close>SMA(sma_period)の上昇局面のみ新規short停止=AUDCAD/AUDNZD)。
+- **short_lot_mult**: ソフトな方向チルト（EURGBP=0.5）。**tp_mult**: per-leg TP距離=grid_width×tp_mult（EURGBP=0.8）。
 
-| ペア | Magic | atr_mult | max_levels | CI_threshold | FLOAT_STOP | BT PF(net) | BT net | LOT | 備考 |
-|------|-------|----------|------------|--------------|-----------|-----------|--------|-----|------|
-| NZDUSD | 20260030 | 2.0 | 7 | 61.8 | -15k | 1.81 | +16k | 0.01 | 停止中(micro) |
-| GBPJPY | 20260031 | 1.5 | 7 | 61.8 | -1.5M | 1.96 | +5.97M | 1.00 | demo / 据置(最良) |
-| CHFJPY | 20260032 | 1.0 | 3 | 65.0 | -1.5M | 1.51 | +1.41M | 1.00 | demo / v6反転・v7据置 |
-| NZDJPY | 20260033 | 1.5 | **7** | **61.8** | **-1.0M** | **2.36** | **+4.55M** | 1.00 | demo / **v7改善**(v6:1.65/+1.92M) |
-| AUDCAD | 20260034 | 1.0 | **5** | 65.0 | **-750k** | **4.01** | **+5.50M** | 1.00 | demo / **v7改善**(v6:2.75/+4.28M) |
+知見=救済の2類型: ①JPYクロスcarry-grid(long-only)=NZDJPY/USDJPY ②相関クロスgrid(両側/レジーム+combo)=AUDCAD/AUDNZD/EURGBP。GBPJPY/CHFJPY/EURUSDは構造的に救済不可（No-Go据置）。
 
-- BT根拠: grid_floatstop_bt.py（float-stop込みフル2年）+ grid_param_sweep.py / grid_param_validate.py / grid_floatstop_sweep.py（float_stop結合・IS/OOS頑健性）。net円はlot1.0換算、AUDCADはCADJPY≈108想定（PFはレート不感）。
-- v7 NZDJPY/AUDCAD は IS/OOS両期間 PF≥1.2・損失イベント実発生で頑健性確認（NZDJPY IS2.19/OOS2.65, AUDCAD IS5.61/OOS2.92）。代償: NZDJPYテール -576k→-1.05M、AUDCAD -315k→-445k。
-- GBPJPY/CHFJPY は v6据置（GBPJPYは純益最良、CHFJPYはfloat_stop非発動で緩め維持が最適）。
-- NZDJPY/AUDCAD は新float_stopに合わせ DD_DAY/DD_WEEK も緩和（日次/週次ブレーカーが検証済み決済を先回りしないため）。
+### 対象ペアと確定パラメータ（v8 フォワードテスト構成）
+
+| ペア | Magic | atr/lv/ci | FLOAT_STOP | dir_mode | mom/cull/taper | 追加 | full PF | IS / OOS / wfoMin | 区分 |
+|------|-------|-----------|-----------|----------|----------------|------|--------|-------------------|------|
+| AUDCAD | 20260034 | 1.5/5/65 | -750k | regime_short(SMA1200) | 2.0/0.5/0.7 | — | **2.84** | 3.60/2.21/1.20 | ✅Go筆頭 |
+| EURGBP | 20260035 | 1.5/5/65 | -1.32M | both | 2.0/0.5/0.7 | mom120=4, tp0.8, short_lot0.5 | 1.59 | 1.41/2.09/1.65 | ✅相関クロス |
+| AUDNZD | 20260036 | 1.5/5/65 | -625k | regime_short(SMA1200) | 2.0/0.5/0.7 | — | 1.32 | 1.27/1.43/1.05 | ✅相関クロス(限界) |
+| USDJPY | 20260037 | 1.5/5/65 | -876k | long_only | 2.0/0.5/0.7 | — | 1.65 | 1.36/2.14/1.38 | ✅carry(スケール禁止) |
+| NZDJPY | 20260033 | 1.5/7/61.8 | -1.0M | long_only | 2.0/0.5/0.7 | — | 1.28 | 1.08/1.70/1.29 | ✅carry(スケール禁止) |
+
+- BT根拠（Dukascopy 11年, IS=2015-21凍結→OOS=2022-26/WFO）: optimizer/grid_dd_reduction_bt.py（mom/cull/taper）、grid_dirbias_improve_bt.py（方向バイアス/レジーム）、grid_event_trend_gate_bt.py（mom120）、grid_exit_lot_bt.py（tp_mult）、grid_toolkit_allpairs_bt.py（全ペア展開）。
+- **No-Go据置（v8でも features OFF = 純v7挙動、既定で非起動）**: GBPJPY 20260031 / CHFJPY 20260032 / NZDUSD 20260030。年次PF診断（grid_yearly_pf_diag.py）でトレンド焼け/政策リスク/ペッグが構造的原因と確定、ツールキットでも救済不可。
+- **必要資本（Step B再算定 grid_stepb_recompute.py, lot1.0/破産<1%）**: AUDCAD req_cap_99=734k（旧v7の24%・資本効率139%/yr・P(5yr損)0%）/ AUDNZD 1.41M / EURGBP 4.21M / NZDJPY 4.34M(P損17%) / USDJPY 4.55M(P損23%)。実マネーlot=自己資本÷req_cap_99。carry系はスケール禁止。
 
 ### 基本情報
 
 | 項目 | 値 |
 |------|-----|
-| スクリプト | grid_monitor.py v7 |
+| スクリプト | grid_monitor.py v8 |
 | TF | H1（ATR計算）/ D1 resample（CI計算）|
 | ロット | ペア別（LOT_PER_PAIR 参照） |
 | ループ間隔 | 60秒 |
@@ -862,11 +874,17 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 
 | ペア | LOT | DD_DAY | DD_WEEK | FLOAT_STOP | 備考 |
 |------|-----|--------|---------|------------|------|
-| GBPJPY | 1.00 | -500,000 | -1,500,000 | -1,500,000 | demo |
-| CHFJPY | 1.00 | -500,000 | -1,500,000 | -1,500,000 | demo |
+| AUDCAD | 1.00 | -750,000 | -1,500,000 | -750,000 | demo / v8 FT |
+| NZDJPY | 1.00 | -1,000,000 | -2,000,000 | -1,000,000 | demo / v8 FT(carry) |
+| EURGBP | 1.00 | -1,320,000 | -2,640,000 | -1,320,000 | demo / v8 FT |
+| AUDNZD | 1.00 | -625,000 | -1,250,000 | -625,000 | demo / v8 FT |
+| USDJPY | 1.00 | -876,000 | -1,750,000 | -876,000 | demo / v8 FT(carry) |
+| GBPJPY | 1.00 | -500,000 | -1,500,000 | -1,500,000 | No-Go(非起動) |
+| CHFJPY | 1.00 | -500,000 | -1,500,000 | -1,500,000 | No-Go(非起動) |
 | NZDUSD | 0.01 | -5,000 | -15,000 | -15,000 | 停止中 |
-| NZDJPY | **1.00** | **-1,000,000** | **-2,000,000** | **-1,000,000** | v7更新(demo) |
-| AUDCAD | **1.00** | **-750,000** | -1,500,000 | **-750,000** | v7更新(demo) |
+
+- demo forward-test は lot=1.0（BT lot=1.0と直接比較可能）。実マネー移行時は lot=自己資本÷req_cap_99。
+- v8 新決済: **worst-leg cull**（含み損>cull_frac×float_stop で最悪1レッグ成行）と **lot taper**（深レベルのロット縮小）が float-stop の手前で段階的にDDを抑制。
 
 ### グリッドロジック
 

@@ -1,0 +1,5 @@
+pair,decision,oos_pf_med,oos_pf_min,oos_net_sum,param_atr,param_lv,sens_minPF,req_cap_99,mc_dd99,worst_single_gap,G1_oosPFmed>1.2,G2_oosPFmin>1.0,G3_oosNet>0,G4_paramStable,G5_noCliff,G6_reqCap<5M
+AUDCAD,GO,2.044,1.326,11410278.0,1.5/2.0,5.0/7.0,1.09,3102982.0,3102982.0,907157.0,True,True,True,True,True,True
+NZDJPY,NO-GO,0.883,0.417,-3692928.0,1.0/1.5/2.0,5.0/7.0,0.97,7715779.0,7715779.0,1434000.0,False,False,False,False,False,False
+CHFJPY,NO-GO,0.892,0.716,-246469.0,1.0/1.5/2.0,3.0/5.0/7.0,0.75,8555111.0,8555111.0,1608180.0,False,False,False,False,False,False
+GBPJPY,NO-GO,1.03,0.65,-556314.0,2.0,3.0,0.78,23942460.0,23942460.0,5033232.0,False,False,False,True,False,False

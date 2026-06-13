@@ -4,6 +4,23 @@ sma_squeeze_exit_bt.py  -  Exit strategy optimization for SMA Squeeze Play.
 Uses best-known entry params per pair (from PAIRS_CFG in sma_squeeze.py).
 Grid-searches exit methods and compares vs baseline.
 
+Exit model (IMPORTANT)
+----------------------
+Stops/targets fill INTRABAR: SL / trailing-stop / TP are tested against each
+bar's low/high, not its close. The live bot (vps/sma_squeeze.py manage_atr_trail)
+ratchets the trail every 60s on tick.bid, so a stop sitting in the market is hit
+the moment price touches it -- well before the bar closes.
+
+A previous version of this BT only tested exits against the bar close. That
+systematically misses stop-outs and badly inflates PF for tight trails (it
+reported e.g. USDJPY atr_trail_mult=0.5 PF 1.815 -> 4.441, sign-inverted vs
+reality). The engine here mirrors sma_squeeze_divergence_bt.run_bt_live_exits:
+  - entry at NEXT bar open + spread (live execution, not signal-bar close)
+  - exit priority per bar:  SL/trail (low/high) -> TP (low/high)
+                            -> SMA_long break (close) -> slope reversal (close)
+  - trailing stop ratchets from the bar CLOSE, effective from the next bar
+    (check-then-update ordering; never tighten and trigger within the same bar)
+
 Exit methods
 ------------
 baseline     : fixed SL/TP + SMA_long price break force-close (original)
@@ -29,9 +46,14 @@ import pandas as pd
 
 warnings.filterwarnings('ignore')
 
-DATA_DIR   = r'C:\Users\Administrator\fx_bot\data'
+# Repo data dir (local). On VPS this is C:\Users\Administrator\fx_bot\data.
+DATA_DIR   = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'data')
 OUTPUT_DIR = Path(__file__).parent
 OUTPUT_CSV = str(OUTPUT_DIR / 'sma_squeeze_exit_bt_result.csv')
+
+# Typical spread (price units). JPY pairs ~ 0.02-0.03 yen, USD pairs ~ 0.0001-0.0002.
+# Matches sma_squeeze_divergence_bt.SPREAD for comparable numbers.
+SPREAD = {'USDJPY': 0.02, 'GBPJPY': 0.03, 'EURUSD': 0.00012, 'GBPUSD': 0.00020, 'EURJPY': 0.03}
 
 # ── Best entry params per pair (from sma_squeeze_bt.py grid search) ──────────────
 # Primary timeframe matches VPS sma_squeeze.py.
@@ -111,38 +133,28 @@ def build_exit_grid():
 
 # ── Data loading ───────────────────────────────────────────────────────────────────────────────
 def load_csv(pair, tf):
-    """Load OHLCV CSV. Falls back from 1h to 4h if 1h file is absent."""
-    tf_map = {
-        '1h': [f'{pair}_1h.csv', f'{pair}_H1.csv', f'{pair.lower()}_1h.csv',
-               # fallback to 4h when 1h unavailable locally
-               f'{pair}_4h.csv', f'{pair}_H4.csv'],
-        '4h': [f'{pair}_4h.csv', f'{pair}_H4.csv'],
-    }
-    for fname in tf_map.get(tf, [f'{pair}_{tf}.csv']):
-        path = os.path.join(DATA_DIR, fname)
-        if not os.path.exists(path):
-            continue
-        df = pd.read_csv(path)
-        df.columns = [c.lower().strip() for c in df.columns]
-        col0 = 'datetime' if 'datetime' in df.columns else df.columns[0]
-        df = df.set_index(col0)
-        df.index = pd.to_datetime(df.index)
-        try:
-            df.index = df.index.tz_convert(None)
-        except Exception:
-            try:
-                df.index = df.index.tz_localize(None)
-            except Exception:
-                pass
-        df = df.loc[:, ~df.columns.duplicated()]
-        keep = [c for c in ['open', 'high', 'low', 'close', 'volume'] if c in df.columns]
-        if 'close' not in keep:
-            continue
-        loaded_tf = '4h' if '4h' in fname or 'H4' in fname else tf
-        if loaded_tf != tf:
-            print(f'  [NOTE] {pair}: {tf} not found, using {loaded_tf} for exit BT comparison')
-        return df[keep].dropna(subset=['close']).sort_index().reset_index(drop=True)
-    return None
+    """Load 1h OHLC CSV from the repo data dir; resample to 4h by fixed 4-bar
+    blocks to mirror the live resample('4h').
+
+    Columns come in mixed case across legacy/new rows; they are lower-cased and
+    de-duplicated. dropna(subset=['close']) yields the effective common period
+    (~2024-04-24 .. 2026-04-24). high/low are required for intrabar exit checks.
+    """
+    path = os.path.join(DATA_DIR, f'{pair}_1h.csv')
+    if not os.path.exists(path):
+        return None
+    df = pd.read_csv(path, index_col=0)
+    df.columns = [c.lower().strip() for c in df.columns]
+    df = df.loc[:, ~pd.Index(df.columns).duplicated()]
+    need = ['open', 'high', 'low', 'close']
+    if not all(c in df.columns for c in need):
+        return None
+    df = df[need].dropna(subset=['close']).reset_index(drop=True)
+    if tf == '4h':
+        idx = df.index // 4
+        df = df.groupby(idx).agg({'open': 'first', 'high': 'max',
+                                  'low': 'min', 'close': 'last'}).reset_index(drop=True)
+    return df
 
 
 # ── Indicators ────────────────────────────────────────────────────────────────────────────────────
@@ -179,25 +191,31 @@ def calc_max_dd(equity):
 
 
 # ── Core backtest ─────────────────────────────────────────────────────────────────────────────────
-def run_backtest_exit(df, cfg, exit_params):
+def run_backtest_exit(df, cfg, exit_params, spread=0.0):
     """
     Bar-by-bar backtest with pluggable exit strategy.
 
     Entry logic: identical to sma_squeeze_bt.py (ADX filter, squeeze ratio,
-                 slope monotonicity, SMA crossover confirmation).
+                 slope monotonicity, SMA crossover confirmation), executed at the
+                 NEXT bar open + half-spread (mirrors live execution).
 
-    Exit flow per bar (in priority order):
-      1. Force-close: price crosses SMA_long in opposite direction
-      2. Slope exit: SMA_long slope reverses for N consecutive bars (methods: slope_exit, combined)
-      3. SL hit: close breaches current_sl
-      4. TP hit: close reaches fixed TP (if keep_tp=True)
-      5. Update trailing SL for next bar (methods: fixed_trail, atr_trail, div_tighten, combined)
+    Exit flow per bar (priority order, check-then-update):
+      1. SL / trailing-stop hit  -- INTRABAR via bar low/high
+      2. Fixed TP hit            -- INTRABAR via bar high/low (if keep_tp)
+      3. Force-close: price crosses SMA_long in opposite direction (bar close)
+      4. Slope exit: SMA_long slope reverses for N bars (slope_exit, combined; bar close)
+      5. If still open: ratchet trailing SL from the bar CLOSE (effective next bar)
+         (fixed_trail, atr_trail, div_tighten, combined)
+
+    A resting stop fills the instant price touches it, so steps 1-2 use the bar
+    range, not the close. Half the spread is paid on entry and on each exit.
 
     Parameters
     ----------
-    df          : OHLCV DataFrame
+    df          : OHLC DataFrame
     cfg         : entry params dict (sma_short, sma_long, ...)
     exit_params : exit method dict, e.g. {'method': 'atr_trail', 'atr_trail_mult': 1.0, 'keep_tp': True}
+    spread      : round-trip spread in price units (half paid on entry, half on exit)
     """
     method           = exit_params.get('method', 'baseline')
     trail_mult       = exit_params.get('trail_mult', 1.0)
@@ -217,11 +235,14 @@ def run_backtest_exit(df, cfg, exit_params):
 
     close_a = df['close'].values
     open_a  = df['open'].values
+    high_a  = df['high'].values
+    low_a   = df['low'].values
     sma_s   = df['close'].rolling(sma_short).mean().values
     sma_l   = df['close'].rolling(sma_long).mean().values
     atr14   = calc_atr14(df).values
     adx14   = calc_adx14(df).values
     n       = len(df)
+    half    = spread / 2.0
 
     warmup   = max(sma_long, slope_period, 28) + 2
     trades   = []
@@ -238,6 +259,8 @@ def run_backtest_exit(df, cfg, exit_params):
     for i in range(warmup, n):
         c     = close_a[i]
         o     = open_a[i]
+        hi    = high_a[i]
+        lo    = low_a[i]
         sl_v  = sma_l[i]
         ss_v  = sma_s[i]
         atr_v = atr14[i]
@@ -251,11 +274,27 @@ def run_backtest_exit(df, cfg, exit_params):
             pnl  = None
             is_long = (t_dir == 'long')
 
-            # Priority 1: SMA_long price break (force-close)
-            if (is_long and c < sl_v) or (not is_long and c > sl_v):
-                pnl = (c - t_entry) if is_long else (t_entry - c)
+            # Priority 1: SL / trailing-stop hit -- INTRABAR via bar low/high.
+            #   A resting stop fills the moment price touches it; testing only the
+            #   close misses these stop-outs and inflates PF (the bug being fixed).
+            #   pnl can be positive when the trail has ratcheted into profit.
+            if is_long and lo <= t_current_sl:
+                pnl = (t_current_sl - t_entry) - half
+            elif (not is_long) and hi >= t_current_sl:
+                pnl = (t_entry - t_current_sl) - half
 
-            # Priority 2: Slope reversal exit
+            # Priority 2: Fixed TP hit -- INTRABAR via bar high/low.
+            if pnl is None and keep_tp:
+                if is_long and hi >= t_entry + t_tp_dist:
+                    pnl = t_tp_dist - half
+                elif (not is_long) and lo <= t_entry - t_tp_dist:
+                    pnl = t_tp_dist - half
+
+            # Priority 3: SMA_long price break (force-close) -- bar close.
+            if pnl is None and ((is_long and c < sl_v) or (not is_long and c > sl_v)):
+                pnl = ((c - t_entry) if is_long else (t_entry - c)) - half
+
+            # Priority 4: Slope reversal exit -- bar close.
             if pnl is None and method in ('slope_exit', 'combined'):
                 seg_start = i - slope_exit_bars + 1
                 if seg_start >= 0:
@@ -265,21 +304,7 @@ def run_backtest_exit(df, cfg, exit_params):
                         reversed_slope = (is_long and bool(np.all(diffs < 0))) or \
                                          (not is_long and bool(np.all(diffs > 0)))
                         if reversed_slope:
-                            pnl = (c - t_entry) if is_long else (t_entry - c)
-
-            # Priority 3: SL hit (check against current trailed SL)
-            if pnl is None:
-                if is_long and c <= t_current_sl:
-                    pnl = t_current_sl - t_entry
-                elif not is_long and c >= t_current_sl:
-                    pnl = t_entry - t_current_sl
-
-            # Priority 4: Fixed TP hit
-            if pnl is None and keep_tp:
-                if is_long and c >= t_entry + t_tp_dist:
-                    pnl = t_tp_dist
-                elif not is_long and c <= t_entry - t_tp_dist:
-                    pnl = t_tp_dist
+                            pnl = ((c - t_entry) if is_long else (t_entry - c)) - half
 
             # Record closed trade
             if pnl is not None:
@@ -288,7 +313,7 @@ def run_backtest_exit(df, cfg, exit_params):
                 in_trade = False
                 # Fall through to entry check (no `continue` -- same-bar re-entry possible)
             else:
-                # Priority 5: Update trailing SL for next bar
+                # Priority 5: ratchet trailing SL from the bar CLOSE (effective next bar)
                 if method == 'fixed_trail':
                     td = t_sl_dist * trail_mult
                     if is_long:
@@ -357,20 +382,23 @@ def run_backtest_exit(df, cfg, exit_params):
         if direction is None:
             continue
 
-        # Open trade
+        # Open trade at NEXT bar open + half-spread (live execution)
+        if i + 1 >= n:
+            continue
+        is_long_new  = (direction == 'long')
+        entry_px     = open_a[i + 1] + half * (1 if is_long_new else -1)
         t_dir        = direction
-        t_entry      = c
+        t_entry      = entry_px
         t_sl_dist    = sl_dist
         t_tp_dist    = tp_dist
-        is_long_new  = (direction == 'long')
         # Initial SL level
-        t_current_sl = (c - sl_dist) if is_long_new else (c + sl_dist)
+        t_current_sl = (entry_px - sl_dist) if is_long_new else (entry_px + sl_dist)
         in_trade     = True
 
     # End-of-data: close any open position at last close
     if in_trade:
         c   = close_a[-1]
-        pnl = (c - t_entry) if t_dir == 'long' else (t_entry - c)
+        pnl = ((c - t_entry) if t_dir == 'long' else (t_entry - c)) - half
         trades.append(pnl)
         equity.append(equity[-1] + pnl)
 
@@ -425,9 +453,10 @@ def main():
             print(f'[SKIP] {pair}: no data')
             continue
 
+        sp = SPREAD.get(pair, 0.0)
         pair_rows = []
         for ep in exit_grid:
-            m = run_backtest_exit(df, cfg, ep)
+            m = run_backtest_exit(df, cfg, ep, spread=sp)
             if m is None:
                 continue
             row = {

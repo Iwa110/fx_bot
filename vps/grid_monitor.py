@@ -1,101 +1,63 @@
 """
-grid_monitor.py - Multi-pair Grid Strategy monitor v7
-Bi-directional grid: Long and Short run concurrently.
+grid_monitor.py - Multi-pair Grid Strategy monitor v8
+Bi-directional grid: Long and Short run concurrently (per dir_mode).
 
-v7 changes (float_stop joint optimization 2026-06-02; optimizer/grid_floatstop_sweep.py):
-  - Added float_stop itself to the optimization grid (was fixed in v6).
-  - Key finding: float_stop is only a meaningful lever for DEEP ladders. For
-    shallow ladders B48 governs and float_stop should stay LOOSE/non-binding;
-    tightening it cuts recoverable positions and worsens BOTH PF and DD
-    (CHFJPY lv3 fs-300k -> PF0.98/DD980k vs fs-1.0M -> PF1.51/DD608k).
-  - NZDJPY: loosening float_stop -500k -> -1.0M REVIVES lv7 (positions recover
-    instead of being cut early). ci61.8/atr1.5/lv7/fs-1.0M -> PF 1.65->2.36,
-    net +1.92M -> +4.55M (IS PF2.19 / OOS PF2.65). Tail -576k -> -1.05M.
-  - AUDCAD: ci65/atr1.0/lv5/fs-750k -> PF 2.75->4.01, net +4.28M -> +5.50M
-    (IS PF5.61 / OOS PF2.92). Tail -315k -> -445k.
-  - CHFJPY / GBPJPY: kept v6 (float_stop non-binding at lv3 / lv7 best on net).
-  - DD_DAY/DD_WEEK for NZDJPY/AUDCAD widened to match new float_stop so the
-    daily/weekly circuit breaker does not pre-empt the BT-validated exits.
+v8 changes (2026-06-13; backtests under optimizer/grid_dd_reduction_bt.py,
+grid_dirbias_improve_bt.py, grid_event_trend_gate_bt.py, grid_exit_lot_bt.py,
+grid_toolkit_allpairs_bt.py, Step B = grid_stepb_recompute.py):
+  Adds the BT-validated improvement toolkit so every pair that cleared the
+  PF-expectation bar (IS-selectable & OOS>1.2 & wfoMin>1.0) can be forward-tested
+  with its recommended config. New per-pair knobs (all default OFF = legacy v7):
+    - mom_thr      : 24h ATR-normalized return gate. Block new/added entries on a
+                     direction whose 24h move (t-1) is adverse beyond thr.
+                     long blocked if ret24<=-thr ; short blocked if ret24>=+thr.
+    - mom120_thr   : same gate on a 120h (5-day) horizon (EURGBP).
+    - cull_frac    : worst-leg cull. When a direction's basket unrealized loss
+                     <= cull_frac*float_stop, close the single worst leg (staged
+                     de-risk before a full float-stop fires).
+    - taper        : lot taper. Level-k lot = base * taper^(k-1) (de-weight deep
+                     adverse adds = the diagnosed "knife-catching" loss).
+    - dir_mode     : 'both' | 'long_only' | 'regime_short'.
+                     long_only  = never open shorts (carry-grid: USDJPY/NZDJPY).
+                     regime_short = block NEW shorts while close>SMA(sma_period)
+                       (block counter-trend shorts in up-regimes; AUDCAD/AUDNZD).
+    - sma_period   : H1 SMA window for regime_short (1200 = ~50d).
+    - short_lot_mult: soft directional tilt; short base lot * mult (EURGBP=0.5).
+    - tp_mult      : per-leg TP distance = grid_width * tp_mult (EURGBP=0.8).
 
-v6 changes (param optimization 2026-06-02; see optimizer/grid_param_*.py):
-  - Root cause of "B48 never fires": at max_levels=7 the accumulated unrealized
-    loss at full depth is so deep that FLOAT_STOP (-1.5M) always triggers before
-    the 48h timer -> B48 was dead, and float-stop did all loss control. Shortening
-    b48_hours did not help; SHALLOWING the ladder does.
-  - Fix = lower max_levels (7->3/5) + raise ci_threshold (61.8->65). Shallow ladder
-    lets B48 (gentler time-exit) fire before float-stop, slashing single-event loss
-    and drawdown while improving PF. Verified robust on IS/OOS split (2024-04..2026-04).
-  - Per-pair ci_threshold added to PAIR_CONFIG (CI_TH runtime global).
-  - New configs (full-2yr float-stop BT, lot as live):
-      CHFJPY: ci65/atr1.0/lv3 -> PF 1.51 net +1.41M (was PF0.70 -3.76M) [edge flipped]
-      NZDJPY: ci65/atr1.5/lv5 -> PF 1.65 net +1.92M (was PF0.96 -0.43M) [edge flipped]
-      AUDCAD: ci65/atr1.0/lv3 -> PF 2.75 net +4.28M (was PF1.26 +2.63M) [improved]
-      GBPJPY: unchanged (ci61.8/atr1.5/lv7 PF1.96 +5.97M already best on net)
-      NZDUSD: unchanged (0.01 micro lot, not optimized)
+  Forward-test set (recommended configs, demo lot=1.0; real-money lot=equity/req_cap_99):
+    AUDCAD 20260034 R-SMA1200+combo  : atr1.5/lv5/ci65/fs-750k  dir=regime_short(1200)
+                                       mom2.0/cull0.5/taper0.7  (Step B req_cap_99=734k)
+    EURGBP 20260035 combo+slot0.5    : atr1.5/lv5/ci65/fs-1.32M dir=both short_lot0.5
+                                       mom2.0/cull0.5/taper0.7 + mom120=4 + tp0.8 (req~4.2M)
+    AUDNZD 20260036 R-SMA1200+combo  : atr1.5/lv5/ci65/fs-625k  dir=regime_short(1200)
+                                       mom2.0/cull0.5/taper0.7  (req~1.41M, marginal)
+    USDJPY 20260037 long-only+combo  : atr1.5/lv5/ci65/fs-876k  dir=long_only
+                                       mom2.0/cull0.5/taper0.7  (carry; SCALE-BANNED)
+    NZDJPY 20260033 long-only+combo  : atr1.5/lv7/ci61.8/fs-1.0M dir=long_only
+                                       mom2.0/cull0.5/taper0.7  (carry; SCALE-BANNED)
+  Legacy / No-Go (kept for magic preservation, NOT forward-tested):
+    GBPJPY 20260031, CHFJPY 20260032, NZDUSD 20260030  (features OFF = pure v7).
 
-v5 changes:
-  - Add NZDJPY (magic=20260033, atr_mult=1.0, max_levels=7, lot=0.01)
-    BT: OOS PF=3.40 (gm=1.0, lv=7, IS70%/OOS30%)
-  - Add AUDCAD (magic=20260034, atr_mult=1.0, max_levels=7, lot=0.01)
-    BT: full PF=3.31 (gm=1.0, lv=7, CI>61.8 rate=28.1%)
+v7 changes (float_stop joint optimization 2026-06-02):
+  - float_stop only a meaningful lever for DEEP ladders; keep loose for shallow.
+  - NZDJPY fs-500k->-1.0M revives lv7. AUDCAD ci65/atr1.0/lv5/fs-750k.
 
-v4 changes (forced-exit improvements for 1.00 lot):
-  - Float stop (FLOAT_STOP_JPY): close a direction immediately when unrealized
-    loss exceeds threshold, without waiting for B48 timer.
-    GBPJPY/CHFJPY 1.00 lot: -1,500,000 JPY per direction
-    (fires ~3 gw below 7th level entry; gw ~ 50k JPY/level at 1.00 lot)
-  - DD realized force-close: when daily/weekly realized DD limit is breached,
-    close ALL open positions (previously only blocked new entries).
-  - Heartbeat: float_l / float_s (unrealized PnL per direction) added to log.
-
-v3 changes:
-  - Per-pair LOT sizing (LOT_PER_PAIR) replacing single global LOT=0.01
-  - Per-pair DD limits (DD_DAY_PER_PAIR / DD_WEEK_PER_PAIR) scaled to lot size
-  - GBPJPY: 1.00 lot (demo account)
-  - CHFJPY: 1.00 lot (demo account)
-  - NZDUSD: 0.01 lot (not running, preserve original)
-
-Supported pairs and magic numbers (atr_mult/max_levels/ci_threshold per pair):
-  NZDUSD: magic=20260030, tag=GRID_NZD, atr_mult=2.0, max_levels=7, ci=61.8
-  GBPJPY: magic=20260031, tag=GRID_GBP, atr_mult=1.5, max_levels=7, ci=61.8
-  CHFJPY: magic=20260032, tag=GRID_CHF, atr_mult=1.0, max_levels=3, ci=65.0 (v6)
-  NZDJPY: magic=20260033, tag=GRID_NZJ, atr_mult=1.5, max_levels=7, ci=61.8 (v7, fs=-1.0M)
-  AUDCAD: magic=20260034, tag=GRID_AUC, atr_mult=1.0, max_levels=5, ci=65.0 (v7, fs=-750k)
+(earlier v3-v6 history: see git log; per-pair lot/DD/float-stop, ci_threshold,
+ shallow-ladder B48 fix, float stop, DD realized force-close, NZDJPY/AUDCAD add.)
 
 Strategy:
-  tf: H1
-  grid_width = ATR(H1, 14) x atr_mult (per pair)
-  max_levels = per pair (3/5/7); shallower ladders let B48 fire before float-stop
-  TP = entry +/- grid_width (1 step), SL = none
+  tf: H1 ; grid_width = ATR(H1,14) * atr_mult ; max_levels per pair ; SL none.
+  Entry filter: Choppiness Index(D1,14) > ci_threshold (range market required)
+    + (v8) momentum gate / directional mode / regime gate.
+  Grid: no pos -> enter ; count<max & price beyond min/max +/- gw -> add.
+  TP per leg = entry +/- grid_width*tp_mult.
+  Exits: TP ; float-stop (basket unrealized < float_stop) ; B48 timer ;
+         (v8) worst-leg cull ; DD realized force-close (day/week breaker).
 
-Entry filter (range market required):
-  Choppiness Index(D1, 14) > ci_threshold (per pair: 61.8 or 65.0)
-  CI = 100 * log10(SUM_TR14 / (High14_max - Low14_min)) / log10(14)
-  D1 data resampled from H1 bars.
-
-Grid logic:
-  Long:  no pos -> enter; count < max_levels and price <= min_entry - grid_width -> add
-  Short: no pos -> enter; count < max_levels and price >= max_entry + grid_width -> add
-  TP per position = entry +/- grid_width.
-
-Exit B48:
-  When max_levels reached, start 48h timer per direction.
-  TP fires -> count drops below max_levels -> timer reset.
-  Timer expires -> close all positions in that direction at market.
-
-Float stop (v4):
-  Unrealized PnL per direction < FLOAT_STOP_JPY -> close that direction immediately.
-  Checked every cycle before B48 timer to catch rapid adverse moves.
-
-DD realized force-close (v4):
-  Daily or weekly realized PnL breaches DD limit -> close ALL positions + block entries.
-
-JPY pairs (GBPJPY, CHFJPY):
-  MT5 profit is returned in account currency (JPY) directly - no conversion needed.
-
-Brokers: axiory / exness (oanda: disabled)
-State:   vps/grid_monitor_state_{PAIR}.json  (per-pair)
-Log:     vps/grid_log_{PAIR}_{broker}.txt
+JPY profit: MT5 returns profit in account currency (JPY) directly.
+Brokers: axiory / exness (oanda disabled).
+State: grid_monitor_state_{PAIR}.json   Log: grid_log_{PAIR}_{broker}.txt
 """
 
 import sys
@@ -116,62 +78,81 @@ from broker_utils import connect_mt5, disconnect_mt5, build_symbol_map, is_live_
 # ══════════════════════════════════════════
 # Pair configuration
 # ══════════════════════════════════════════
-# ci_threshold default 61.8; v6 raised CHFJPY/NZDJPY/AUDCAD to 65.0; v7 reverted
-# NZDJPY to 61.8/lv7 (float_stop loosened to -1.0M) and AUDCAD lv3->5.
+# Per-pair v8 knobs. Defaults (legacy/No-Go pairs): dir_mode='both', everything
+# else None/1.0 -> identical to v7 behaviour. Forward-test pairs carry the
+# BT-recommended toolkit settings.
+#   dir_mode      : 'both' | 'long_only' | 'regime_short'
+#   sma_period    : SMA window (H1 bars) for regime_short (else None)
+#   mom_thr       : 24h ATR-norm return gate threshold (else None)
+#   mom120_thr    : 120h ATR-norm return gate threshold (else None)
+#   cull_frac     : worst-leg cull trigger as fraction of float_stop (else None)
+#   taper         : lot taper ratio per level (else None = flat lot)
+#   short_lot_mult: short base-lot multiplier (default 1.0)
+#   tp_mult       : per-leg TP distance multiplier (default 1.0)
 PAIR_CONFIG = {
-    'NZDUSD': {'magic': 20260030, 'tag': 'GRID_NZD', 'atr_mult': 2.0, 'max_levels': 7, 'ci_threshold': 61.8},
-    'GBPJPY': {'magic': 20260031, 'tag': 'GRID_GBP', 'atr_mult': 1.5, 'max_levels': 7, 'ci_threshold': 61.8},
-    'CHFJPY': {'magic': 20260032, 'tag': 'GRID_CHF', 'atr_mult': 1.0, 'max_levels': 3, 'ci_threshold': 65.0},
-    'NZDJPY': {'magic': 20260033, 'tag': 'GRID_NZJ', 'atr_mult': 1.5, 'max_levels': 7, 'ci_threshold': 61.8},
-    'AUDCAD': {'magic': 20260034, 'tag': 'GRID_AUC', 'atr_mult': 1.0, 'max_levels': 5, 'ci_threshold': 65.0},
+    # ── Legacy / No-Go (kept for magic preservation; v7 behaviour, features OFF) ──
+    'NZDUSD': {'magic': 20260030, 'tag': 'GRID_NZD', 'atr_mult': 2.0, 'max_levels': 7, 'ci_threshold': 61.8,
+               'dir_mode': 'both', 'sma_period': None, 'mom_thr': None, 'mom120_thr': None,
+               'cull_frac': None, 'taper': None, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
+    'GBPJPY': {'magic': 20260031, 'tag': 'GRID_GBP', 'atr_mult': 1.5, 'max_levels': 7, 'ci_threshold': 61.8,
+               'dir_mode': 'both', 'sma_period': None, 'mom_thr': None, 'mom120_thr': None,
+               'cull_frac': None, 'taper': None, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
+    'CHFJPY': {'magic': 20260032, 'tag': 'GRID_CHF', 'atr_mult': 1.0, 'max_levels': 3, 'ci_threshold': 65.0,
+               'dir_mode': 'both', 'sma_period': None, 'mom_thr': None, 'mom120_thr': None,
+               'cull_frac': None, 'taper': None, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
+
+    # ── Forward-test set (2026-06-13 recommended configs) ──
+    # AUDCAD: R-SMA1200 + combo. atr1.0->1.5 (atr opt), lv5, ci65, fs-750k.
+    'AUDCAD': {'magic': 20260034, 'tag': 'GRID_AUC', 'atr_mult': 1.5, 'max_levels': 5, 'ci_threshold': 65.0,
+               'dir_mode': 'regime_short', 'sma_period': 1200, 'mom_thr': 2.0, 'mom120_thr': None,
+               'cull_frac': 0.5, 'taper': 0.7, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
+    # NZDJPY: long-only carry-grid + combo. v7 base atr1.5/lv7/ci61.8/fs-1.0M.
+    'NZDJPY': {'magic': 20260033, 'tag': 'GRID_NZJ', 'atr_mult': 1.5, 'max_levels': 7, 'ci_threshold': 61.8,
+               'dir_mode': 'long_only', 'sma_period': None, 'mom_thr': 2.0, 'mom120_thr': None,
+               'cull_frac': 0.5, 'taper': 0.7, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
+    # EURGBP: combo + soft short_lot0.5 + mom120=4 + tp0.8. atr1.5/lv5/ci65/fs-1.32M.
+    'EURGBP': {'magic': 20260035, 'tag': 'GRID_EUG', 'atr_mult': 1.5, 'max_levels': 5, 'ci_threshold': 65.0,
+               'dir_mode': 'both', 'sma_period': None, 'mom_thr': 2.0, 'mom120_thr': 4.0,
+               'cull_frac': 0.5, 'taper': 0.7, 'short_lot_mult': 0.5, 'tp_mult': 0.8},
+    # AUDNZD: R-SMA1200 + combo (correlated cross, marginal). atr1.5/lv5/ci65/fs-625k.
+    'AUDNZD': {'magic': 20260036, 'tag': 'GRID_AUN', 'atr_mult': 1.5, 'max_levels': 5, 'ci_threshold': 65.0,
+               'dir_mode': 'regime_short', 'sma_period': 1200, 'mom_thr': 2.0, 'mom120_thr': None,
+               'cull_frac': 0.5, 'taper': 0.7, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
+    # USDJPY: long-only carry-grid + combo. atr1.5/lv5/ci65/fs-876k.
+    'USDJPY': {'magic': 20260037, 'tag': 'GRID_USJ', 'atr_mult': 1.5, 'max_levels': 5, 'ci_threshold': 65.0,
+               'dir_mode': 'long_only', 'sma_period': None, 'mom_thr': 2.0, 'mom120_thr': None,
+               'cull_frac': 0.5, 'taper': 0.7, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
 }
 
 # ══════════════════════════════════════════
-# Per-pair lot sizing
+# Per-pair lot sizing (demo forward-test = 1.00; matches BT lot=1.0 so live is
+# directly comparable. Real-money lot = account_equity / req_cap_99 [Step B]).
 # ══════════════════════════════════════════
-# GBPJPY 1.00: demo account / B48 worst-case(both dir)~2.1M JPY
-# CHFJPY 1.00: demo account / B48 worst-case(both dir)~2.25M JPY
-# NZDJPY 1.00: demo account (BT OOS PF=3.40, gm=1.0 lv=7)
-# AUDCAD 1.00: demo account (BT full PF=3.31, gm=1.0 lv=7, CI>61.8=28%)
 LOT_PER_PAIR = {
-    'GBPJPY': 1.00,
-    'CHFJPY': 1.00,
-    'NZDUSD': 0.01,
-    'NZDJPY': 1.00,
-    'AUDCAD': 1.00,
+    'GBPJPY': 1.00, 'CHFJPY': 1.00, 'NZDUSD': 0.01,
+    'NZDJPY': 1.00, 'AUDCAD': 1.00, 'EURGBP': 1.00, 'AUDNZD': 1.00, 'USDJPY': 1.00,
 }
 
-# Per-pair daily/weekly DD limits scaled to lot size (vs original 0.01 lot baseline)
-# v7: NZDJPY/AUDCAD widened so the daily breaker does not fire before the new
-# float_stop (NZDJPY -1.0M / AUDCAD -750k) completes a single-direction exit.
+# Per-pair daily/weekly DD limits (coarse circuit breaker). Set loose enough not
+# to pre-empt the BT-validated float_stop / cull / B48 exits (v7 lesson).
 DD_DAY_PER_PAIR = {
-    'GBPJPY': -500000.0,
-    'CHFJPY': -500000.0,
-    'NZDUSD':   -5000.0,
-    'NZDJPY': -1000000.0,
-    'AUDCAD': -750000.0,
+    'GBPJPY':  -500000.0, 'CHFJPY':  -500000.0, 'NZDUSD':    -5000.0,
+    'NZDJPY': -1000000.0, 'AUDCAD':  -750000.0, 'EURGBP': -1320000.0,
+    'AUDNZD':  -625000.0, 'USDJPY':  -876000.0,
 }
 DD_WEEK_PER_PAIR = {
-    'GBPJPY': -1500000.0,
-    'CHFJPY': -1500000.0,
-    'NZDUSD':   -15000.0,
-    'NZDJPY': -2000000.0,
-    'AUDCAD': -1500000.0,
+    'GBPJPY': -1500000.0, 'CHFJPY': -1500000.0, 'NZDUSD':   -15000.0,
+    'NZDJPY': -2000000.0, 'AUDCAD': -1500000.0, 'EURGBP': -2640000.0,
+    'AUDNZD': -1250000.0, 'USDJPY': -1750000.0,
 }
 
-# Per-pair float stop: unrealized loss per direction triggers immediate close.
-# v7 finding: float_stop only matters as a tail backstop for DEEP ladders; too
-# tight a value cuts recoverable positions and worsens PF+DD. Keep loose.
-# GBPJPY 1.00 lot (lv7, -1.5M): gw~50k/lvl; backstop, B48 dominates in BT.
-# CHFJPY 1.00 lot (lv3, -1.5M): non-binding; B48 caps single-event ~-0.65M in BT.
-# NZDJPY 1.00 lot (lv7, -1.0M): v7 loosened from -500k -> revives lv7; tail ~-1.05M BT.
-# AUDCAD 1.00 lot (lv5, -750k, CADJPY~108): v7; single-event ~-0.45M in BT.
+# Per-pair float stop: basket unrealized loss per direction -> immediate close.
+# JPY values (MT5 profit is account-currency=JPY). Non-JPY-quote pairs use the
+# BT price-distance equivalent scaled by quote->JPY (EURGBP qj~190, AUDNZD qj~90).
 FLOAT_STOP_PER_PAIR = {
-    'GBPJPY': -1_500_000.0,
-    'CHFJPY': -1_500_000.0,
-    'NZDUSD':    -15_000.0,
-    'NZDJPY': -1_000_000.0,
-    'AUDCAD':  -750_000.0,
+    'GBPJPY': -1_500_000.0, 'CHFJPY': -1_500_000.0, 'NZDUSD':    -15_000.0,
+    'NZDJPY': -1_000_000.0, 'AUDCAD':   -750_000.0, 'EURGBP': -1_320_000.0,
+    'AUDNZD':   -625_000.0, 'USDJPY':   -876_000.0,
 }
 
 # ══════════════════════════════════════════
@@ -187,19 +168,31 @@ DD_WEEK_JPY     = -15000.0   # overridden per-pair in main()
 FLOAT_STOP_JPY  = -15000.0   # overridden per-pair in main()
 LOOP_INTERVAL   = 60
 HB_CYCLES       = 30   # heartbeat every 30 cycles (~30 min)
+MOM_WINDOW      = 24   # hours for 24h momentum gate
+MOM120_WINDOW   = 120  # hours for long-term momentum gate
 
 _DEAL_REASON_TP = getattr(mt5, 'DEAL_REASON_TP', 5)
 
 # ══════════════════════════════════════════
 # Runtime globals (set in main() from --pair / --broker)
 # ══════════════════════════════════════════
-MAGIC        = 20260030
-STRATEGY_TAG = 'GRID_NZD'
-SYMBOL       = 'NZDUSD'
-ATR_MULT     = 2.0
-MAX_LEVELS   = 7
-CI_TH        = CI_THRESHOLD   # per-pair, set in main() from cfg['ci_threshold']
-BROKER_KEY   = 'axiory'
+MAGIC          = 20260030
+STRATEGY_TAG   = 'GRID_NZD'
+SYMBOL         = 'NZDUSD'
+ATR_MULT       = 2.0
+MAX_LEVELS     = 7
+CI_TH          = CI_THRESHOLD
+BROKER_KEY     = 'axiory'
+# v8 feature globals
+DIR_MODE       = 'both'
+SMA_PERIOD     = None
+MOM_THR        = None
+MOM120_THR     = None
+CULL_FRAC      = None
+TAPER          = None
+SHORT_LOT_MULT = 1.0
+TP_MULT        = 1.0
+H1_BARS        = ATR_PERIOD + 10   # bars to fetch; raised in main() if regime/mom120
 _SYMBOL_MAP: dict = {}
 
 def _rsym() -> str:
@@ -307,7 +300,6 @@ def calc_ci(df_d1: pd.DataFrame, period: int = 14):
     tr = pd.concat([h - l,
                     (h - c.shift()).abs(),
                     (l - c.shift()).abs()], axis=1).max(axis=1)
-    # Last `period` bars (skip NaN from shift at index 0)
     tr_tail  = tr.iloc[-period:].dropna()
     hi_tail  = h.iloc[-period:]
     lo_tail  = l.iloc[-period:]
@@ -318,6 +310,40 @@ def calc_ci(df_d1: pd.DataFrame, period: int = 14):
     if hl_range <= 0 or tr_sum <= 0:
         return None
     return 100.0 * math.log10(tr_sum / hl_range) / math.log10(period)
+
+def calc_ret_norm(df_h1: pd.DataFrame, window: int, atr: float):
+    """ATR-normalized return over `window` hours, using last CLOSED bar (t-1).
+    df index -1 is the forming bar -> reference iloc[-2]. Returns float or None."""
+    if atr is None or atr <= 0 or len(df_h1) < window + 3:
+        return None
+    c = df_h1['close']
+    return float((c.iloc[-2] - c.iloc[-2 - window]) / atr)
+
+def calc_sma_closed(df_h1: pd.DataFrame, period: int):
+    """SMA of close over last `period` CLOSED bars (excludes forming bar -1)."""
+    if len(df_h1) < period + 1:
+        return None
+    return float(df_h1['close'].iloc[-(period + 1):-1].mean())
+
+# ══════════════════════════════════════════
+# Lot sizing (taper / direction tilt / broker rounding)
+# ══════════════════════════════════════════
+def _round_lot(symbol: str, vol: float) -> float:
+    info = mt5.symbol_info(symbol)
+    if info is None:
+        return round(vol, 2)
+    step = getattr(info, 'volume_step', 0.01) or 0.01
+    vmin = getattr(info, 'volume_min', step) or step
+    vmax = getattr(info, 'volume_max', vol) or vol
+    v = round(round(vol / step) * step, 8)
+    return max(vmin, min(vmax, v))
+
+def lot_for_level(direction: str, level: int) -> float:
+    """Level-k lot = base * (short_lot_mult if SHORT) * taper^(k-1), broker-rounded."""
+    base = LOT * (SHORT_LOT_MULT if direction == 'SHORT' else 1.0)
+    if TAPER:
+        base = base * (TAPER ** (level - 1))
+    return _round_lot(_rsym(), base)
 
 # ══════════════════════════════════════════
 # Realized PnL helpers
@@ -360,7 +386,8 @@ def get_positions():
 # Order management
 # ══════════════════════════════════════════
 def place_order(direction: str, grid_width: float, level: int) -> bool:
-    """Place market order. direction: 'LONG' or 'SHORT'. Returns True on success."""
+    """Place market order. direction: 'LONG' or 'SHORT'. Returns True on success.
+    Volume = lot_for_level (taper/tilt). TP = entry +/- grid_width*TP_MULT."""
     sym  = _rsym()
     info = mt5.symbol_info(sym)
     tick = mt5.symbol_info_tick(sym)
@@ -368,20 +395,22 @@ def place_order(direction: str, grid_width: float, level: int) -> bool:
         log('order_failed ' + direction + ' symbol_info=None')
         return False
     digits = info.digits
+    vol    = lot_for_level(direction, level)
+    tp_dist = grid_width * TP_MULT
 
     if direction == 'LONG':
         order_type = mt5.ORDER_TYPE_BUY
         entry      = tick.ask
-        tp         = round(entry + grid_width, digits)
+        tp         = round(entry + tp_dist, digits)
     else:
         order_type = mt5.ORDER_TYPE_SELL
         entry      = tick.bid
-        tp         = round(entry - grid_width, digits)
+        tp         = round(entry - tp_dist, digits)
 
     req = {
         'action':       mt5.TRADE_ACTION_DEAL,
         'symbol':       sym,
-        'volume':       LOT,
+        'volume':       vol,
         'type':         order_type,
         'price':        entry,
         'tp':           tp,
@@ -399,13 +428,14 @@ def place_order(direction: str, grid_width: float, level: int) -> bool:
         return False
 
     log('entry ' + direction +
-        ' lot=' + str(LOT) +
+        ' lot=' + str(vol) +
         ' price=' + str(round(entry, digits)) +
         ' grid_width=' + str(round(grid_width, digits)) +
+        ' tp_mult=' + str(TP_MULT) +
         ' level=' + str(level) + '/' + str(MAX_LEVELS))
     return True
 
-def close_positions(direction: str, positions: list) -> tuple:
+def close_positions(direction: str, positions: list, suffix: str = '_B48') -> tuple:
     """
     Close all positions in given direction at market.
     Returns (closed_count, total_pnl, closed_ticket_set).
@@ -431,7 +461,7 @@ def close_positions(direction: str, positions: list) -> tuple:
             'price':        price,
             'deviation':    20,
             'magic':        MAGIC,
-            'comment':      STRATEGY_TAG + '_B48',
+            'comment':      STRATEGY_TAG + suffix,
             'position':     p.ticket,
             'type_time':    mt5.ORDER_TIME_GTC,
             'type_filling': mt5.ORDER_FILLING_IOC,
@@ -447,11 +477,40 @@ def close_positions(direction: str, positions: list) -> tuple:
                 ' ticket=' + str(p.ticket) + ' code=' + str(code))
     return closed, tot_pnl, tickets
 
+def close_single_position(p, suffix: str = '_CULL') -> tuple:
+    """Close one position at market. Returns (ok, pnl, ticket)."""
+    sym  = _rsym()
+    tick = mt5.symbol_info_tick(sym)
+    if tick is None:
+        return False, 0.0, None
+    is_long    = (p.type == mt5.ORDER_TYPE_BUY)
+    close_type = mt5.ORDER_TYPE_SELL if is_long else mt5.ORDER_TYPE_BUY
+    price      = tick.bid if is_long else tick.ask
+    req = {
+        'action':       mt5.TRADE_ACTION_DEAL,
+        'symbol':       sym,
+        'volume':       p.volume,
+        'type':         close_type,
+        'price':        price,
+        'deviation':    20,
+        'magic':        MAGIC,
+        'comment':      STRATEGY_TAG + suffix,
+        'position':     p.ticket,
+        'type_time':    mt5.ORDER_TIME_GTC,
+        'type_filling': mt5.ORDER_FILLING_IOC,
+    }
+    result = mt5.order_send(req)
+    if result and result.retcode == mt5.TRADE_RETCODE_DONE:
+        return True, p.profit, p.ticket
+    code = result.retcode if result else 'None'
+    log('cull_close_failed ticket=' + str(p.ticket) + ' code=' + str(code))
+    return False, 0.0, None
+
 # ══════════════════════════════════════════
 # TP close detection
 # ══════════════════════════════════════════
-def check_tp_closes(from_dt: datetime, b48_tickets: set) -> None:
-    """Detect and log TP-hit closures since from_dt, skipping B48-closed tickets."""
+def check_tp_closes(from_dt: datetime, skip_tickets: set) -> None:
+    """Detect and log TP-hit closures since from_dt, skipping B48/cull-closed tickets."""
     if from_dt.tzinfo is None:
         from_dt = from_dt.replace(tzinfo=timezone.utc)
     sym   = _rsym()
@@ -465,9 +524,8 @@ def check_tp_closes(from_dt: datetime, b48_tickets: set) -> None:
                 or d.entry != mt5.DEAL_ENTRY_OUT
                 or d.reason != _DEAL_REASON_TP):
             continue
-        if d.position_id in b48_tickets:
+        if d.position_id in skip_tickets:
             continue
-        # Closing a Long = SELL deal; closing a Short = BUY deal
         side = 'SHORT' if d.type == mt5.DEAL_TYPE_BUY else 'LONG'
         hold_h = 0
         pos_deals = mt5.history_deals_get(position=d.position_id)
@@ -486,30 +544,35 @@ def check_tp_closes(from_dt: datetime, b48_tickets: set) -> None:
 # Main loop
 # ══════════════════════════════════════════
 def main_loop() -> None:
-    log('grid_monitor v7 started  pair=' + SYMBOL +
+    log('grid_monitor v8 started  pair=' + SYMBOL +
         '  broker=' + BROKER_KEY +
         '  magic=' + str(MAGIC) +
         '  lot=' + str(LOT) +
         '  atr_mult=' + str(ATR_MULT) +
         '  max_levels=' + str(MAX_LEVELS) +
         '  ci_th=' + str(CI_TH) +
-        '  dd_day=' + str(int(DD_DAY_JPY)) +
-        '  dd_week=' + str(int(DD_WEEK_JPY)) +
+        '  dir=' + DIR_MODE +
+        ('  sma=' + str(SMA_PERIOD) if DIR_MODE == 'regime_short' else '') +
+        ('  mom=' + str(MOM_THR) if MOM_THR else '') +
+        ('  mom120=' + str(MOM120_THR) if MOM120_THR else '') +
+        ('  cull=' + str(CULL_FRAC) if CULL_FRAC else '') +
+        ('  taper=' + str(TAPER) if TAPER else '') +
+        ('  short_lot=' + str(SHORT_LOT_MULT) if SHORT_LOT_MULT != 1.0 else '') +
+        ('  tp_mult=' + str(TP_MULT) if TP_MULT != 1.0 else '') +
         '  float_stop=' + str(int(FLOAT_STOP_JPY)) +
         '  interval=' + str(LOOP_INTERVAL) + 's')
 
     state   = load_state()
     _cycle  = 0
-    # Look back 5 min on start to catch any TP fires during downtime (short window)
     _last_tp_check      = datetime.now(timezone.utc) - timedelta(minutes=5)
-    _last_filter_block  = 0   # cycle number of last filter_block log
+    _last_filter_block  = 0
 
     while True:
         try:
             _cycle  += 1
             now_utc  = datetime.now(timezone.utc)
             today_s  = now_utc.strftime('%Y-%m-%d')
-            week_s   = now_utc.strftime('%G-W%V')   # ISO week Mon-start
+            week_s   = now_utc.strftime('%G-W%V')
 
             # ── Day / week reset ──
             if state['current_day'] != today_s:
@@ -519,7 +582,7 @@ def main_loop() -> None:
                 state['current_week']      = week_s
                 state['week_realized_jpy'] = 0.0
 
-            # ── Realized PnL (recomputed from MT5 history for accuracy) ──
+            # ── Realized PnL ──
             day_pnl  = _realized_jpy_since(_day_start_utc())
             week_pnl = _realized_jpy_since(_week_start_utc())
             state['day_realized_jpy']  = day_pnl
@@ -527,7 +590,7 @@ def main_loop() -> None:
 
             # ── Fetch OHLCV ──
             sym   = _rsym()
-            df_h1 = _get_h1(sym, ATR_PERIOD + 10)
+            df_h1 = _get_h1(sym, H1_BARS)
             df_d1 = _get_d1(sym, CI_PERIOD + 5)
 
             if df_h1 is None or df_d1 is None:
@@ -547,7 +610,30 @@ def main_loop() -> None:
 
             grid_width = atr * ATR_MULT
 
-            # ── Live mid price for grid comparison ──
+            # ── v8 directional & momentum gates (computed once per cycle) ──
+            allow_long  = True
+            allow_short = (DIR_MODE != 'long_only')
+            regime_note = ''
+            if DIR_MODE == 'regime_short' and SMA_PERIOD:
+                sma = calc_sma_closed(df_h1, SMA_PERIOD)
+                cprev = df_h1['close'].iloc[-2] if len(df_h1) >= 2 else None
+                if sma is not None and cprev is not None and cprev > sma:
+                    allow_short = False   # up-regime: block new counter-trend shorts
+                    regime_note = 'regime_up(no_short)'
+
+            mom_long_ok = mom_short_ok = True
+            if MOM_THR:
+                r = calc_ret_norm(df_h1, MOM_WINDOW, atr)
+                if r is not None:
+                    mom_long_ok  = r > -MOM_THR
+                    mom_short_ok = r < MOM_THR
+            if MOM120_THR:
+                r2 = calc_ret_norm(df_h1, MOM120_WINDOW, atr)
+                if r2 is not None:
+                    mom_long_ok  = mom_long_ok  and (r2 > -MOM120_THR)
+                    mom_short_ok = mom_short_ok and (r2 < MOM120_THR)
+
+            # ── Live mid price ──
             tick = mt5.symbol_info_tick(sym)
             if tick is None:
                 log('loop_error tick_failed sym=' + sym)
@@ -555,18 +641,18 @@ def main_loop() -> None:
                 continue
             mid_price = (tick.ask + tick.bid) / 2.0
 
-            # ── Get positions ──
+            # ── Positions ──
             longs, shorts = get_positions()
             long_count    = len(longs)
             short_count   = len(shorts)
 
-            # ── Float stop: close direction immediately if unrealized < threshold ──
             b48_closed_tickets: set = set()
 
+            # ── Float stop: close direction if basket unrealized < threshold ──
             if longs:
                 long_float = sum(p.profit for p in longs)
                 if long_float < FLOAT_STOP_JPY:
-                    n_cl, tot, tix = close_positions('LONG', longs)
+                    n_cl, tot, tix = close_positions('LONG', longs, '_FS')
                     b48_closed_tickets |= tix
                     log('float_stop LONG unrealized=' + str(round(long_float)) +
                         ' JPY  closed=' + str(n_cl))
@@ -578,7 +664,7 @@ def main_loop() -> None:
                 short_float = sum(p.profit for p in shorts)
                 if short_float < FLOAT_STOP_JPY:
                     _, shorts_now = get_positions()
-                    n_cl, tot, tix = close_positions('SHORT', shorts_now)
+                    n_cl, tot, tix = close_positions('SHORT', shorts_now, '_FS')
                     b48_closed_tickets |= tix
                     log('float_stop SHORT unrealized=' + str(round(short_float)) +
                         ' JPY  closed=' + str(n_cl))
@@ -587,7 +673,6 @@ def main_loop() -> None:
                     short_count = len(shorts)
 
             # ── B48 timer: Long ──
-
             if long_count >= MAX_LEVELS:
                 if state['max_lv_reached_ts_long'] is None:
                     state['max_lv_reached_ts_long'] = now_utc.isoformat()
@@ -632,26 +717,59 @@ def main_loop() -> None:
                     _, shorts     = get_positions()
                     short_count   = len(shorts)
 
+            # ── v8 worst-leg cull: basket unrealized <= cull_frac*float_stop ──
+            if CULL_FRAC and FLOAT_STOP_JPY:
+                cull_thr = CULL_FRAC * FLOAT_STOP_JPY   # e.g. 0.5 * -750k = -375k
+                if long_count >= 2:
+                    lf = sum(p.profit for p in longs)
+                    if lf <= cull_thr:
+                        worst = min(longs, key=lambda p: p.profit)
+                        ok, pnl, _ = close_single_position(worst)
+                        if ok:
+                            log('cull LONG basket=' + str(round(lf)) +
+                                ' JPY  worst_leg=' + str(round(pnl)) + ' JPY')
+                            longs, _ = get_positions()
+                            long_count = len(longs)
+                            if long_count < MAX_LEVELS:
+                                state['max_lv_reached_ts_long'] = None
+                if short_count >= 2:
+                    sf = sum(p.profit for p in shorts)
+                    if sf <= cull_thr:
+                        _, shorts_now = get_positions()
+                        worst = min(shorts_now, key=lambda p: p.profit)
+                        ok, pnl, _ = close_single_position(worst)
+                        if ok:
+                            log('cull SHORT basket=' + str(round(sf)) +
+                                ' JPY  worst_leg=' + str(round(pnl)) + ' JPY')
+                            _, shorts = get_positions()
+                            short_count = len(shorts)
+                            if short_count < MAX_LEVELS:
+                                state['max_lv_reached_ts_short'] = None
+
             # ── TP close detection ──
             check_tp_closes(_last_tp_check, b48_closed_tickets)
             _last_tp_check = now_utc
 
-            # ── Save state ──
             save_state(state)
 
-            # ── Heartbeat (with unrealized PnL per direction) ──
+            # ── Heartbeat ──
             ci_str = str(round(ci, 1)) if ci is not None else 'N/A'
             if _cycle % HB_CYCLES == 0:
                 float_l = round(sum(p.profit for p in longs))  if longs  else 0
                 float_s = round(sum(p.profit for p in shorts)) if shorts else 0
+                gate_s = ''
+                if not allow_short:
+                    gate_s += ' short_off(' + (regime_note or DIR_MODE) + ')'
+                if MOM_THR and not (mom_long_ok and mom_short_ok):
+                    gate_s += ' mom_block(L' + str(int(mom_long_ok)) + '/S' + str(int(mom_short_ok)) + ')'
                 log('heartbeat alive' +
                     ' long_pos='  + str(long_count)  + '/' + str(MAX_LEVELS) +
                     ' short_pos=' + str(short_count) + '/' + str(MAX_LEVELS) +
                     ' float_l=' + str(float_l) +
                     ' float_s=' + str(float_s) +
-                    ' ci=' + ci_str)
+                    ' ci=' + ci_str + gate_s)
 
-            # ── Filter check: entry block + DD force-close ──
+            # ── Filter check ──
             if ci is None:
                 time.sleep(LOOP_INTERVAL)
                 continue
@@ -671,25 +789,24 @@ def main_loop() -> None:
                 dd_force_close = True
                 block_reasons.append('week_pnl=' + str(round(week_pnl)) + ' JPY')
 
-            # DD force-close: close all open positions when realized DD limit breached
             if dd_force_close:
                 longs, shorts = get_positions()
                 if longs:
-                    n_cl, tot, _ = close_positions('LONG', longs)
+                    n_cl, tot, _ = close_positions('LONG', longs, '_DD')
                     log('dd_force_close LONG positions=' + str(n_cl) +
                         ' total_pnl=' + ('+' if tot >= 0 else '') + str(round(tot)) + ' JPY' +
                         ' day=' + str(round(day_pnl)) + ' week=' + str(round(week_pnl)))
                     state['max_lv_reached_ts_long'] = None
                 if shorts:
                     _, shorts_now = get_positions()
-                    n_cl, tot, _ = close_positions('SHORT', shorts_now)
+                    n_cl, tot, _ = close_positions('SHORT', shorts_now, '_DD')
                     log('dd_force_close SHORT positions=' + str(n_cl) +
                         ' total_pnl=' + ('+' if tot >= 0 else '') + str(round(tot)) + ' JPY' +
                         ' day=' + str(round(day_pnl)) + ' week=' + str(round(week_pnl)))
                     state['max_lv_reached_ts_short'] = None
                 save_state(state)
 
-            # Refresh positions after B48 / DD force-close
+            # Refresh positions after forced closes
             longs, shorts = get_positions()
             long_count    = len(longs)
             short_count   = len(shorts)
@@ -715,7 +832,11 @@ def main_loop() -> None:
                 if mid_price >= round(max_short_entry + grid_width, digits):
                     short_entry_needed = True
 
-            # ── Log filter_block (throttled to once per HB_CYCLES) ──
+            # ── v8 gates applied to entry decisions ──
+            long_gated  = long_entry_needed  and allow_long  and mom_long_ok
+            short_gated = short_entry_needed and allow_short and mom_short_ok
+
+            # ── Log filter_block (throttled) ──
             if entry_blocked and (long_entry_needed or short_entry_needed):
                 if _cycle - _last_filter_block >= HB_CYCLES:
                     for reason in block_reasons:
@@ -724,12 +845,12 @@ def main_loop() -> None:
 
             # ── Execute entries ──
             if not entry_blocked:
-                if long_entry_needed:
+                if long_gated:
                     place_order('LONG', grid_width, long_count + 1)
                     longs, _ = get_positions()
                     long_count = len(longs)
 
-                if short_entry_needed:
+                if short_gated:
                     place_order('SHORT', grid_width, short_count + 1)
 
         except Exception as e:
@@ -744,9 +865,10 @@ def main() -> None:
     global MAGIC, STRATEGY_TAG, SYMBOL, ATR_MULT, MAX_LEVELS, CI_TH
     global BROKER_KEY, LOG_FILE, _STATE_FILE
     global LOT, DD_DAY_JPY, DD_WEEK_JPY, FLOAT_STOP_JPY
+    global DIR_MODE, SMA_PERIOD, MOM_THR, MOM120_THR, CULL_FRAC, TAPER, SHORT_LOT_MULT, TP_MULT, H1_BARS
 
-    parser = argparse.ArgumentParser(description='Grid Strategy monitor v7 (multi-pair)')
-    parser.add_argument('--pair', default='NZDUSD',
+    parser = argparse.ArgumentParser(description='Grid Strategy monitor v8 (multi-pair)')
+    parser.add_argument('--pair', default='AUDCAD',
                         choices=list(PAIR_CONFIG.keys()),
                         help='trading pair')
     parser.add_argument('--broker', default=BROKER_KEY,
@@ -763,6 +885,26 @@ def main() -> None:
     MAX_LEVELS   = cfg['max_levels']
     CI_TH        = cfg.get('ci_threshold', CI_THRESHOLD)
     BROKER_KEY   = args.broker
+
+    # v8 feature knobs
+    DIR_MODE       = cfg.get('dir_mode', 'both')
+    SMA_PERIOD     = cfg.get('sma_period', None)
+    MOM_THR        = cfg.get('mom_thr', None)
+    MOM120_THR     = cfg.get('mom120_thr', None)
+    CULL_FRAC      = cfg.get('cull_frac', None)
+    TAPER          = cfg.get('taper', None)
+    SHORT_LOT_MULT = cfg.get('short_lot_mult', 1.0)
+    TP_MULT        = cfg.get('tp_mult', 1.0)
+
+    # H1 bars to fetch: enough for ATR + the longest lookback in use
+    needed = ATR_PERIOD + 10
+    if MOM_THR:
+        needed = max(needed, MOM_WINDOW + 5)
+    if MOM120_THR:
+        needed = max(needed, MOM120_WINDOW + 5)
+    if DIR_MODE == 'regime_short' and SMA_PERIOD:
+        needed = max(needed, SMA_PERIOD + 5)
+    H1_BARS = needed
 
     # Per-pair lot, DD limits, float stop
     LOT            = LOT_PER_PAIR.get(SYMBOL, 0.01)

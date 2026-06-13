@@ -1014,14 +1014,15 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
 <!-- §14 Grid -->
 <div class="section" id="s14">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>14. グリッド戦略 <small style="font-size:11px;color:var(--muted)">grid_monitor.py v7</small></h2>
+    <h2>14. グリッド戦略 <small style="font-size:11px;color:var(--muted)">grid_monitor.py v8</small></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
     <h3>概要</h3>
     <p>双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が閾値以上の時のみエントリー。各ポジションに TP のみ設定（SL なし）。最大段数（max_levels）到達後 48時間経過で強制決済（B48 Exit）。方向別の含み損が FLOAT_STOP を下回った場合は即時強制決済（Float Stop）。</p>
     <p><strong>v6（2026-06-02 パラメータ最適化）</strong>：float-stop込み2年BTで CHFJPY/NZDJPY が負エッジと判明。真因は <code>max_levels=7</code> で含み損が深く積まれ float-stop が先発動し <strong>B48がデッド</strong>だったこと。max_levels 浅化 + ci_threshold 厳格化で B48 を主決済化。</p>
-    <p><strong>v7（2026-06-02 float_stop結合最適化）</strong>：float_stop自体を最適化変数に追加。知見＝<strong>float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定が正解</strong>（きつくすると回復可能ポジを切りPF・DD悪化）。<strong>NZDJPYは float_stop を-500k→-1.0Mに緩めると lv7 が復活し純益2.4倍</strong>。AUDCADは lv5/fs-750k に改善。CHFJPY/GBPJPYはv6据置。</p>
+    <p><strong>v7（2026-06-02 float_stop結合最適化）</strong>：float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定が正解。NZDJPY -500k→-1.0M で lv7 復活、AUDCAD lv5/fs-750k に改善。</p>
+    <p><strong>v8（2026-06-13 改善ツールキット導入・Dukascopy 11年BT）</strong>：PF期待値バー（IS-selectable ∧ OOS&gt;1.2 ∧ wfoMin&gt;1.0）を超えた全ペアを推奨設定でフォワードテスト可能に。新ノブ（既定OFF=v7挙動）＝<strong>mom_thr</strong>（24h ATR正規化リターンの方向ゲート＝ナイフ掴み追加を遮断）/ <strong>mom120_thr</strong>（5日地平線・EURGBP）/ <strong>cull_frac</strong>（含み損が予算超で最悪レッグ1本のみ段階決済）/ <strong>taper</strong>（深レベルのロット縮小）/ <strong>dir_mode</strong>（both / long_only=carryグリッド USDJPY・NZDJPY / regime_short=上昇局面のみ新規short停止 AUDCAD・AUDNZD）/ <strong>short_lot_mult</strong>・<strong>tp_mult</strong>（EURGBP）。救済2類型＝①JPYクロスcarry-grid(long-only) ②相関クロスgrid(両側/レジーム+combo)。GBPJPY/CHFJPY/EURUSDは構造的に救済不可（No-Go据置・非起動）。</p>
 
     <h3>用語解説（略語一覧）</h3>
     <div class="table-wrap">
@@ -1056,20 +1057,23 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
       </table>
     </div>
 
-    <h3>対象ペアと確定パラメータ（v7 / float-stop込みフル2年BT）</h3>
+    <h3>対象ペアと確定パラメータ（v8 / Dukascopy 11年BT・フォワードテスト構成）</h3>
     <div class="table-wrap">
       <table>
-        <thead><tr><th>ペア</th><th>Magic</th><th>atr_mult<br><small>ATR乗数</small></th><th>max_levels<br><small>最大段数</small></th><th>CI_th<br><small>レンジ閾値</small></th><th>FLOAT_STOP<br><small>含み損上限/方向</small></th><th>BT PF</th><th>net 円</th><th>LOT</th><th>備考</th></tr></thead>
+        <thead><tr><th>ペア</th><th>Magic</th><th>atr/lv/ci</th><th>FLOAT_STOP</th><th>dir_mode</th><th>mom/cull/taper</th><th>追加</th><th>full PF</th><th>IS / OOS / wfoMin</th><th>区分</th></tr></thead>
         <tbody>
-          <tr style="opacity:0.55"><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0</td><td>7</td><td>61.8</td><td>-15k</td><td>1.81</td><td>+16k</td><td>0.01</td><td>停止中(micro lot)</td></tr>
-          <tr><td><strong>GBPJPY</strong></td><td class="magic-num">20260031</td><td>1.5</td><td>7</td><td>61.8</td><td>-150万円</td><td class="pf-good">1.96</td><td>+5.97M</td><td><strong>1.00</strong></td><td>demo / 据置(最良)</td></tr>
-          <tr><td><strong>CHFJPY</strong></td><td class="magic-num">20260032</td><td>1.0</td><td>3</td><td>65.0</td><td>-150万円(非発動)</td><td class="pf-good">1.51</td><td>+1.41M</td><td><strong>1.00</strong></td><td>demo / v6反転・v7据置</td></tr>
-          <tr><td><strong>NZDJPY</strong></td><td class="magic-num">20260033</td><td>1.5</td><td>7</td><td>61.8</td><td><strong>-100万円</strong></td><td class="pf-good">2.36</td><td>+4.55M</td><td><strong>1.00</strong></td><td>demo / v7改善(v6:1.65)</td></tr>
-          <tr><td><strong>AUDCAD</strong></td><td class="magic-num">20260034</td><td>1.0</td><td>5</td><td>65.0</td><td><strong>-75万円</strong></td><td class="pf-good">4.01</td><td>+5.50M</td><td><strong>1.00</strong></td><td>demo / v7改善(v6:2.75)</td></tr>
+          <tr><td><strong>AUDCAD</strong></td><td class="magic-num">20260034</td><td>1.5/5/65</td><td>-75万</td><td>regime_short(SMA1200)</td><td>2.0/0.5/0.7</td><td>—</td><td class="pf-good">2.84</td><td>3.60 / 2.21 / 1.20</td><td>✅Go筆頭</td></tr>
+          <tr><td><strong>EURGBP</strong></td><td class="magic-num">20260035</td><td>1.5/5/65</td><td>-132万</td><td>both</td><td>2.0/0.5/0.7</td><td>mom120=4, tp0.8, slot0.5</td><td class="pf-good">1.59</td><td>1.41 / 2.09 / 1.65</td><td>✅相関クロス</td></tr>
+          <tr><td><strong>AUDNZD</strong></td><td class="magic-num">20260036</td><td>1.5/5/65</td><td>-62.5万</td><td>regime_short(SMA1200)</td><td>2.0/0.5/0.7</td><td>—</td><td class="pf-good">1.32</td><td>1.27 / 1.43 / 1.05</td><td>✅相関クロス(限界)</td></tr>
+          <tr><td><strong>USDJPY</strong></td><td class="magic-num">20260037</td><td>1.5/5/65</td><td>-87.6万</td><td>long_only</td><td>2.0/0.5/0.7</td><td>—</td><td class="pf-good">1.65</td><td>1.36 / 2.14 / 1.38</td><td>✅carry(スケール禁止)</td></tr>
+          <tr><td><strong>NZDJPY</strong></td><td class="magic-num">20260033</td><td>1.5/7/61.8</td><td>-100万</td><td>long_only</td><td>2.0/0.5/0.7</td><td>—</td><td class="pf-good">1.28</td><td>1.08 / 1.70 / 1.29</td><td>✅carry(スケール禁止)</td></tr>
+          <tr style="opacity:0.5"><td>GBPJPY</td><td class="magic-num">20260031</td><td>1.5/7/61.8</td><td>-150万</td><td>both(OFF)</td><td>—</td><td>—</td><td>0.81</td><td>No-Go</td><td>非起動</td></tr>
+          <tr style="opacity:0.5"><td>CHFJPY</td><td class="magic-num">20260032</td><td>1.0/3/65</td><td>-150万</td><td>both(OFF)</td><td>—</td><td>—</td><td>0.95</td><td>No-Go</td><td>非起動</td></tr>
+          <tr style="opacity:0.5"><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0/7/61.8</td><td>-1.5万</td><td>both(OFF)</td><td>—</td><td>—</td><td>—</td><td>—</td><td>停止中(micro)</td></tr>
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted)">BT 根拠: grid_floatstop_bt.py + grid_floatstop_sweep.py（float_stop 結合・IS/OOS 頑健性確認）。net 円は lot1.0 換算（AUDCAD は CADJPY≈108 想定、PF はレート不感）。v7 代償: NZDJPY テール -576k→-1.05M、AUDCAD -315k→-445k。</p>
+    <p style="font-size:12px;color:var(--muted)">BT 根拠（Dukascopy 11年, IS=2015-21凍結→OOS=2022-26/WFO）: grid_dd_reduction_bt.py（mom/cull/taper）/ grid_dirbias_improve_bt.py（方向バイアス・レジーム）/ grid_event_trend_gate_bt.py（mom120）/ grid_exit_lot_bt.py（tp_mult）/ grid_toolkit_allpairs_bt.py（全ペア展開）。<strong>必要資本（Step B 再算定 grid_stepb_recompute.py, lot1.0/破産&lt;1%）</strong>: AUDCAD req_cap_99=73万（旧v7の24%・資本効率139%/yr・P(5yr損)0%）/ AUDNZD 141万 / EURGBP 421万 / NZDJPY 434万(P損17%) / USDJPY 455万(P損23%)。実マネーlot=自己資本÷req_cap_99。carry系はスケール禁止。GBPJPY/CHFJPY/NZDUSD は No-Go（features OFF=純v7挙動、既定で非起動）。</p>
 
     <h3>ペア別 エントリー条件</h3>
     <p style="font-size:12px;color:var(--muted)">CI フィルターは新規エントリーにのみ適用。既存ポジションの保有は CI に関わらず継続。Long と Short は独立して同時保有可能。</p>
@@ -1367,6 +1371,9 @@ python news_monitor.py --broker axiory --dry-run</pre>
           <tr><td>Grid CHFJPY</td><td class="magic-num">20260032</td><td><code>GRID_CHF</code></td><td>grid_monitor.py</td></tr>
           <tr><td>Grid NZDJPY</td><td class="magic-num">20260033</td><td><code>GRID_NZJ</code></td><td>grid_monitor.py</td></tr>
           <tr><td>Grid AUDCAD</td><td class="magic-num">20260034</td><td><code>GRID_AUC</code></td><td>grid_monitor.py</td></tr>
+          <tr><td>Grid EURGBP</td><td class="magic-num">20260035</td><td><code>GRID_EUG</code></td><td>grid_monitor.py</td></tr>
+          <tr><td>Grid AUDNZD</td><td class="magic-num">20260036</td><td><code>GRID_AUN</code></td><td>grid_monitor.py</td></tr>
+          <tr><td>Grid USDJPY</td><td class="magic-num">20260037</td><td><code>GRID_USJ</code></td><td>grid_monitor.py</td></tr>
           <tr><td>経済指標(NEWS)</td><td class="magic-num">20260040</td><td><code>NEWS_{event}</code></td><td>news_monitor.py</td></tr>
         </tbody>
       </table>

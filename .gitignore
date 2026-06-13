@@ -40,3 +40,8 @@ optimizer/news_bt_quick_trades.csv
 
 # local dukascopy fetch venv
 .venv_dukas/
+
+# macOS / local agent artifacts
+.DS_Store
+**/.DS_Store
+.claude/

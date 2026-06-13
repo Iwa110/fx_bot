@@ -240,6 +240,8 @@ def run_backtest(pair, cfg, df, atr_series, ci_series):
         'max_dd': round(max_dd, 0),
         'skip_count': skip_count,
         'monthly': monthly,
+        'fs_events': fs_pnls,    # per float-stop event PnL (for gap/slippage distribution)
+        'b48_events': b48_pnls,  # per B48 event PnL
     }
 
 

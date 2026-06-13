@@ -1,0 +1,4 @@
+pair,vol_thresh,bb_std,n,wins,wr_%,pf,avg_rr,avg_win_p,avg_loss_p,total_p,max_dd_p,dd_%,sharpe,adopt,n_tp,n_sl,n_fc
+EURUSD,0.7,1.5,9,7,77.8,2.66,0.76,9.5,-12.5,41.5,-14.9,26.4,1.74,False,7,2,0
+USDJPY,0.7,1.5,16,11,68.8,1.373,0.62,17.1,-27.4,51.1,-88.9,174.0,1.12,False,11,5,0
+ALL,0.7,1.5,25,18,72.0,1.571,0.61,14.2,-23.2,92.6,-88.9,96.0,1.53,False,18,7,0

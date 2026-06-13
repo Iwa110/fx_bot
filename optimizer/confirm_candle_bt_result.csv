@@ -1,0 +1,7 @@
+pair,pattern,entry_type,total_trades,win_rate,profit_factor,avg_win_pips,avg_loss_pips,max_drawdown_pct,sharpe_ratio,tp_count,trail_count,sl_count,n_vs_baseline,pf_vs_baseline
+GBPJPY,baseline,touch_only,562,44.0,0.903,30.24,26.26,3391.04,-0.047,141,106,315,1.0,0.0
+GBPJPY,A,reversal_confirm,269,44.6,0.886,30.21,27.46,0.0,-0.056,72,48,149,0.479,-0.017
+GBPJPY,B,continuation_confirm(th=0.998),493,44.0,0.896,30.62,26.86,4759.43,-0.05,129,88,276,0.877,-0.007
+USDJPY,baseline,touch_only,254,48.8,1.148,22.8,18.94,69.31,0.065,76,48,130,1.0,0.0
+USDJPY,A,reversal_confirm,192,46.9,1.062,23.65,19.65,85.11,0.028,59,31,102,0.756,-0.086
+USDJPY,B,continuation_confirm(th=0.998),233,46.4,1.089,24.24,19.23,64.03,0.04,72,36,125,0.917,-0.059

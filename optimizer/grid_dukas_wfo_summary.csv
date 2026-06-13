@@ -1,0 +1,5 @@
+pair,oos_folds,oos_pf_med,oos_pf_min,oos_net_sum,oos_pf_gt1_frac,oos_pf_gt12_frac,param_stable,sel_atr_set,sel_lv_set
+GBPJPY,3,1.03,0.65,-556314.0,0.67,0.33,False,2.0,3.0
+CHFJPY,7,0.892,0.716,-246469.0,0.43,0.29,False,1.0/1.5/2.0,3.0/5.0/7.0
+NZDJPY,7,0.883,0.417,-3692928.0,0.29,0.14,False,1.0/1.5/2.0,5.0/7.0
+AUDCAD,7,2.044,1.326,11410278.0,1.0,1.0,False,1.5/2.0,5.0/7.0
