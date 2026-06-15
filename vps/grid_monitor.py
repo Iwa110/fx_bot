@@ -301,7 +301,8 @@ def calc_atr(df: pd.DataFrame, period: int = 14):
 
 def calc_ci(df_d1: pd.DataFrame, period: int = 14):
     """
-    Choppiness Index.
+    Choppiness Index using the last `period` COMPLETED D1 bars (excludes the
+    current forming/partial bar, matching BT which shifts CI by +1 day).
     CI = 100 * log10(SUM_TR(period) / (max_high - min_low)) / log10(period)
     Returns float or None.
     """
@@ -313,9 +314,11 @@ def calc_ci(df_d1: pd.DataFrame, period: int = 14):
     tr = pd.concat([h - l,
                     (h - c.shift()).abs(),
                     (l - c.shift()).abs()], axis=1).max(axis=1)
-    tr_tail  = tr.iloc[-period:].dropna()
-    hi_tail  = h.iloc[-period:]
-    lo_tail  = l.iloc[-period:]
+    # Exclude iloc[-1] (today's forming/partial D1 bar) to match BT behaviour
+    # where CI is shifted forward by 1 day (only completed bars are used).
+    tr_tail  = tr.iloc[-(period + 1):-1].dropna()
+    hi_tail  = h.iloc[-(period + 1):-1]
+    lo_tail  = l.iloc[-(period + 1):-1]
     if len(tr_tail) < period:
         return None
     tr_sum   = float(tr_tail.sum())
