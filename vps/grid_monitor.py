@@ -36,6 +36,10 @@ grid_toolkit_allpairs_bt.py, Step B = grid_stepb_recompute.py):
                                        mom2.0/cull0.5/taper0.7  (carry; SCALE-BANNED)
     NZDJPY 20260033 long-only+combo  : atr1.5/lv7/ci61.8/fs-1.0M dir=long_only
                                        mom2.0/cull0.5/taper0.7  (carry; SCALE-BANNED)
+    CADCHF 20260038 R-SMA1200        : atr1.5/lv5/ci65/fs-943k  dir=regime_short(1200)
+                                       combo OFF (Step B: plain beats +combo on
+                                       cap_eff/P-loss/DD)  (screened 2026-06-15;
+                                       4th Go pair; req_cap_99~3.05M, Tier2 diversifier)
   Legacy / No-Go (kept for magic preservation, NOT forward-tested):
     GBPJPY 20260031, CHFJPY 20260032, NZDUSD 20260030  (features OFF = pure v7).
 
@@ -122,6 +126,13 @@ PAIR_CONFIG = {
     'USDJPY': {'magic': 20260037, 'tag': 'GRID_USJ', 'atr_mult': 1.5, 'max_levels': 5, 'ci_threshold': 65.0,
                'dir_mode': 'long_only', 'sma_period': None, 'mom_thr': 2.0, 'mom120_thr': None,
                'cull_frac': 0.5, 'taper': 0.7, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
+    # CADCHF: R-SMA1200 (correlated cross, screened 2026-06-15). atr1.5/lv5/ci65/fs-943k.
+    # Plain regime_short (combo OFF): Step B shows R-SMA1200 beats +combo on cap_eff
+    # (0.43 vs 0.30), P(5yr-loss) (0.3% vs 1.4%) and histDD (1.44M vs 1.48M). short side
+    # is structurally strong (short-only PF1.87); block new shorts in up-regimes only.
+    'CADCHF': {'magic': 20260038, 'tag': 'GRID_CDC', 'atr_mult': 1.5, 'max_levels': 5, 'ci_threshold': 65.0,
+               'dir_mode': 'regime_short', 'sma_period': 1200, 'mom_thr': None, 'mom120_thr': None,
+               'cull_frac': None, 'taper': None, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
 }
 
 # ══════════════════════════════════════════
@@ -131,6 +142,7 @@ PAIR_CONFIG = {
 LOT_PER_PAIR = {
     'GBPJPY': 1.00, 'CHFJPY': 1.00, 'NZDUSD': 0.01,
     'NZDJPY': 1.00, 'AUDCAD': 1.00, 'EURGBP': 1.00, 'AUDNZD': 1.00, 'USDJPY': 1.00,
+    'CADCHF': 1.00,
 }
 
 # Per-pair daily/weekly DD limits (coarse circuit breaker). Set loose enough not
@@ -138,12 +150,12 @@ LOT_PER_PAIR = {
 DD_DAY_PER_PAIR = {
     'GBPJPY':  -500000.0, 'CHFJPY':  -500000.0, 'NZDUSD':    -5000.0,
     'NZDJPY': -1000000.0, 'AUDCAD':  -750000.0, 'EURGBP': -1320000.0,
-    'AUDNZD':  -625000.0, 'USDJPY':  -876000.0,
+    'AUDNZD':  -625000.0, 'USDJPY':  -876000.0, 'CADCHF':  -943000.0,
 }
 DD_WEEK_PER_PAIR = {
     'GBPJPY': -1500000.0, 'CHFJPY': -1500000.0, 'NZDUSD':   -15000.0,
     'NZDJPY': -2000000.0, 'AUDCAD': -1500000.0, 'EURGBP': -2640000.0,
-    'AUDNZD': -1250000.0, 'USDJPY': -1750000.0,
+    'AUDNZD': -1250000.0, 'USDJPY': -1750000.0, 'CADCHF': -1886000.0,
 }
 
 # Per-pair float stop: basket unrealized loss per direction -> immediate close.
@@ -152,7 +164,7 @@ DD_WEEK_PER_PAIR = {
 FLOAT_STOP_PER_PAIR = {
     'GBPJPY': -1_500_000.0, 'CHFJPY': -1_500_000.0, 'NZDUSD':    -15_000.0,
     'NZDJPY': -1_000_000.0, 'AUDCAD':   -750_000.0, 'EURGBP': -1_320_000.0,
-    'AUDNZD':   -625_000.0, 'USDJPY':   -876_000.0,
+    'AUDNZD':   -625_000.0, 'USDJPY':   -876_000.0, 'CADCHF':   -943_000.0,
 }
 
 # ══════════════════════════════════════════

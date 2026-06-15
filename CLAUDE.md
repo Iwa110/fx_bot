@@ -77,7 +77,55 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-06-13 更新）
+## Top of mind（2026-06-15 更新）
+
+### ★★新Goペア: CADCHF を相関クロス銘柄スクリーニングで発見(確定エッジの初の横展開成功)（2026-06-15）
+確定エッジ「相関クロス=同一ドライバ共有→独立トレンド無し→構造的レンジ→Grid平均回帰が刈る」を未検証クロスへスケールできるか、2段階スクリーニングで検証(`optimizer/grid_corrcross_screen.py`=StageA構造プレスクリーン / `grid_corrcross_screen_bt.py`=StageB v8ツールキット / `grid_corrcross_stepb.py`=Step B+相関)。候補11クロス(NZDCAD/GBPCHF/AUDCHF/NZDCHF/CADCHF/EURCAD/GBPCAD/EURAUD/EURNZD/GBPAUD/GBPNZD)をDukascopy 11.5年1hで新規取得(各≈71,500本, 2014-12〜2026-06)。較正アンカー=Go(AUDCAD/EURGBP/AUDNZD)+No-Go(CHFJPY/GBPJPY/EURCHF/EURUSD)。
+- **Stage A(構造プレスクリーン)**: 年次 trend_atr(純変位/ATR) / path_eff(経路効率) / fs_per_yr(強制決済頻度) / tp_fs_ratio / gate_share を算出しGoエンベロープ(trend_atr_med≤39 ∧ path_eff≤0.050 ∧ 〜)と照合。**GBPJPY(trend_atr48,env1/4)・EURCHF/CHFJPY(env2/4)を正しく排除**、EURAUD/GBPAUD(env2/4)も足切り→候補9本をStage Bへ。
+- **Stage B(v8ツールキット, 再チューニング無し, IS=2015-21凍結→OOS/WFO, 各ペアでG.run_backtest一致assert)**: baseline/long-only/R-SMA1200/soft short_lot0.5/combo/long-only+combo/R-SMA1200+combo を適用。**採用バー(IS-selectable ∧ OOS>1.2 ∧ wfoMin>1.0)をクリーンに通過したのは CADCHF のみ**。
+  - **✅CADCHF R-SMA1200 = 新Goペア**: full PF1.43→**1.44** / IS1.43→**1.50(selectable)** / OOS**1.39** / **wfoMin0.90→1.39(全fold>1.2: [1.43,1.44,2.70,1.39])** / DD1.87M→**1.44M** / net+9.71M。baselineが既にIS=OOS=1.43の対称形(IS↔OOS乖離無し=過適合signatureの逆)で頑健。short側が構造的に強い(short-only PF1.87)ためレジーム条件付きshort(close>SMA1200で新規short停止)が最適=AUDCAD/AUDNZDと同型の救済パターン②(相関クロスgrid)。
+  - **代替 R-SMA1200+combo**: PF1.44/IS1.41/OOS1.49/**wfoMin1.55(全fold>1.5)**/DD1.48M/**nFS20→1**/worst-1.04M→-957k=テール制御版(強制決済激減で運用安全)だが資本効率は落ちる(下記)。
+  - **❌他8候補は全滅**: AUDCHF(全変種wfoMin<1.0, degenerate fold0.54) / NZDCHF(baseline IS0.79=OOS1.72との乖離・全変種IS<1.0=典型的IS↔OOS過適合, OOS光るがISが予測せず) / **GBPCAD(構造スコア最良env4/4だがbaseline IS1.61/OOS0.98=IS↔OOS逆乖離で崩落)** / NZDCAD(「最有力」だがwfoMin0.50-0.98) / GBPCHF/EURCAD/EURNZD/GBPNZD(全てfull PF<1.2 or IS<1.0)。
+- **Step B(MC 20000回/60ヶ月/月ブロック3, lot1.0)**: **CADCHF R-SMA1200 は既存Go群で AUDCAD に次ぐ2番目の資本効率**:
+
+  | ペア | 構成 | PF | net/yr | req_cap_99 | 資本効率 | P(5yr損) |
+  |---|---|---:|---:|---:|---:|---:|
+  | AUDCAD | R-SMA1200+combo | 2.84 | 1,017,588 | 728,196 | **1.40** | 0.0% |
+  | **CADCHF** | **R-SMA1200** | 1.44 | 1,309,488 | 3,051,367 | **0.43** | **0.3%** |
+  | AUDNZD | R-SMA1200+combo | 1.32 | 251,540 | 1,391,163 | 0.18 | 5.7% |
+  | EURGBP | combo+slot0.5 | 1.52 | 594,662 | 4,133,760 | 0.14 | 8.6% |
+
+  - CADCHF資本効率0.43はEURGBP(0.14)/AUDNZD(0.18)を上回りP(5yr損)0.3%も最小級(AUDCAD除く)。req_cap3.05M/lotは重め(EURGBP級)だがnet/yr1.31Mが高くカバー。combo版はreq_cap2.66Mと軽いがnet譲り効率0.30。
+  - **相関(月次)**: CADCHF vs AUDCAD-0.09/AUDNZD-0.12(弱負=分散良)/EURGBP+0.36。**但し等ロット・ブレンドはSharpe4.24→3.40悪化・maxDD169k→349k増**=CADCHF単独DDが大きく等ロットでは非効率(教訓どおり低相関は採用理由にせず)。CADCHFは**自力の採用バー通過+資本効率2位**で採用、分散効果は副次。
+- **構造スクリーンの予測力(重要な考察)**: Stage Aは「極端トレンド型No-Go(GBPJPY/EURCHF)の排除」には有効だが、**レンジ的な候補群の中で唯一の頑健エッジ(CADCHF)を構造メトリクスだけでは識別できなかった**。構造最良(GBPCAD env4/4=AUDCAD同等)がIS↔OOS乖離で落ち、構造中位のCADCHFが通過。決定打はやはりStage BのIS/OOS/WFO規律。**ただしCADCHFは候補中 gate_share最高(10%)・黒字年率最高(75%)・tp_fs最高級(37)** で「Gridが実際に多く建て・大半の年勝つ」軸では候補トップ=この2軸を構造スクリーンに加重すれば予測力が上がる(基準精緻化の余地)。また**a-priori経済ランク(資源NZDCAD最有力/欧州GBPCHF)は外れ、「要構造確認」のCHFクロスCADCHFが勝った**=横展開は経済ストーリーよりデータ規律。正直な留保: CADCHFの「同一ドライバ共有」ストーリーは資源/欧州ブロックより弱く(CAD=資源/CHF=safe-haven)、Go根拠は経験的IS/OOS/WFO頑健性に依拠。
+- **次アクション(実投入はforward-test完了が前提)**: ①**CADCHF を Tier2 分散候補として forward-test 昇格**(推奨構成=R-SMA1200, テール制御優先ならR-SMA1200+combo)。手順=3ヶ月∧TP≥30∧FS最低1回発火∧実現PF>1.2。②`vps/grid_monitor.py` 追加方針: **magic=20260038 / tag='GRID_CDC'** / atr1.5/lv5/ci65/fs-943k(qj170)/dir=regime_short(SMA1200)。③Tier付けは不変=**Tier1 AUDCAD最優先**(効率1.40)、Tier2分散=CADCHF/EURGBP/AUDNZD(CADCHFが効率2位で分散候補の筆頭)。確定3ペアへの集約方針は維持しつつCADCHFを4本目のGoに追加。成果物: `grid_corrcross_screen.py`(+_result.csv/_rank.csv) / `grid_corrcross_screen_bt.py`(+_result.csv) / `grid_corrcross_stepb.py`(+_result.csv) / `data/{11クロス}_1h_dukas.csv`(再利用可)。
+
+### ★結論: 横断的キャリー・ファクター(高金利long/低金利short ドル中立LS) → 採用バー(a)不達でClose・横断形でも頑健エッジ無し ∧ テール過大（2026-06-15）
+「価格パターンに頑健エッジ無し・効くのは構造的/経済的理由を持つもの」の唯一の例外候補=キャリーを“本来の横断ファクター形”(数十年の学術的証拠を持つリスクプレミアム)で取り直す初の価格非依存戦略を11.5年D1で検証(`optimizer/carry_xsec_bt.py`)。8通貨(USD/EUR/GBP/CHF/JPY/AUD/NZD/CAD)を7本のUSDメジャーD1(Dukascopy=真値, USDCHF/USDCADを`fetch_dukascopy_ohlc.py`に追加取得)でスパン、対USDトータルリターン=spot+キャリー利回り(金利差/252)。signal=政策金利差(`data/policy_rates.csv`を`build_policy_rates.py`で8中銀のdecision-date履歴から自前構築、announce+1発効=lookahead無し)。月末/週次に金利差ランク→上位N long/下位N short ドル中立・vol-target10%・往復2bp差引。IS=2015-21凍結/OOS=2022-26/年次WFO・全t-1。
+- **採用バー(a)複数不達でClose**(事前登録=OOS Sharpe>0 ∧ OOS Calmar>0.5 ∧ WFO各年正(大半) ∧ IS-selectable)。
+  - **IS非selectable(決定打)**: 実運用するL/S全構成でIS(2015-21) Sharpe ≤ +0.01(N2 -0.01〜-0.07/N3 -0.20〜+0.01)=ISは平坦〜負。OOS Sharpe 0.40-0.65は別レジーム(2023/2025/2026部分年)の産物でISが予測しない。2015 CHF unpeg・2018・2019・2020 COVIDの逆張りキャリー被弾でIS期は損益分岐以下。
+  - **OOS Calmar 0.39<0.5 不達**(最良N2_W_diff OOS Sharpe0.65/Calmar0.37/maxDD-17〜-20%)。**WFO年次過半負**(IS yr_winrate0.25-0.50・符号頻繁反転、2026 Sharpe~2.0はJan-Jun部分年の水増し)。**long-only高金利バスケット/等金額ベンチは全域負**(Sharpe -0.19〜-0.38, USD利上げ期に非USDロング負け)。
+  - **cross-variant corr(IS,OOS Sharpe)=+0.77は罠**(long-onlyクラスタが両期負で正に出るだけ。実取引するL/S群はIS≈0で固まり選択不能)。
+- **carry-crash診断(N3_M_equal 月次worst, vol10%基準)**: 2015-01 **-8.4%**(CHF unpeg)・2024-07 **-8.3%**(円キャリー巻き戻し)・2020-03 -7.6%(COVID)・2018-12 -7.2%・2022-09 -6.7%。**最悪テールが円高リスクオフに集中=既存の確定carry sleeve(USDJPY/NZDJPY long-only Grid `[[project_grid_directional_bias_20260613]]`)のcarry-crash弱foldと同一イベントでテール重複**→分散価値ゼロ、Step B資本は重なる。よってブレンドバー(b)前提(maxDD非悪化)も成立せず検証打ち切り。
+- **総括**: キャリーを横断ファクター形で取り直しても10年スケールでは頑健化せず(プレミアムがIS期のクラッシュ群に食われ、OOS黒字はレジーム運)。我々が既に踏んでいる **per-pair long-only carry-grid(USDJPY/NZDJPY)が事実上の最良の取り方**であり、それも「スケール禁止・P(5yr損)17-23%」止まり `[[project_grid_stepb_deployment_20260613]]`。vps実装候補ゼロ。リソースは確定エッジ(AUDCAD R-SMA1200+combo最優先 + EURGBP/AUDNZD相関クロス)へ集約継続。honest caveat=policy_rates.csvは知識ベース再構成(bps微差より相対順位重視、IS非selectableの結論は2015-21クラッシュ群=史実で頑健)。成果物: `optimizer/carry_xsec_bt.py`/`build_policy_rates.py`/`carry_xsec_bt_result.csv`/`carry_xsec_yearly_sharpe.csv`/`carry_xsec_daily.csv`/`data/policy_rates.csv`(再利用可)。
+
+### ★結論: Grid非発火窓の方向ドリフト補完スリーブ → 5ペア全Close・補完窓にも頑健エッジ無し(5例目)（2026-06-13）
+Grid(平均回帰)が休眠/出血する「非発火窓(CI低=トレンド局面)」を、各ペアの構造的longドリフト(JPYクロスのキャリー/資源・欧州クロスの上方ドリフト)で刈る補完スリーブを5ペア(AUDCAD/EURGBP/AUDNZD/USDJPY/NZDJPY)で検証(`optimizer/grid_complement_drift_bt.py`)。仮説=「Gridがレンジを刈り補完がトレンドを刈る分業」。過去Closeの案A(汎用Donchian, 方向を持たずエッジ無し)との違い=**ペア固有の確定ドリフト方向(long)に限定 ∧ CI<=閾値のGrid休眠窓に限定**。IS=2015-21凍結→OOS/年次WFO, 特徴量t-1, 約定next-bar open, vol-target sizing(risk一定), chandelier ATR crash stop, スプレッド差引。Grid v8 per-bar PnLはDB.run_btとfull net一致をassert。
+- **採用バー該当ゼロ(事前登録: (a)単体OOS PF>1.2∧Sharpe>0∧WFO全fold正 (b)ブレンドでOOS Sharpe向上∧maxDD非悪化)**。
+- **S1 ドリフトlong(CI-idle窓限定)**: 全ペア OOS PF 0.34-0.74・Sharpe全負(-0.9〜-5.2)・WFO全fold<1.0。stop拡大(3.0→5.0)でPF 0.4→0.7に寄るが1.0を越えず=churn減だがエッジ非生成(古典的signature)。USDJPY stop5.0が最良もOOS PF0.74止まり・WFO[1.15,0.62,0.86,0.59]=2022(USD強気1年)だけ>1.0=既知「USDJPYは直近レジーム運」の追認。
+- **トレード診断(USDJPY)**: WR=21-22% / W/L payoff=2.0-2.75。WR22%のトレンドフォローは損益分岐に payoff>~3.5 が要るが届かず=系統的負け。`ci`(レンジ回帰=Gridへ返す)exitは8回のみ・大半は chandelier stop(trend whipsaw)で死亡=**CI低窓は1hでは持続トレンドでなくchoppy/往復**で刈れる構造的ドリフトが無い。順張り4戦略10年BT(84通り全PF<1.0)・日足/週足トレンド探索(IS↔OOS≈0)と完全整合。
+- **S2 片側不在フェード(short過熱z>=2)**: long_only/regimeで恒常的に空くshort側を過熱時フェード→全ペア OOS PF 0.43-0.61・Sharpe全負。空く窓に別ロジックのエッジも無し→即Close。
+- **S3 常時稼働(対照)**: CIゲート無しはS1より更に悪化(OOS PF0.36-0.57/Sh-3〜-5)=ゲートは露出を減らすがエッジは作れない(「いつ張るか」は制御できてもエッジ非生成、案A同型)。
+- **ブレンド**: 全例で Grid単体比 OOS Sharpe悪化(例EURGBP 1.14→-0.82)・maxDD激増(523k→3.0M)。スリーブ-Grid日次相関は狙い通り≈0(-0.06〜+0.01)だが**低相関は採用理由にならない教訓を再確認**=「相関≈0だがエッジ無し」5例目(配分A/レジームB/三角stat_arb/不感症trendに続く)。
+- **総括=補完窓にも頑健エッジ無し(5例目)・Grid単体運用に集約**。Grid非発火窓(CI低)は構造的に存在し非発火日のGrid損益は負だが、その窓を方向ドリフトでもフェードでも刈れない=FXメジャー/クロス1hにトレンド側の頑健エッジが無いという既存結論が補完文脈でも不変。リソースは確定エッジ(AUDCAD R-SMA1200+combo最優先 + EURGBP/AUDNZD + carry long-only USDJPY/NZDJPY)へ集約継続(Step B実投入計画参照)。成果物: `optimizer/grid_complement_drift_bt.py`(+_result.csv)。
+
+### ★結論: Grid救済不可3ペア(GBPJPY/CHFJPY/EURUSD)の日足/週足トレンド探索 → 全滅・採用ゼロ（2026-06-13）
+Grid(平均回帰)で構造的に救済不可と確定した3ペアに「別の時間軸/別の建付け(=日足レジーム・ゲート付きトレンドフォロー)」でエッジがあるか検証(`optimizer/daily_regime_trend_bt.py`)。経済的仮説=救済不可の原因が「レンジしない=年単位トレンド/政策ジャンプ」なら、平均回帰の真逆=トレンドフォローが本来の土俵のはず。素の順張りの敗因(choppyでのmomentumフリップ往復=whipsaw)を「トレンド進行中(ADX/効率比が高い)のバーだけ建てる」レジーム・ゲートで除去できるか、を起点=日足TSMOM_100(既検証で唯一の弱い正方向: CHFJPY IS1.53/OOS1.17, EURUSD IS1.14/OOS1.30)から検証。IS=2015-21凍結→OOS/年次WFO, t-1 shift, next-bar fill, スプレッド差引。
+- **採用ゼロ(480構成)が決定的**: 3ペア各96構成のうち **IS≥1.2 ∧ OOS>1.2 を同時に満たす構成はゼロ**。さらに **IS↔OOS PFの相関≈0(GBPJPY0.12/CHFJPY0.02/EURUSD0.19)=ISがOOSを全く予測しない**=本プロジェクトが繰り返し棄却してきた非頑健シグネチャそのもの。OOSで光る構成(CHFJPY long full1.31/OOS1.46, GBPJPY long OOS1.32)は**例外なくIS PF<1.2(選択不能)**で、好成績は2022-24のキャリー/USD強気トレンド1局面に集中=学習可能なedgeでなくレジーム運。
+- **週足でも同じ(より露骨)**: CHFJPY週足long-tiltはOOS5.0/2.5と巨大だが**IS~1.17(バー未達)・n14-16(薄標本)**=典型的thin-sample×IS↔OOS逆相関。EURUSD週足lb26は**IS1.21/OOS0.32=逆方向の符号反転**(ISで通りOOSで崩落)。
+- **long-tiltは一貫してOOSを改善(構造的だが選択不能)**: ほぼ全ペアでlong方向がshort/both比でOOS良=JPYキャリーの上方ドリフト/方向バイアス知見(`[[project_grid_directional_bias_20260613]]`)と整合。但し3ペアではIS側がバー未達のままで**ex-anteに選べない**。転移対照のUSDJPY(既救済)もlong-tiltでOOS2.0+だがIS<1.0=既知「USDJPYは直近レジーム運」を追認(エンジンは正常動作)。NZDJPYは順張り全敗(=NZDJPYのエッジはlong-only GRID=平均回帰側であり順張りに転移しない)。
+- **vol-target sizing/chandelierでは越えられない**: 採用バーはPFベース。sizingは各トレードのpip重み/DD/Sharpeを変えるがsub-1.2のIS PFを1.2以上に変換できない=リスク管理オーバーレイでありエッジ生成器でない(chandelierトレイルは既にbaselineに実装済)。
+- **総括=3ペアはエッジ無しを再確認**: BB逆張り/Grid平均回帰/1h順張り4戦略/方向バイアス/stat_arb/pre-event/session に続き**日足・週足トレンドフォローも採用ゼロ**。GBPJPY/CHFJPY/EURUSDはGridでもトレンドでも、どの時間軸でも頑健エッジを持たない(IS↔OOS無相関が共通の証拠)。年次PF診断の「マクロ/政策ドライバで定期的にトレンドが来る=パラメータでは直せない」結論を別建付けからも追認。**リソースは確定エッジ(AUDCAD/EURGBP/AUDNZD + carry long-only USDJPY/NZDJPY)へ集約継続**。最も「弱いが正方向」止まりはGBPJPY日足lb100+ADX20+ER0.40+long(full1.25/OOS1.32/wfoMin1.15/yr+73%だがIS1.13<バー・oos_n21薄)=forward専用・スケール禁止としてのみ言及可、実投入候補ではない。成果物: `optimizer/daily_regime_trend_bt.py`(+_result.csv)。
 
 ### ★★Step B 再算定 & 実投入計画: 改善構成でAUDCAD必要資本が旧v7の24%に激減（2026-06-13）
 forward-test候補(2026-06-13確定構成)をMC再算定(`optimizer/grid_stepb_recompute.py`, 手法は旧grid_sizing_ruin.py踏襲=月次ブロックブートストラップ20000回/60ヶ月, lot1.0, 破産<1%基準=req_cap_99)。cull+taperでDD/worst単発が半減した効果を反映。

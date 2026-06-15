@@ -16,6 +16,7 @@
 #   AUDCAD=20260034 (R-SMA1200+combo)  NZDJPY=20260033 (long-only+combo, carry)
 #   EURGBP=20260035 (combo+slot0.5)    AUDNZD=20260036 (R-SMA1200+combo)
 #   USDJPY=20260037 (long-only+combo, carry)
+#   CADCHF=20260038 (R-SMA1200, correlated cross; screened 2026-06-15, 4th Go pair)
 # Legacy/No-Go (excluded by default): GBPJPY=20260031 CHFJPY=20260032 NZDUSD=20260030
 #
 # Logs: grid_log_{PAIR}_{broker}.txt   State: grid_monitor_state_{PAIR}.json
@@ -39,7 +40,7 @@ if (-not (Test-Path $pythonw)) { Write-Error "pythonw not found: $pythonw"; exit
 if (-not (Test-Path $script))  { Write-Error "script not found: $script";  exit 1 }
 
 # Active pairs / brokers (v8 forward-test set)
-$pairs = @('AUDCAD','NZDJPY','EURGBP','AUDNZD','USDJPY')
+$pairs = @('AUDCAD','NZDJPY','EURGBP','AUDNZD','USDJPY','CADCHF')
 if ($IncludeLegacy) { $pairs = $pairs + @('GBPJPY','CHFJPY') }
 if ($IncludeNZDUSD) { $pairs = @('NZDUSD') + $pairs }
 $brokers = @('axiory','exness')

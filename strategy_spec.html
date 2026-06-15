@@ -1022,7 +1022,7 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
     <p>双方向グリッド（Long/Short 同時稼働）。ATR幅でグリッドを形成し、Choppiness Index（レンジ相場フィルター）が閾値以上の時のみエントリー。各ポジションに TP のみ設定（SL なし）。最大段数（max_levels）到達後 48時間経過で強制決済（B48 Exit）。方向別の含み損が FLOAT_STOP を下回った場合は即時強制決済（Float Stop）。</p>
     <p><strong>v6（2026-06-02 パラメータ最適化）</strong>：float-stop込み2年BTで CHFJPY/NZDJPY が負エッジと判明。真因は <code>max_levels=7</code> で含み損が深く積まれ float-stop が先発動し <strong>B48がデッド</strong>だったこと。max_levels 浅化 + ci_threshold 厳格化で B48 を主決済化。</p>
     <p><strong>v7（2026-06-02 float_stop結合最適化）</strong>：float_stopは深いラダーのテール保険としてのみ有効。浅いラダーでは緩め固定が正解。NZDJPY -500k→-1.0M で lv7 復活、AUDCAD lv5/fs-750k に改善。</p>
-    <p><strong>v8（2026-06-13 改善ツールキット導入・Dukascopy 11年BT）</strong>：PF期待値バー（IS-selectable ∧ OOS&gt;1.2 ∧ wfoMin&gt;1.0）を超えた全ペアを推奨設定でフォワードテスト可能に。新ノブ（既定OFF=v7挙動）＝<strong>mom_thr</strong>（24h ATR正規化リターンの方向ゲート＝ナイフ掴み追加を遮断）/ <strong>mom120_thr</strong>（5日地平線・EURGBP）/ <strong>cull_frac</strong>（含み損が予算超で最悪レッグ1本のみ段階決済）/ <strong>taper</strong>（深レベルのロット縮小）/ <strong>dir_mode</strong>（both / long_only=carryグリッド USDJPY・NZDJPY / regime_short=上昇局面のみ新規short停止 AUDCAD・AUDNZD）/ <strong>short_lot_mult</strong>・<strong>tp_mult</strong>（EURGBP）。救済2類型＝①JPYクロスcarry-grid(long-only) ②相関クロスgrid(両側/レジーム+combo)。GBPJPY/CHFJPY/EURUSDは構造的に救済不可（No-Go据置・非起動）。</p>
+    <p><strong>v8（2026-06-13 改善ツールキット導入・Dukascopy 11年BT）</strong>：PF期待値バー（IS-selectable ∧ OOS&gt;1.2 ∧ wfoMin&gt;1.0）を超えた全ペアを推奨設定でフォワードテスト可能に。新ノブ（既定OFF=v7挙動）＝<strong>mom_thr</strong>（24h ATR正規化リターンの方向ゲート＝ナイフ掴み追加を遮断）/ <strong>mom120_thr</strong>（5日地平線・EURGBP）/ <strong>cull_frac</strong>（含み損が予算超で最悪レッグ1本のみ段階決済）/ <strong>taper</strong>（深レベルのロット縮小）/ <strong>dir_mode</strong>（both / long_only=carryグリッド USDJPY・NZDJPY / regime_short=上昇局面のみ新規short停止 AUDCAD・AUDNZD・CADCHF）/ <strong>short_lot_mult</strong>・<strong>tp_mult</strong>（EURGBP）。救済2類型＝①JPYクロスcarry-grid(long-only) ②相関クロスgrid(両側/レジーム+combo)=AUDCAD/AUDNZD/EURGBP/CADCHF。GBPJPY/CHFJPY/EURUSDは構造的に救済不可（No-Go据置・非起動）。</p>
 
     <h3>用語解説（略語一覧）</h3>
     <div class="table-wrap">
@@ -1067,13 +1067,14 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
           <tr><td><strong>AUDNZD</strong></td><td class="magic-num">20260036</td><td>1.5/5/65</td><td>-62.5万</td><td>regime_short(SMA1200)</td><td>2.0/0.5/0.7</td><td>—</td><td class="pf-good">1.32</td><td>1.27 / 1.43 / 1.05</td><td>✅相関クロス(限界)</td></tr>
           <tr><td><strong>USDJPY</strong></td><td class="magic-num">20260037</td><td>1.5/5/65</td><td>-87.6万</td><td>long_only</td><td>2.0/0.5/0.7</td><td>—</td><td class="pf-good">1.65</td><td>1.36 / 2.14 / 1.38</td><td>✅carry(スケール禁止)</td></tr>
           <tr><td><strong>NZDJPY</strong></td><td class="magic-num">20260033</td><td>1.5/7/61.8</td><td>-100万</td><td>long_only</td><td>2.0/0.5/0.7</td><td>—</td><td class="pf-good">1.28</td><td>1.08 / 1.70 / 1.29</td><td>✅carry(スケール禁止)</td></tr>
+          <tr><td><strong>CADCHF</strong></td><td class="magic-num">20260038</td><td>1.5/5/65</td><td>-94.3万</td><td>regime_short(SMA1200)</td><td>—</td><td>—</td><td class="pf-good">1.44</td><td>1.50 / 1.39 / 1.39</td><td>✅相関クロス(2026-06-15発見)</td></tr>
           <tr style="opacity:0.5"><td>GBPJPY</td><td class="magic-num">20260031</td><td>1.5/7/61.8</td><td>-150万</td><td>both(OFF)</td><td>—</td><td>—</td><td>0.81</td><td>No-Go</td><td>非起動</td></tr>
           <tr style="opacity:0.5"><td>CHFJPY</td><td class="magic-num">20260032</td><td>1.0/3/65</td><td>-150万</td><td>both(OFF)</td><td>—</td><td>—</td><td>0.95</td><td>No-Go</td><td>非起動</td></tr>
           <tr style="opacity:0.5"><td>NZDUSD</td><td class="magic-num">20260030</td><td>2.0/7/61.8</td><td>-1.5万</td><td>both(OFF)</td><td>—</td><td>—</td><td>—</td><td>—</td><td>停止中(micro)</td></tr>
         </tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:var(--muted)">BT 根拠（Dukascopy 11年, IS=2015-21凍結→OOS=2022-26/WFO）: grid_dd_reduction_bt.py（mom/cull/taper）/ grid_dirbias_improve_bt.py（方向バイアス・レジーム）/ grid_event_trend_gate_bt.py（mom120）/ grid_exit_lot_bt.py（tp_mult）/ grid_toolkit_allpairs_bt.py（全ペア展開）。<strong>必要資本（Step B 再算定 grid_stepb_recompute.py, lot1.0/破産&lt;1%）</strong>: AUDCAD req_cap_99=73万（旧v7の24%・資本効率139%/yr・P(5yr損)0%）/ AUDNZD 141万 / EURGBP 421万 / NZDJPY 434万(P損17%) / USDJPY 455万(P損23%)。実マネーlot=自己資本÷req_cap_99。carry系はスケール禁止。GBPJPY/CHFJPY/NZDUSD は No-Go（features OFF=純v7挙動、既定で非起動）。</p>
+    <p style="font-size:12px;color:var(--muted)">BT 根拠（Dukascopy 11年, IS=2015-21凍結→OOS=2022-26/WFO）: grid_dd_reduction_bt.py（mom/cull/taper）/ grid_dirbias_improve_bt.py（方向バイアス・レジーム）/ grid_event_trend_gate_bt.py（mom120）/ grid_exit_lot_bt.py（tp_mult）/ grid_toolkit_allpairs_bt.py（全ペア展開）/ <strong>grid_corrcross_screen.py・_bt.py（相関クロス銘柄スクリーニング=CADCHF発見）</strong>。<strong>CADCHF（2026-06-15 追加・4本目のGo）</strong>: 相関クロス11本を2段階スクリーニング、唯一採用バー通過。推奨=R-SMA1200（combo OFF=Step Bでplainが+comboを資本効率0.43&gt;0.30・P(5yr損)0.3%&lt;1.4%・DD1.44M&lt;1.48Mで上回る）、short側が構造的に強く（short-only PF1.87）上昇局面のみ新規short停止。<strong>必要資本（Step B 再算定 grid_stepb_recompute.py・grid_corrcross_stepb.py, lot1.0/破産&lt;1%）</strong>: AUDCAD req_cap_99=73万（旧v7の24%・資本効率139%/yr・P(5yr損)0%）/ <strong>CADCHF 305万（資本効率0.43=AUDCADに次ぐ2位・P(5yr損)0.3%）</strong> / AUDNZD 141万 / EURGBP 421万 / NZDJPY 434万(P損17%) / USDJPY 455万(P損23%)。実マネーlot=自己資本÷req_cap_99。carry系はスケール禁止。Tier付け=Tier1 AUDCAD最優先、Tier2分散=CADCHF/EURGBP/AUDNZD。GBPJPY/CHFJPY/NZDUSD は No-Go（features OFF=純v7挙動、既定で非起動）。</p>
 
     <h3>ペア別 エントリー条件</h3>
     <p style="font-size:12px;color:var(--muted)">CI フィルターは新規エントリーにのみ適用。既存ポジションの保有は CI に関わらず継続。Long と Short は独立して同時保有可能。</p>
@@ -1378,6 +1379,7 @@ python news_monitor.py --broker axiory --dry-run</pre>
           <tr><td>Grid EURGBP</td><td class="magic-num">20260035</td><td><code>GRID_EUG</code></td><td>grid_monitor.py</td></tr>
           <tr><td>Grid AUDNZD</td><td class="magic-num">20260036</td><td><code>GRID_AUN</code></td><td>grid_monitor.py</td></tr>
           <tr><td>Grid USDJPY</td><td class="magic-num">20260037</td><td><code>GRID_USJ</code></td><td>grid_monitor.py</td></tr>
+          <tr><td>Grid CADCHF</td><td class="magic-num">20260038</td><td><code>GRID_CDC</code></td><td>grid_monitor.py</td></tr>
           <tr><td>経済指標(NEWS)</td><td class="magic-num">20260040</td><td><code>NEWS_{event}</code></td><td>news_monitor.py</td></tr>
         </tbody>
       </table>
