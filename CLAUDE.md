@@ -77,7 +77,15 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-06-15 更新）
+## Top of mind（2026-06-16 更新）
+
+### ★★Grid動的化深掘り(動的ロット/TP/SL/エントリー + 地合い予測) → 5案連続Closeで確定4本は Pareto フロンティアと確定・損失側最適化完了（2026-06-16）
+確定Grid 4本(AUDCAD/CADCHF/AUDNZD/EURGBP, combo+R-SMA1200+2026-06-15 DD圧縮)を更に動的化/リスク構造/地合い予測で上積みできるか、4観点を検証。**結論=損失/サイジング/予測のどの軸を足しても inert か net-worse=確定構成は平均回帰Gridの genuine な Pareto フロンティアに在る**。検証規律(静的一致assert→IS=2015-21凍結→OOS/WFO→暦月MC, 失敗signature点検)は既存踏襲。詳細は `[[project_grid_regime_persistence_e1_20260616]]`。
+- **E1 地合い持続性テスト(`optimizer/grid_regime_persistence.py`)=動的地合い系全Close**: trailing 状態指標(path_eff/variance-ratio/trend-z/CI gate share, K=3/6/12ヶ月)が forward grid PnL(H=3/6/12ヶ月)を予測するかを IS/OOS別Spearman検定。**採用signature通過 1/36のみ(窓重複偽陽性)・IS/OOS符号反転率42%≈純ノイズ・|rho|中央0.065(r²~0.4%)**。year-diagの「path_eff↔PF -0.41」は**coincident(同一窓内)であって predictive でない**と確定。動的化Close(`[[project_grid_dynamic_param_20260608]]`)と同型のIS↔OOS逆相関。→ **A2 nowcast-lotスロットル/C3 hostile手仕舞い/E2 VR/Hurstゲート/E3 throttle/E4 配分チルトは全て前提を欠きClose**。「予測力ゼロでも静的CIで十分」を採択。
+- **D1 ドライバ・スプレッド・ゲート=退化(独立軸でない)**: 相関クロスの driver-spread = log(AUDUSD)+log(USDCAD) は**恒等的に log(AUDCAD)**(実測 corr=1.0000, 残差1.6bp)。スプレッドz = AUDCAD自身の価格水準z = 距離/Bollinger信号で、CI+グリッド間隔が既にencode済=独立エントリー軸でない。CADCHF/AUDNZD/EURGBPも同様(全て2脚USDメジャーの積)。非退化版は broad-basket/コモディティ参照が必要=外生ドライバ墓場(`[[project_commodity_fx_exogenous_20260615]]`)の領域。
+- **A1 クロスペア合算エクスポージャー上限(`optimizer/grid_joint_exposure_cap.py`)=構造的にinert**: 確定4本を統一タイムライン上で同時シミュレートする joint エンジン(cap=None で各ペア月次がDB.run_btと完全一致=静的assert合格)。**合算 open 含み損は11年で最悪 -1.65M止まり**(per-pair最悪openの単純合算 -3.57M ≫ 実測合算 -1.65M=4本の深DD時点が**重ならない**=joint_stepb corr≈0 を intraday でも確認)。→ cap を -1.8M以深に置いても一度も bind せず全variant **net/req99 ±0.0%**。basket req_cap(≈825k)は「**realized 月次損失が60ヶ月に渡り累積/連続**」現象で「瞬間 joint open 露出」でないため、open-露出 cap では原理的に req_cap を動かせない。realized DD への cap(=DDデリスク)は carry デリスク・オーバーレイと同型で既Close。
+- **C1/C2 realized リスク構造(`optimizer/grid_risk_structure_bt.py`)=float_stop トレードオフでcapEff悪化Close**: C2=per-leg 破局stop(entry∓m×gw, basket FSより前に個別決済)は req_cap/worst単発を下げる(CADCHF req99 3.03M→1.79M, worst -1.04M→-281k)が、**回復可能な平均回帰ラダーを切るため net/PF が req_cap 以上に落ち capEff 悪化**(AUDCAD baseline PF2.84/net5.6M→ls8 1.58/3.1M, CADCHF net/yr-55%, **EURGBP net負転**)。**全 legstop セルで IS<baseline=IS-selectable不合格**。gapテール(req_cap_999)を bound する唯一の効用も net 35-55%減で capEff破壊=不採用。C1=cull_drain は既存 per-bar 単発cull がドレイン追随済で**全ペア±0.0%(inert)**。既存 combo(cull0.5+taper0.7)が realized リスク制御の適量。
+- **総括と次アクション**: 損失側(予測/露出/realizedリスク)の BT 最適化は**完了**。残る上積み余地は **gain側(B1 ラダー深さ別非対称TP / B2 部分利確)とエントリー精度(D2 平均回帰確認エントリー)のみ**で別セッション。**リソースは確定4本の forward-test/実投入へ集約**(構成・必要資本は2026-06-15のジョイントStep B=月利30万必要資本2.80M が不変、本セッションで上書きする改善は無し)。成果物: `grid_regime_persistence.py` / `grid_joint_exposure_cap.py` / `grid_risk_structure_bt.py`(各+_result.csv)。
 
 ### ★★実務フェーズ: ジョイントStep B + 資本重ペアDD圧縮 → 月利30万の必要資本を分散+DD圧縮で 5.0M→2.8M に半減（2026-06-15）
 探索は墓場確定済み(FX内生/外生とも頑健エッジは相関クロスGrid平均回帰のみ)。本作業は**新エッジでなく確定Grid 4本(AUDCAD/CADCHF/AUDNZD/EURGBP)の資本効率最大化**。検証規律(IS=2015-21凍結→OOS/WFO)とMC手法(月次ブロックブートストラップ20000/60mo/block3/seed42)は既存を踏襲。
