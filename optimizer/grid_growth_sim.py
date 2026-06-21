@@ -254,29 +254,38 @@ def main():
     util_basket = basket_rate
     util_solo = (M['AUDCAD'].to_numpy() != 0).mean()
 
-    # --- risk_frac スイープ(レバレッジ/安全バッファの感度) ---
-    # scale = risk_frac * E / unit_reqcap。risk_frac<1 は equity>req_cap の安全バッファ。
-    #   1.0   : equity = req_cap_99 (plan既定・full sizing)
-    #   0.5   : equity = 2x req_cap (half-Kelly的・推奨運用点)
-    #   0.33  : equity = 3x req_cap (保守)
-    #   0.25  : equity = 4x req_cap (最保守)
-    print('\n' + '=' * 78)
-    print('risk_frac スイープ(4本バスケット): レバレッジ/安全バッファの感度')
-    print('=' * 78)
-    print(f'{"risk_frac":>9s} {"equity=":>8s} {"P(30万|60mo)":>12s} {"到達月(中央)":>12s} '
-          f'{"P(半減)":>8s} {"P(破産)":>8s} {"E_med(60mo)":>14s} {"E_p5(60mo)":>14s}')
+    # --- risk_frac スイープ(レバレッジ/安全バッファ + 加速の感度) ---
+    # scale = risk_frac * E / unit_reqcap。
+    #   risk_frac<1 = equity>req_cap の安全バッファ。
+    #   risk_frac>1 = equity<req_cap = レバを効かせ加速(速さを破産/半減確率で買う)。
+    # 決め手の列:
+    #   worst_month/eq = 歴史上の単月最悪(1単位basket)が現equity比何% → 100%超で単月破産=絶壁。
+    #   cap_for_30man  = その risk_frac で月利30万に必要な自己資本(= runrate_eq / risk_frac)。
+    worst_month_unit = float(b_basket.min())  # 1単位basketの単月最悪(負)
+    print('\n' + '=' * 96)
+    print('risk_frac スイープ(4本バスケット): 安全バッファ(<1) と レバ加速(>1) の感度')
+    print('  ※ worst_month/eq が ~100% に近づくほど「想定外の1ヶ月で即死」= 絶壁。1.5超は非推奨')
+    print('=' * 96)
+    print(f'{"risk_frac":>9s} {"eq=req×":>8s} {"30万必要資本":>12s} {"P(30万|60mo)":>12s} '
+          f'{"到達月(中)":>10s} {"P(半減)":>8s} {"P(破産)":>8s} {"worst月/eq":>10s} {"E_med60mo":>12s}')
     sweep_rows = []
-    for rf in [1.0, 0.5, 0.33, 0.25]:
+    for rf in [0.33, 0.5, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5]:
         st, _ = compound_mc(seqs_b, eb['req99'], eb['netyr'], runrate_eq_b, risk_frac=rf)
         eqx = 1.0 / rf
-        print(f'{rf:9.2f} {eqx:7.1f}x {st["p_reach_runrate"]*100:11.1f}% '
-              f'{st["runrate_med_month"]:10.0f}mo {st["p_halved"]*100:7.1f}% '
-              f'{st["p_ruin"]*100:7.1f}% {st["E_final_med"]:14,.0f} {st["E_final_p5"]:14,.0f}')
+        cap30 = runrate_eq_b / rf
+        worst_pct = abs(worst_month_unit) / (eb['req99'] / rf)  # 単月最悪/(現equity≈req99/rf)
+        med = st['runrate_med_month']
+        meds = f'{med:.0f}mo' if med == med else '—'
+        print(f'{rf:9.2f} {eqx:7.2f}x {cap30:12,.0f} {st["p_reach_runrate"]*100:11.1f}% '
+              f'{meds:>10s} {st["p_halved"]*100:7.1f}% {st["p_ruin"]*100:7.1f}% '
+              f'{worst_pct*100:9.0f}% {st["E_final_med"]:12,.0f}')
         sweep_rows.append({'risk_frac': rf, 'equity_mult_of_reqcap': round(eqx, 2),
+                           'cap_for_30man': round(cap30, 0),
                            'p_reach_runrate': round(st['p_reach_runrate'], 4),
                            'runrate_med_month': round(st['runrate_med_month'], 1),
                            'p_halved': round(st['p_halved'], 4),
                            'p_ruin': round(st['p_ruin'], 4),
+                           'worst_month_pct_of_equity': round(worst_pct, 4),
                            'E_final_med': round(st['E_final_med'], 0),
                            'E_final_p5': round(st['E_final_p5'], 0),
                            'E_final_p95': round(st['E_final_p95'], 0)})
