@@ -1,0 +1,6 @@
+pair,active_months,total_months,activity_rate,idle_months_per_yr,exp_wait_first_fill_mo,empirical_first_fill_mo
+AUDCAD,66,134,0.493,6.1,1.0,2
+CADCHF,90,134,0.672,3.9,0.5,0
+AUDNZD,73,134,0.545,5.5,0.8,8
+EURGBP,76,134,0.567,5.2,0.8,0
+BASKET(any),129,134,0.963,0.4,0.0,0

@@ -1,0 +1,3 @@
+mode,capital_utilization,unit_reqcap,unit_netyr,runrate_equity,runrate_scale,E_final_p5,E_final_med,E_final_p95,p_ruin,p_halved,p_final_loss,max_dd_med,max_dd_p99,p_reach_runrate,runrate_med_month,p_reach_1.0M,med_month_1.0M,p_reach_2.0M,med_month_2.0M,p_reach_2.8M,med_month_2.8M
+AUDCAD_solo,0.493,691176.0,501200.0,4964547.0,7.1828,1879207.0,9822514.0,47736749.0,0.0,0.0208,0.0027,1251086.0,17585646.0,0.7823,42.0,0.9949,13.0,0.9627,26.0,0.9261,32.0
+basket_4,0.963,741514.0,954049.0,2798024.0,3.7734,11073410.0,85314761.0,619852392.0,0.0,0.0128,0.0,12897714.0,243509534.0,0.9978,21.0,1.0,8.0,0.9994,16.0,0.998,20.0
