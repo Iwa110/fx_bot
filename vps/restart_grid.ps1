@@ -10,6 +10,9 @@
 # Options:
 #   -IncludeLegacy   also launch No-Go legacy pairs GBPJPY/CHFJPY (default: excluded)
 #   -IncludeNZDUSD   also launch NZDUSD (default: excluded - stopped/micro lot)
+#   -IncludeLive     also launch the 4-pair LIVE basket (AUDCAD/CADCHF/AUDNZD/EURGBP)
+#                    on oanda_live (real money). Requires broker_config oanda_live
+#                    enabled=True + live .env creds + live MT5 terminal installed.
 #   -WhatIf          show what would happen without killing/starting
 #
 # v8 forward-test set (demo, PF-expectation cleared; configs from PAIR_CONFIG):
@@ -24,6 +27,7 @@
 param(
     [switch]$IncludeLegacy,
     [switch]$IncludeNZDUSD,
+    [switch]$IncludeLive,    # also launch the 4-pair LIVE basket on oanda_live
     [switch]$WhatIf
 )
 
@@ -44,6 +48,11 @@ $pairs = @('AUDCAD','NZDJPY','EURGBP','AUDNZD','USDJPY','CADCHF')
 if ($IncludeLegacy) { $pairs = $pairs + @('GBPJPY','CHFJPY') }
 if ($IncludeNZDUSD) { $pairs = @('NZDUSD') + $pairs }
 $brokers = @('axiory','exness')
+
+# LIVE (real-money) basket: only the 4 correlated-cross Go pairs on oanda_live.
+# Carry / No-Go pairs have no LIVE_LOT_PER_PAIR -> grid_monitor refuses them.
+$livePairs  = @('AUDCAD','CADCHF','AUDNZD','EURGBP')
+$liveBroker = 'oanda_live'
 
 function Get-GridProcs {
     Get-CimInstance Win32_Process -Filter "name='pythonw.exe'" |
@@ -77,11 +86,26 @@ foreach ($pair in $pairs) {
     }
 }
 
+# 2b) Launch LIVE basket (real money) on oanda_live, if requested
+if ($IncludeLive) {
+    Write-Host "=== Starting LIVE grid daemons (oanda_live, real money) ===" -ForegroundColor Yellow
+    foreach ($pair in $livePairs) {
+        Write-Host ("  start LIVE: --pair {0} --broker {1}" -f $pair, $liveBroker)
+        if (-not $WhatIf) {
+            Start-Process -FilePath $pythonw `
+                          -ArgumentList $script, '--pair', $pair, '--broker', $liveBroker `
+                          -WindowStyle Hidden
+            Start-Sleep -Milliseconds 500
+        }
+    }
+}
+
 # 3) Verify
 if (-not $WhatIf) {
     Start-Sleep -Seconds 3
     Write-Host "=== Running grid_monitor daemons ===" -ForegroundColor Cyan
     $expected = $pairs.Count * $brokers.Count
+    if ($IncludeLive) { $expected += $livePairs.Count }
     $now = Get-GridProcs
     $now | Select-Object ProcessId,
         @{N='args';E={ ($_.CommandLine -split 'grid_monitor.py')[1].Trim() }} |

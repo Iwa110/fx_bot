@@ -130,20 +130,50 @@ PAIR_CONFIG = {
     # Plain regime_short (combo OFF): Step B shows R-SMA1200 beats +combo on cap_eff
     # (0.43 vs 0.30), P(5yr-loss) (0.3% vs 1.4%) and histDD (1.44M vs 1.48M). short side
     # is structurally strong (short-only PF1.87); block new shorts in up-regimes only.
+    # cull_frac=0.6 added 2026-06-21 (candidate-2 DD compression, clean Pareto win):
+    # req_cap_99 3.03M->2.27M (-25%), net/yr UP (870k->900k), nFS 17->1, OOS 1.39->1.46,
+    # wfoMin 1.31->1.35. IS 1.56->1.45 (not IS<->OOS inversion, just shaved the IS peak).
+    # Source: grid_capheavy_ddcompress_result.csv (CADCHF cull0.6 row).
     'CADCHF': {'magic': 20260038, 'tag': 'GRID_CDC', 'atr_mult': 1.5, 'max_levels': 5, 'ci_threshold': 65.0,
                'dir_mode': 'regime_short', 'sma_period': 1200, 'mom_thr': None, 'mom120_thr': None,
-               'cull_frac': None, 'taper': None, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
+               'cull_frac': 0.6, 'taper': None, 'short_lot_mult': 1.0, 'tp_mult': 1.0},
 }
 
 # ══════════════════════════════════════════
 # Per-pair lot sizing (demo forward-test = 1.00; matches BT lot=1.0 so live is
 # directly comparable. Real-money lot = account_equity / req_cap_99 [Step B]).
+# Demo brokers (is_live=False) use LOT_PER_PAIR. Live brokers (is_live=True) use
+# LIVE_LOT_PER_PAIR (see below).
 # ══════════════════════════════════════════
 LOT_PER_PAIR = {
     'GBPJPY': 1.00, 'CHFJPY': 1.00, 'NZDUSD': 0.01,
     'NZDJPY': 1.00, 'AUDCAD': 1.00, 'EURGBP': 1.00, 'AUDNZD': 1.00, 'USDJPY': 1.00,
     'CADCHF': 1.00,
 }
+
+# ── Real-money (is_live=True) per-pair lot ────────────────────────────────────
+# grid_deployment_plan.md req_cap sizing assumes HIGH leverage (overseas). The
+# live broker chosen is DOMESTIC OANDA証券 (25x cap for individuals). For a multi-
+# level grid the binding constraint at 25x is MARGIN, not req_cap: a full ladder's
+# notional can exceed 25x margin and trigger a broker stop-out that cuts recoverable
+# mean-reversion legs (the BT-fatal scenario the req_cap model never sees).
+# -> Live lots are sized to LEVERAGE (smaller than the req_cap S0 lots) AND a
+#    runtime margin guard (LIVE_MARGIN_LEVEL_MIN, see place_order) is the backstop.
+#
+# S0 (verification, equity=500,000) 25x-safe lots. all-4 full-ladder one-direction
+# margin ~= JPY 394k (~79% of equity) -> margin level stays >100% (stop-out) even at
+# full concurrence; the 150% guard only trims the deepest level in that rare tail.
+# These are EXPLICIT (NOT auto-derived from equity), updated MONTHLY from REALIZED
+# PnL (含み益は使わない / plan §4), broker-min 0.01 step. Carry/No-Go pairs absent
+# => refuse to trade live.
+LIVE_LOT_PER_PAIR = {
+    'AUDCAD': 0.15, 'CADCHF': 0.05, 'AUDNZD': 0.08, 'EURGBP': 0.05,
+}
+# Equal-req_cap relative ratios (kept for the monthly recompute / reference).
+REL_REQCAP            = {'AUDCAD': 1.000, 'CADCHF': 0.305, 'AUDNZD': 0.552, 'EURGBP': 0.303}
+LIVE_RISK_FRAC        = 0.50      # S0 verification stage (plan §2c). Per-pair on promotion.
+LIVE_REQCAP_UNIT      = 742000.0  # basket req_cap_99 per AUDCAD lot=1 unit (high-lev basis)
+LIVE_MARGIN_LEVEL_MIN = 150.0     # live: skip a new level if projected margin level < this %
 
 # Per-pair daily/weekly DD limits (coarse circuit breaker). Set loose enough not
 # to pre-empt the BT-validated float_stop / cull / B48 exits (v7 lesson).
@@ -423,6 +453,24 @@ def place_order(direction: str, grid_width: float, level: int) -> bool:
         entry      = tick.bid
         tp         = round(entry - tp_dist, digits)
 
+    # Live-only margin guard (domestic 25x can be binding for deep ladders). Refuse
+    # a new level if it would drop the account margin level below LIVE_MARGIN_LEVEL_MIN
+    # -> avoids a broker stop-out that would cut recoverable mean-reversion legs.
+    # Demo path is untouched (BT fidelity = builds full ladders).
+    if is_live_broker(BROKER_KEY):
+        need = mt5.order_calc_margin(order_type, sym, vol, entry)
+        acc  = mt5.account_info()
+        if need is not None and acc is not None:
+            proj_margin = acc.margin + need
+            proj_level  = (acc.equity / proj_margin * 100.0) if proj_margin > 0 else 1e9
+            if proj_level < LIVE_MARGIN_LEVEL_MIN:
+                log('live_margin_skip ' + direction +
+                    ' lot=' + str(vol) + ' need=' + str(int(need)) +
+                    ' proj_level=' + str(round(proj_level, 1)) + '%' +
+                    ' (<' + str(LIVE_MARGIN_LEVEL_MIN) + '%) level=' + str(level) +
+                    '/' + str(MAX_LEVELS))
+                return False
+
     req = {
         'action':       mt5.TRADE_ACTION_DEAL,
         'symbol':       sym,
@@ -562,6 +610,7 @@ def check_tp_closes(from_dt: datetime, skip_tickets: set) -> None:
 def main_loop() -> None:
     log('grid_monitor v8 started  pair=' + SYMBOL +
         '  broker=' + BROKER_KEY +
+        '  mode=' + ('LIVE' if is_live_broker(BROKER_KEY) else 'DEMO') +
         '  magic=' + str(MAGIC) +
         '  lot=' + str(LOT) +
         '  atr_mult=' + str(ATR_MULT) +
@@ -894,7 +943,7 @@ def main() -> None:
                         choices=list(PAIR_CONFIG.keys()),
                         help='trading pair')
     parser.add_argument('--broker', default=BROKER_KEY,
-                        choices=['axiory', 'exness', 'oanda', 'oanda_demo'],
+                        choices=['axiory', 'exness', 'oanda', 'oanda_demo', 'oanda_live'],
                         help='broker key')
     parser.add_argument('--close-only', action='store_true',
                         help='drain mode: manage exits (TP/B48/float-stop/cull) only, '
@@ -932,17 +981,36 @@ def main() -> None:
         needed = max(needed, SMA_PERIOD + 5)
     H1_BARS = needed
 
-    # Per-pair lot, DD limits, float stop
-    LOT            = LOT_PER_PAIR.get(SYMBOL, 0.01)
+    # Per-pair DD limits, float stop (base values calibrated for lot=1.0).
     DD_DAY_JPY     = DD_DAY_PER_PAIR.get(SYMBOL,  -5000.0)
     DD_WEEK_JPY    = DD_WEEK_PER_PAIR.get(SYMBOL, -15000.0)
     FLOAT_STOP_JPY = FLOAT_STOP_PER_PAIR.get(SYMBOL, -15000.0)
 
-    # Per-pair log and state files
+    # Per-pair lot. Live (real-money) vs demo (BT-equivalent lot=1.0) split:
+    #  - demo: LOT_PER_PAIR (1.0) -> JPY thresholds used as-is.
+    #  - live: LIVE_LOT_PER_PAIR -> scale FLOAT_STOP / DD limits by the live lot so
+    #    the float-stop fires at the SAME price distance as the BT (BT-faithful).
+    #    cull_frac auto-scales (it is a fraction of float_stop).
+    if is_live_broker(BROKER_KEY):
+        LOT = LIVE_LOT_PER_PAIR.get(SYMBOL, 0.0)
+        if LOT <= 0:
+            # Carry pairs (scale-banned) and No-Go pairs have no live lot -> never
+            # trade them on a real-money account.
+            log('LIVE refuse: no LIVE_LOT_PER_PAIR for ' + SYMBOL +
+                ' (scale-banned/No-Go) broker=' + BROKER_KEY)
+            return
+        FLOAT_STOP_JPY *= LOT
+        DD_DAY_JPY     *= LOT
+        DD_WEEK_JPY    *= LOT
+    else:
+        LOT = LOT_PER_PAIR.get(SYMBOL, 0.01)
+
+    # Per-pair AND per-broker log / state files (demo and live run in parallel and
+    # must NOT share B48 timers / DD accounting -> separate state per broker).
     LOG_FILE    = os.path.join(_BASE_DIR,
                                'grid_log_' + SYMBOL + '_' + BROKER_KEY + '.txt')
     _STATE_FILE = os.path.join(_BASE_DIR,
-                               'grid_monitor_state_' + SYMBOL + '.json')
+                               'grid_monitor_state_' + SYMBOL + '_' + BROKER_KEY + '.json')
 
     if not connect_mt5(BROKER_KEY):
         log('MT5 init failed  broker=' + BROKER_KEY)
