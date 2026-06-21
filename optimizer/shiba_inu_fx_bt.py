@@ -50,7 +50,16 @@ FIB_MULT = 0.764  # SL/TP計算係数（フィボナッチ比率）
 # ──────────────────────────────────────────────────────────────────────────────
 
 def load_ohlc(pair: str, tf: str = '1h') -> pd.DataFrame:
-    path = DATA_DIR / f'{pair}_{tf}.csv'
+    # 10年モード: _1h_10y.csv を優先
+    if tf == '1h':
+        path_10y = DATA_DIR / f'{pair}_1h_10y.csv'
+        if path_10y.exists():
+            path = path_10y
+        else:
+            path = DATA_DIR / f'{pair}_{tf}.csv'
+    else:
+        path = DATA_DIR / f'{pair}_{tf}.csv'
+
     if not path.exists():
         raise FileNotFoundError(f"Data not found: {path}")
     df = pd.read_csv(path, index_col=0, parse_dates=True)
@@ -401,7 +410,17 @@ def print_report(all_trades: list[dict], all_stats: dict, all_metrics: list[dict
               f"{exp_pip:>+9.2f} {'---':>11} {ov['sharpe']:>7.3f} {ov['avg_bars']:>8.1f}")
 
     # ── IS / OOS 分割 ─────────────────────────────────────────────────────────
-    print(f"\n{'--- IS/OOS 分割 (前半/後半)':}")
+    # 10年データ(2016〜)の場合: IS=2016-2021(6年)/OOS=2022-2026(4年+)
+    # 2年データの場合: 前半/後半 分割
+    all_years = [t['entry_time'][:4] for t in all_trades if all_trades]
+    use_calendar_split = all_trades and min(all_years) <= '2020'
+    if use_calendar_split:
+        is_end = '2022'
+        split_label = f'IS/OOS 分割 (IS=2016-2021 / OOS=2022-2026)'
+    else:
+        split_label = 'IS/OOS 分割 (前半/後半)'
+
+    print(f"\n--- {split_label}")
     print(f"{'Pair':<10} {'IS-WR%':>7} {'IS-PF':>6} {'IS-n':>5} {'OOS-WR%':>8} {'OOS-PF':>7} {'OOS-n':>6}")
     print("-" * W)
 
@@ -409,9 +428,13 @@ def print_report(all_trades: list[dict], all_stats: dict, all_metrics: list[dict
         pair_trades = [t for t in all_trades if t['pair'] == pair]
         if not pair_trades:
             continue
-        mid = len(pair_trades) // 2
-        is_t = pair_trades[:mid]
-        oos_t = pair_trades[mid:]
+        if use_calendar_split:
+            is_t = [t for t in pair_trades if t['entry_time'][:4] < is_end]
+            oos_t = [t for t in pair_trades if t['entry_time'][:4] >= is_end]
+        else:
+            mid = len(pair_trades) // 2
+            is_t = pair_trades[:mid]
+            oos_t = pair_trades[mid:]
         is_m = calc_metrics(is_t, pair)
         oos_m = calc_metrics(oos_t, pair)
         print(f"{pair:<10} {is_m['win_rate']*100:>6.1f}% {is_m['pf']:>6.2f} {is_m['n']:>5} "
