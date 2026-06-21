@@ -855,12 +855,12 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 | AUDNZD | 20260036 | 1.5/5/65 | -625k | regime_short(SMA1200) | 2.0/0.5/0.7 | — | 1.32 | 1.27/1.43/1.05 | ✅相関クロス(限界) |
 | USDJPY | 20260037 | 1.5/5/65 | -876k | long_only | 2.0/0.5/0.7 | — | 1.65 | 1.36/2.14/1.38 | ✅carry(スケール禁止) |
 | NZDJPY | 20260033 | 1.5/7/61.8 | -1.0M | long_only | 2.0/0.5/0.7 | — | 1.28 | 1.08/1.70/1.29 | ✅carry(スケール禁止) |
-| CADCHF | 20260038 | 1.5/5/65 | -943k | regime_short(SMA1200) | — | — | 1.44 | 1.50/1.39/1.39 | ✅相関クロス(2026-06-15発見) |
+| CADCHF | 20260038 | 1.5/5/65 | -943k | regime_short(SMA1200) | —/0.6/— | cull0.6(DD圧縮) | 1.45 | 1.45/1.46/1.35 | ✅相関クロス(2026-06-15発見) |
 
 - BT根拠（Dukascopy 11年, IS=2015-21凍結→OOS=2022-26/WFO）: optimizer/grid_dd_reduction_bt.py（mom/cull/taper）、grid_dirbias_improve_bt.py（方向バイアス/レジーム）、grid_event_trend_gate_bt.py（mom120）、grid_exit_lot_bt.py（tp_mult）、grid_toolkit_allpairs_bt.py（全ペア展開）、**grid_corrcross_screen.py/_bt.py（相関クロス銘柄スクリーニング=CADCHF発見）**。
-- **CADCHF（2026-06-15 追加・4本目のGo）**: 相関クロス11本の2段階スクリーニングで唯一採用バー通過。推奨=R-SMA1200（combo OFF=Step Bでplainが+comboを資本効率0.43>0.30・P(5yr損)0.3%<1.4%・DD1.44M<1.48Mで上回る）。short側が構造的に強く（short-only PF1.87）上昇局面のみ新規short停止。
+- **CADCHF（2026-06-15 追加・4本目のGo）**: 相関クロス11本の2段階スクリーニングで唯一採用バー通過。推奨=R-SMA1200（combo OFF=Step Bでplainが+comboを資本効率0.43>0.30・P(5yr損)0.3%<1.4%・DD1.44M<1.48Mで上回る）。short側が構造的に強く（short-only PF1.87）上昇局面のみ新規short停止。**2026-06-21: cull_frac=0.6 を追加（候補2 DD圧縮・clean Pareto win=req_cap_99 3.03M→2.27M(-25%)/net/yr↑/nFS17→1/OOS1.39→1.46/wfoMin1.31→1.35。IS1.56→1.45はISピークが取れただけでIS↔OOS反転でない）。出所 grid_capheavy_ddcompress_result.csv。**
 - **No-Go据置（v8でも features OFF = 純v7挙動、既定で非起動）**: GBPJPY 20260031 / CHFJPY 20260032 / NZDUSD 20260030。年次PF診断（grid_yearly_pf_diag.py）でトレンド焼け/政策リスク/ペッグが構造的原因と確定、ツールキットでも救済不可。
-- **必要資本（Step B再算定 grid_stepb_recompute.py / grid_corrcross_stepb.py, lot1.0/破産<1%）**: AUDCAD req_cap_99=734k（旧v7の24%・資本効率139%/yr・P(5yr損)0%）/ **CADCHF 3.05M（資本効率0.43=AUDCADに次ぐ2位・P(5yr損)0.3%）** / AUDNZD 1.41M / EURGBP 4.21M / NZDJPY 4.34M(P損17%) / USDJPY 4.55M(P損23%)。実マネーlot=自己資本÷req_cap_99。carry系はスケール禁止。Tier付け=Tier1 AUDCAD最優先、Tier2分散=CADCHF/EURGBP/AUDNZD。
+- **必要資本（Step B再算定 grid_stepb_recompute.py / grid_corrcross_stepb.py, lot1.0/破産<1%）**: AUDCAD req_cap_99=734k（旧v7の24%・資本効率139%/yr・P(5yr損)0%）/ **CADCHF 2.27M（cull0.6 DD圧縮後・旧3.03M/資本効率0.43=AUDCADに次ぐ2位・P(5yr損)0.3%）** / AUDNZD 1.41M / EURGBP 4.21M / NZDJPY 4.34M(P損17%) / USDJPY 4.55M(P損23%)。実マネーlot=自己資本÷req_cap_99。carry系はスケール禁止。Tier付け=Tier1 AUDCAD最優先、Tier2分散=CADCHF/EURGBP/AUDNZD。
 
 ### 基本情報
 
@@ -868,10 +868,10 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 |------|-----|
 | スクリプト | grid_monitor.py v8 |
 | TF | H1（ATR計算）/ D1 resample（CI計算）|
-| ロット | ペア別（LOT_PER_PAIR 参照） |
+| ロット | demo: LOT_PER_PAIR（1.0=BT等価）／ live: LIVE_LOT_PER_PAIR（国内25倍安全） |
 | ループ間隔 | 60秒 |
 | ハートビート | 30サイクル毎（約30分） |
-| 稼働ブローカー | axiory / exness |
+| 稼働ブローカー | demo: axiory / exness ／ live: oanda_live（国内OANDA・実口座） |
 
 ### ロット・リスク設計
 
@@ -888,6 +888,7 @@ pythonw.exe cot_monitor.py --broker oanda --refresh-cot
 | NZDUSD | 0.01 | -5,000 | -15,000 | -15,000 | 停止中 |
 
 - demo forward-test は lot=1.0（BT lot=1.0と直接比較可能）。実マネー移行時は lot=自己資本÷req_cap_99。
+- **実口座（oanda_live・国内25倍, 2026-06-21 go-live）**: req_cap でなく**証拠金**が律速。`LIVE_LOT_PER_PAIR`（25倍安全＝S0で AUDCAD 0.15/CADCHF 0.05/AUDNZD 0.08/EURGBP 0.05）＋ `place_order` の証拠金ガード（維持率<150%で `live_margin_skip`）＋ float_stop/DD を live lot 比でスケール。state/log は broker 別（`grid_monitor_state_{PAIR}_{broker}.json`）。carry/No-Go は live lot 不在＝実口座では非取引。詳細は optimizer/grid_deployment_plan.md §0b。
 - v8 新決済: **worst-leg cull**（含み損>cull_frac×float_stop で最悪1レッグ成行）と **lot taper**（深レベルのロット縮小）が float-stop の手前で段階的にDDを抑制。
 
 ### グリッドロジック
