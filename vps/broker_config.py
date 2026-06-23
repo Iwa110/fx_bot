@@ -81,8 +81,10 @@ BROKERS: dict[str, dict[str, Any]] = {
         'symbol_suffix':  '.cl',   # 裁量プランの場合。スタンダードは '.oj1m'
         'timezone':       'GMT+2/+3',
         'min_lot':        0.01,
-        'is_live':        False,   # 現在はデモ口座。実口座開設後に True に変更する
-        'enabled':        True,
+        'is_live':        False,   # demo. 2026-06-21 退役: 実口座は oanda_live を使用
+        'enabled':        False,   # RETIRED demo (default-path terminal re-logged to LIVE).
+                                   # path_only login-check would refuse this key anyway, but
+                                   # disable explicitly so no --broker oanda process connects.
         'path_only':      True,    # path指定でOANDA端末を特定。credentialsは渡さない
                                    # (credentials渡しでterminal.trade_allowed=Falseになるため)
                                    # attach=Trueは複数端末起動時に別端末に接続してしまう問題があるため不使用
@@ -103,16 +105,19 @@ BROKERS: dict[str, dict[str, Any]] = {
     'oanda_live': {
         # [REAL-MONEY / 実口座] OANDA証券 (domestic JFSA, 申告分離20.315%, MT5).
         # Go-live 2026-06-21: 4-pair correlated-cross Grid basket, S0 (risk_frac=0.5).
-        # SETUP (user):
-        #   1) Install a SEPARATE OANDA MT5 terminal for the LIVE account at the path
-        #      below (the demo terminal cannot also hold the live login). Log it in.
+        # SETUP (user) - single terminal at the DEFAULT path (OANDA demo retired,
+        # so no second terminal needed; path_only login-check guards the old 'oanda'
+        # demo key against ever trading on this live login):
+        #   1) Log the EXISTING default-path OANDA MT5 terminal into the LIVE account
+        #      (File > Login to Trade Account). No separate install / no delete needed.
         #   2) Put live credentials in .env: OANDA_LIVE_LOGIN / OANDA_LIVE_PASSWORD /
         #      OANDA_LIVE_SERVER (live server name, e.g. 'OANDA-Japan MT5 Live').
         #   3) Verify symbol_suffix for the live account type ('.cl' spread-only /
         #      '.oj1m' standard) and flip 'enabled' to True.
-        # path_only=True: identify the live terminal by path + verify account.login
+        #   4) Confirm no scheduled task launches '--broker oanda' (retired demo).
+        # path_only=True: identify the terminal by path + verify account.login
         # (no credentials passed -> avoids trade_allowed=False).
-        'path':           r'C:\Program Files\OANDA MetaTrader 5 Live\terminal64.exe',
+        'path':           r'C:\Program Files\OANDA MetaTrader 5\terminal64.exe',
         'server':         _ENV.get('OANDA_LIVE_SERVER', 'OANDA-Japan MT5 Live'),
         'login':          _int('OANDA_LIVE_LOGIN'),
         'password':       _ENV.get('OANDA_LIVE_PASSWORD', ''),
