@@ -23,8 +23,8 @@ REM axiory (enabled=True)
 REM exness (enabled=True)
 "%PYTHON%" "%SCRIPT%" --broker exness
 
-REM oanda (enabled=True)
-"%PYTHON%" "%SCRIPT%" --broker oanda
+REM oanda (RETIRED 2026-06-24: 既定パス端末をliveへ切替=demo oanda無効。実口座はgrid_monitor --broker oanda_live のみ)
+REM "%PYTHON%" "%SCRIPT%" --broker oanda
 
 REM oanda_demo (enabled=False - 実口座開設後に有効化)
 REM "%PYTHON%" "%SCRIPT%" --broker oanda_demo
