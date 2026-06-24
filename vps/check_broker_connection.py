@@ -6,6 +6,8 @@ check_broker_connection.py - ブローカー接続確認スクリプト
   python check_broker_connection.py --broker oanda
   python check_broker_connection.py --broker oanda_demo
   python check_broker_connection.py --discover   # 現在接続中のMT5情報を表示（.env設定用）
+  # OANDA live端末を確実に狙って .env値・symbol suffix・4ペア取扱いを確認:
+  python check_broker_connection.py --discover --path "C:\\Program Files\\OANDA MetaTrader 5\\terminal64.exe"
 """
 import argparse
 import sys
@@ -17,15 +19,24 @@ from broker_config import BROKERS
 from broker_utils import connect_mt5, disconnect_mt5, resolve_symbol
 
 
-def discover_current() -> None:
+# Grid live basket (oanda_live) - suffix / 取扱い確認用
+GRID_LIVE_SYMBOLS = ['AUDCAD', 'CADCHF', 'AUDNZD', 'EURGBP']
+
+
+def discover_current(path: str | None = None) -> None:
     """既に起動・ログイン済みのMT5ターミナルに接続して情報を表示する。
-    .env に設定すべき値を確認するために使う。"""
+    .env に設定すべき値・symbol suffix を確認するために使う。
+    path 指定時はそのターミナルを確実に狙う（複数端末起動時の曖昧さ回避）。"""
     print('=' * 60)
     print('現在のMT5ターミナル情報（--discover モード）')
-    print('ターミナルは既に起動・ログイン済みである必要があります。')
+    if path:
+        print(f'対象ターミナル（--path）: {path}')
+    else:
+        print('ターミナルは既に起動・ログイン済みである必要があります。')
+        print('（複数端末起動時は --path で対象を明示してください）')
     print()
 
-    ok = mt5.initialize()
+    ok = mt5.initialize(path=path) if path else mt5.initialize()
     if not ok:
         print(f'接続失敗: {mt5.last_error()}')
         print('MT5ターミナルが起動していないか、接続できません。')
@@ -35,13 +46,16 @@ def discover_current() -> None:
     terminal = mt5.terminal_info()
 
     if account:
+        mode_txt = {0: 'DEMO', 1: 'CONTEST', 2: 'REAL(実口座)'}.get(account.trade_mode, '?')
         print('--- account_info ---')
         print(f'  login   : {account.login}   ← .env の XXXX_LOGIN に設定')
         print(f'  server  : {account.server}  ← .env の XXXX_SERVER に設定')
         print(f'  company : {account.company}')
         print(f'  balance : {account.balance:,.0f}')
         print(f'  currency: {account.currency}')
-        print(f'  is_demo : {account.trade_mode}  (0=DEMO 1=CONTEST 2=REAL)')
+        print(f'  leverage: 1:{account.leverage}')
+        print(f'  trade_mode: {account.trade_mode}  -> {mode_txt}  '
+              '(実口座なら必ず REAL=2 を確認)')
     else:
         print('account_info 取得失敗')
 
@@ -51,11 +65,26 @@ def discover_current() -> None:
         print(f'  path    : {terminal.path}  ← broker_config.py の path に設定')
         print(f'  data_path: {terminal.data_path}')
 
+    # Grid live basket: 取扱い有無 + suffix を確認
+    print()
+    print('--- grid live basket symbols (oanda_live suffix 確認) ---')
+    all_syms = mt5.symbols_get() or []
+    for base in GRID_LIVE_SYMBOLS:
+        matches = [s.name for s in all_syms if s.name.startswith(base)]
+        if matches:
+            suffixes = sorted({m[len(base):] for m in matches})
+            print(f'  {base:8s}: {matches}   suffix候補={suffixes}')
+        else:
+            print(f'  {base:8s}: [NOT FOUND] OANDAがこのペアを扱っていない可能性=要対応')
+    print('  -> 4ペアで suffix が揃っているか確認し broker_config.py oanda_live の')
+    print("     symbol_suffix に設定（例 '.cl' / '.oj1m' / 空文字 ''）。")
+    print('     NOT FOUND があれば、そのペアは実口座で取引不可（運用見直し）。')
+
     mt5.shutdown()
     print()
     print('.env に追記する例:')
     if account and terminal:
-        prefix = 'OANDA_DEMO' if account.trade_mode != 2 else 'OANDA'
+        prefix = 'OANDA_LIVE' if account.trade_mode == 2 else 'OANDA_DEMO'
         print(f'  {prefix}_LOGIN={account.login}')
         print(f'  {prefix}_PASSWORD=（パスワードを手動で記入）')
         print(f'  {prefix}_SERVER={account.server}')
@@ -126,12 +155,17 @@ def main() -> None:
     parser.add_argument(
         '--discover',
         action='store_true',
-        help='現在起動中のMT5ターミナルに接続して .env 設定値を表示する',
+        help='現在起動中のMT5ターミナルに接続して .env 設定値・symbol suffix を表示する',
+    )
+    parser.add_argument(
+        '--path',
+        default=None,
+        help='--discover で接続するMT5ターミナルのパス（複数端末起動時に対象を明示）',
     )
     args = parser.parse_args()
 
     if args.discover:
-        discover_current()
+        discover_current(args.path)
         return
 
     if args.broker:
