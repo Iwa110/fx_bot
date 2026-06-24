@@ -1030,6 +1030,16 @@ def main() -> None:
 
     _SYMBOL_MAP.update(build_symbol_map([SYMBOL], BROKER_KEY))
 
+    # Ensure the symbol is in Market Watch so copy_rates can fetch H1 history.
+    # Some brokers (e.g. OANDA) return None for symbols not selected, which shows
+    # up as 'data_fetch_failed h1=False'. symbol_select also triggers the terminal
+    # to download history for the symbol.
+    rsym = _rsym()
+    if not mt5.symbol_select(rsym, True):
+        log('symbol_select failed for ' + rsym + ' (' + str(mt5.last_error()) + ')')
+    else:
+        log('symbol_select ok ' + rsym)
+
     try:
         main_loop()
     finally:
