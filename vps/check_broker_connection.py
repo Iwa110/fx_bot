@@ -8,6 +8,8 @@ check_broker_connection.py - ブローカー接続確認スクリプト
   python check_broker_connection.py --discover   # 現在接続中のMT5情報を表示（.env設定用）
   # OANDA live端末を確実に狙って .env値・symbol suffix・4ペア取扱いを確認:
   python check_broker_connection.py --discover --path "C:\\Program Files\\OANDA MetaTrader 5\\terminal64.exe"
+  # live接続方式の診断(path_only vs 認証情報渡し / trade_allowed / suffix):
+  python check_broker_connection.py --diag-live   # 要 .env OANDA_LIVE_LOGIN/PASSWORD/SERVER
 """
 import argparse
 import sys
@@ -17,6 +19,67 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import MetaTrader5 as mt5
 from broker_config import BROKERS
 from broker_utils import connect_mt5, disconnect_mt5, resolve_symbol
+
+
+def diag_live(broker_key: str = 'oanda_live') -> None:
+    """live接続方式の診断: path_only と 認証情報渡し の両方を試し、接続可否・
+    trade_allowed・grid 4ペアの suffix を表示する。go-live の接続方式を確定するため。
+    .env に {PREFIX}_LOGIN/PASSWORD/SERVER が設定済みであること。"""
+    cfg = BROKERS.get(broker_key)
+    if cfg is None:
+        print(f'[ERROR] 不明なブローカーキー: {broker_key}')
+        return
+    path     = cfg.get('path', '')
+    login    = cfg.get('login', 0)
+    password = cfg.get('password', '')
+    server   = cfg.get('server', '')
+    print('=' * 64)
+    print(f'live接続診断: {broker_key}')
+    print(f'  path  : {path}')
+    print(f'  login : {login}   server: {server}')
+    print(f'  (.env から login/password/server を読込。未設定なら 0/空 になります)')
+    print('=' * 64)
+
+    def _report(tag: str, ok: bool) -> None:
+        print(f'\n--- 方式[{tag}] initialize -> {"OK" if ok else "NG"} ---')
+        if not ok:
+            print(f'  last_error: {mt5.last_error()}')
+            return
+        acc  = mt5.account_info()
+        term = mt5.terminal_info()
+        if acc:
+            mode = {0: 'DEMO', 1: 'CONTEST', 2: 'REAL'}.get(acc.trade_mode, '?')
+            print(f'  login={acc.login} server={acc.server} trade_mode={acc.trade_mode}({mode}) '
+                  f'balance={acc.balance:,.0f} lev=1:{acc.leverage}')
+        if term:
+            print(f'  terminal.trade_allowed={term.trade_allowed}  '
+                  f'(False=自動売買不可=go-live不可。要対策)')
+        all_syms = mt5.symbols_get() or []
+        for base in GRID_LIVE_SYMBOLS:
+            matches = [s.name for s in all_syms if s.name.startswith(base)]
+            if matches:
+                sufs = sorted({m[len(base):] for m in matches})
+                print(f'    {base:8s}: {matches}  suffix={sufs}')
+            else:
+                print(f'    {base:8s}: [NOT FOUND]')
+
+    # 方式A: path_only (grid_monitor の既定方式)
+    okA = mt5.initialize(path=path) if path else mt5.initialize()
+    _report('A path_only', okA)
+    mt5.shutdown()
+
+    # 方式B: 認証情報渡し
+    if login:
+        okB = mt5.initialize(path=path, login=login, password=password, server=server)
+        _report('B with-credentials', okB)
+        mt5.shutdown()
+    else:
+        print('\n--- 方式[B with-credentials] スキップ: .env に OANDA_LIVE_LOGIN 未設定 ---')
+
+    print('\n判定:')
+    print('  - trade_allowed=True で接続できた方式を go-live の接続方式に採用。')
+    print('  - 両方 trade_allowed=False なら端末側「自動売買を許可」を確認後に再診断。')
+    print('  - 4ペアに [NOT FOUND] があれば実口座で取引不可（バスケット見直し）。')
 
 
 # Grid live basket (oanda_live) - suffix / 取扱い確認用
@@ -162,7 +225,16 @@ def main() -> None:
         default=None,
         help='--discover で接続するMT5ターミナルのパス（複数端末起動時に対象を明示）',
     )
+    parser.add_argument(
+        '--diag-live',
+        action='store_true',
+        help='live接続診断: path_only と 認証情報渡し を両方試し可否/trade_allowed/suffixを表示',
+    )
     args = parser.parse_args()
+
+    if args.diag_live:
+        diag_live()
+        return
 
     if args.discover:
         discover_current(args.path)
