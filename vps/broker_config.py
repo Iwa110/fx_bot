@@ -112,21 +112,25 @@ BROKERS: dict[str, dict[str, Any]] = {
         #      (File > Login to Trade Account). No separate install / no delete needed.
         #   2) Put live credentials in .env: OANDA_LIVE_LOGIN / OANDA_LIVE_PASSWORD /
         #      OANDA_LIVE_SERVER (live server name, e.g. 'OANDA-Japan MT5 Live').
-        #   3) Verify symbol_suffix for the live account type ('.cl' spread-only /
-        #      '.oj1m' standard) and flip 'enabled' to True.
-        #   4) Confirm no scheduled task launches '--broker oanda' (retired demo).
-        # path_only=True: identify the terminal by path + verify account.login
-        # (no credentials passed -> avoids trade_allowed=False).
+        #   3) Confirm no scheduled task launches '--broker oanda' (retired demo).
+        #   4) Flip 'enabled' to True.
+        # CONNECTION MODE = credentials (NOT path_only). Diagnosed 2026-06-24:
+        # path_only initialize(path) -> (-6) Authorization failed on OANDA live, but
+        # initialize(path, login, password, server) -> OK with terminal.trade_allowed=True
+        # (the old "creds -> trade_allowed=False" issue does NOT reproduce on live).
+        # connect_mt5 bottom branch passes path+login+password+server.
+        # symbol_suffix='' : OANDA live uses plain names (AUDCAD/CADCHF/AUDNZD/EURGBP).
+        # All 4 grid pairs confirmed available; account REAL, balance 500k, lev 1:25.
         'path':           r'C:\Program Files\OANDA MetaTrader 5\terminal64.exe',
         'server':         _ENV.get('OANDA_LIVE_SERVER', 'OANDA-Japan MT5 Live'),
         'login':          _int('OANDA_LIVE_LOGIN'),
         'password':       _ENV.get('OANDA_LIVE_PASSWORD', ''),
-        'symbol_suffix':  '.cl',
+        'symbol_suffix':  '',
         'timezone':       'GMT+2/+3',
         'min_lot':        0.01,
         'is_live':        True,
-        'enabled':        False,   # flip True after live terminal install + .env creds
-        'path_only':      True,
+        'enabled':        False,   # flip True after .env creds + scheduled-task check
+        # path_only NOT set -> connect_mt5 uses the credentials branch (verified working).
     },
     'axiory': {
         'path':           r'C:\Program Files\Axiory MetaTrader 5\terminal64.exe',
