@@ -25,7 +25,9 @@ if not os.path.exists(PYTHONW):
     PYTHONW = r'C:\Users\Administrator\AppData\Local\Programs\Python\Python312\pythonw.exe'
 
 SCRIPT  = os.path.join(BASE_DIR, 'trail_monitor.py')
-BROKERS = ['axiory', 'exness', 'oanda']
+# oanda RETIRED 2026-06-24: 既定パス端末を実口座(live)へ切替えたため demo oanda を除外。
+# trail_monitor は axiory/exness のみで継続。実口座は grid_monitor --broker oanda_live のみ。
+BROKERS = ['axiory', 'exness']
 
 LOCK_PORTS = {'axiory': 17001, 'exness': 17002, 'oanda_demo': 17003, 'oanda': 17004}
 
