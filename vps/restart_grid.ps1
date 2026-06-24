@@ -49,9 +49,15 @@ if ($IncludeLegacy) { $pairs = $pairs + @('GBPJPY','CHFJPY') }
 if ($IncludeNZDUSD) { $pairs = @('NZDUSD') + $pairs }
 $brokers = @('axiory','exness')
 
-# LIVE (real-money) basket: only the 4 correlated-cross Go pairs on oanda_live.
+# LIVE (real-money) basket on oanda_live.
+# NOTE 2026-06-24: AUDNZD EXCLUDED from live. OANDA Japan streams AUDNZD ticks but
+# serves NO retrievable H1 history (copy_rates_from_pos returns None even for 10
+# bars, while AUDCAD/CADCHF/EURGBP return 1205) -> sma1200 cannot compute ->
+# persistent data_fetch_failed. AUDNZD is also the most marginal pair (capEff 0.18,
+# P(5yr-loss) 0.131); it continues on demo (axiory/exness) only. Re-add here if
+# OANDA accumulates enough H1 history later.
 # Carry / No-Go pairs have no LIVE_LOT_PER_PAIR -> grid_monitor refuses them.
-$livePairs  = @('AUDCAD','CADCHF','AUDNZD','EURGBP')
+$livePairs  = @('AUDCAD','CADCHF','EURGBP')
 $liveBroker = 'oanda_live'
 
 function Get-GridProcs {
