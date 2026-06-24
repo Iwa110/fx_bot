@@ -37,10 +37,15 @@ foreach ($t in $tasks) {
         $line = "$exe $arg"
         $direct = $line -match $rxBroker                                  # 引数に直接 --broker oanda
         $batRef = ($line -match '(?i)\.bat') -and ($line -match '(?i)fx_bot')  # fx_bot の .bat を起動
-        if ($direct -or $batRef) {
+        if ($direct) {
+            # 直接 --broker oanda = 本物のヒット(結論を「要対処」にする)
             $anyHit = $true; $taskHit = $true
-            $tag = if ($direct) { "[--broker oanda 直接]" } else { "[fx_bot .bat 起動 -> (2)で中身確認]" }
-            Write-Host ("  {0}  Task='{1}'  State={2}" -f $tag, $t.TaskName, $t.State) -ForegroundColor Yellow
+            Write-Host ("  [--broker oanda 直接]  Task='{0}'  State={1}" -f $t.TaskName, $t.State) -ForegroundColor Yellow
+            Write-Host ("      Action: {0}" -f $line.Trim())
+        } elseif ($batRef) {
+            # fx_bot の .bat を起動するだけ = 情報表示のみ(中身は(2)で判定)。結論には影響させない。
+            $taskHit = $true
+            Write-Host ("  [INFO fx_bot .bat 起動 -> 中身は(2)で判定]  Task='{0}'  State={1}" -f $t.TaskName, $t.State) -ForegroundColor Gray
             Write-Host ("      Action: {0}" -f $line.Trim())
         }
     }
