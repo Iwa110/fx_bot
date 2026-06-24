@@ -129,7 +129,7 @@ BROKERS: dict[str, dict[str, Any]] = {
         'timezone':       'GMT+2/+3',
         'min_lot':        0.01,
         'is_live':        True,
-        'enabled':        False,   # flip True after .env creds + scheduled-task check
+        'enabled':        True,    # LIVE since 2026-06-24 go-live (.env creds set, tasks cleaned)
         # path_only NOT set -> connect_mt5 uses the credentials branch (verified working).
     },
     'axiory': {
