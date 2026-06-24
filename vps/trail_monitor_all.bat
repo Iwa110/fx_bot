@@ -28,8 +28,8 @@ start /B "" "%PYTHONW%" "%SCRIPT%" --broker axiory
 REM exness (enabled=True)
 start /B "" "%PYTHONW%" "%SCRIPT%" --broker exness
 
-REM oanda (enabled=True)
-start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda
+REM oanda (RETIRED 2026-06-24: 既定パス端末をliveへ切替=demo oanda無効。実口座はgrid_monitor --broker oanda_live のみ)
+REM start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda
 
 REM oanda_demo (enabled=False)
 REM start /B "" "%PYTHONW%" "%SCRIPT%" --broker oanda_demo
