@@ -63,6 +63,23 @@ def diag_live(broker_key: str = 'oanda_live') -> None:
             else:
                 print(f'    {base:8s}: [NOT FOUND]')
 
+        # H1 履歴プローブ: grid は regime_short で 1205本(sma1200+5)必要。
+        # None=同期されていない / 少数=履歴不足。AUDNZD の data_fetch_failed 切り分け用。
+        print('  --- H1 bar probe (regime grid は 1205本必要) ---')
+        for base in GRID_LIVE_SYMBOLS:
+            sym = base  # OANDA live は suffix 空
+            mt5.symbol_select(sym, True)
+            def _cnt(n):
+                r = mt5.copy_rates_from_pos(sym, mt5.TIMEFRAME_H1, 0, n)
+                return 'None' if r is None else str(len(r))
+            c10, c1205, cmax = _cnt(10), _cnt(1205), _cnt(100000)
+            si = mt5.symbol_info(sym)
+            vis = si.visible if si else '?'
+            print(f'    {sym:8s}: H1 count(10)={c10}  count(1205)={c1205}  '
+                  f'count(max)={cmax}  visible={vis}')
+        print('    判定: count(10)=None なら端末未同期(チャート/履歴DL要)。'
+              ' count(max)<1205 なら履歴不足=sma1200不可。')
+
     # 方式A: path_only (grid_monitor の既定方式)
     okA = mt5.initialize(path=path) if path else mt5.initialize()
     _report('A path_only', okA)
