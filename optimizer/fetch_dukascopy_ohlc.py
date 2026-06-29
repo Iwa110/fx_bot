@@ -102,6 +102,7 @@ PAIRS = {
 TF = {
     '1h': (d.INTERVAL_HOUR_1, 300),    # 300d*24=7,200 < 30k
     '4h': (d.INTERVAL_HOUR_4, 1000),   # 1000d*6=6,000
+    '15m': (d.INTERVAL_MIN_15, 160),   # 160d*96≈15,360
     '5m': (d.INTERVAL_MIN_5, 55),      # 55d*288≈15,840
     'D1': (d.INTERVAL_DAY_1, 3000),
 }
