@@ -38,15 +38,21 @@ LOG_DIR     = BASE_DIR / 'logs'
 JST         = timezone(timedelta(hours=9))
 UTC         = timezone.utc
 
+GATE_LOG_CSV = BASE_DIR / 'optimizer' / 'grid_gate_log.csv'
+
 COL_ORDER = [
     'ticket', 'open_time', 'close_time', 'type', 'lots',
     'symbol', 'open_price', 'sl', 'tp', 'close_price',
-    'profit', 'magic', 'comment',
+    'profit', 'magic', 'comment', 'broker',
 ]
+
+# 既存(broker列なし)行に補完するブローカー値。実口座go-live(2026-06-24)前の
+# 全行はdemo。axiory/exnessの厳密区別はevaluate上不要(live/demoの二分で足りる)。
+LEGACY_BROKER = 'legacy_demo'
 
 
 # ── MT5履歴取得（connect_mt5()済みの状態で呼ぶこと） ──────────────────
-def _fetch_history(days: int) -> list[dict]:
+def _fetch_history(days: int, broker: str) -> list[dict]:
     from_dt = datetime.now(tz=UTC) - timedelta(days=days)
     to_dt   = datetime.now(tz=UTC)
 
@@ -102,6 +108,7 @@ def _fetch_history(days: int) -> list[dict]:
             'profit':      float(d.profit),
             'magic':       int(d.magic),
             'comment':     d.comment,
+            'broker':      broker,
         })
 
     return rows
@@ -128,7 +135,7 @@ def collect_all(days: int, only_broker: str | None = None) -> pd.DataFrame:
             continue
 
         try:
-            rows = _fetch_history(days)
+            rows = _fetch_history(days, broker)
             print(f'[{broker}] {len(rows)}件取得')
             all_rows.extend(rows)
         except Exception as e:
@@ -144,21 +151,31 @@ def collect_all(days: int, only_broker: str | None = None) -> pd.DataFrame:
 
 # ── history.csv マージ ────────────────────────────────────────────────
 def merge_with_csv(df_new: pd.DataFrame) -> tuple[pd.DataFrame, int]:
-    """既存CSVとマージ。重複ticketはdf_newを優先。追加件数を返す。"""
+    """既存CSVとマージ。重複(broker,ticket)はdf_newを優先。追加件数を返す。
+
+    ブローカー間でMT5 ticket採番が独立し衝突しうるため、重複排除キーは
+    (broker, ticket) とする。broker列を持たない旧CSVはLEGACY_BROKERで補完。
+    """
     if HISTORY_CSV.exists() and HISTORY_CSV.stat().st_size > 0:
         df_old = pd.read_csv(HISTORY_CSV,
                              dtype={'ticket': 'Int64', 'magic': 'Int64'})
-        before = len(df_old.drop_duplicates('ticket'))
+        if 'broker' not in df_old.columns:
+            df_old['broker'] = LEGACY_BROKER
+        df_old['broker'] = df_old['broker'].fillna(LEGACY_BROKER)
+        before = len(df_old.drop_duplicates(subset=['broker', 'ticket']))
         df_merged = pd.concat([df_old, df_new], ignore_index=True)
     else:
         before = 0
         df_merged = df_new.copy()
 
     df_merged['ticket'] = df_merged['ticket'].astype('Int64')
+    df_merged['broker'] = df_merged['broker'].fillna(LEGACY_BROKER)
     df_merged = (df_merged
-                 .drop_duplicates(subset='ticket', keep='last')
+                 .drop_duplicates(subset=['broker', 'ticket'], keep='last')
                  .sort_values('close_time')
                  .reset_index(drop=True))
+    # 列順を固定（broker列を末尾に保証）
+    df_merged = df_merged.reindex(columns=COL_ORDER)
 
     added = len(df_merged) - before
     return df_merged, added
@@ -190,12 +207,19 @@ def git_push(added: int) -> bool:
                 stdout = ''
             return _T()
 
-    # Step 1: git add
+    # Step 1: git add (history.csv は必須、grid_gate_log.csv は存在すれば相乗り)
     r = run(['git', '-C', repo, 'add', 'optimizer/history.csv'])
     if r.returncode != 0:
         print(f'[git] ERROR add: {r.stderr.strip()}')
         return False
     print('[git] OK   add optimizer/history.csv')
+
+    if GATE_LOG_CSV.exists():
+        r = run(['git', '-C', repo, 'add', 'optimizer/grid_gate_log.csv'])
+        if r.returncode == 0:
+            print('[git] OK   add optimizer/grid_gate_log.csv')
+        else:
+            print(f'[git] WARN add grid_gate_log.csv: {r.stderr.strip()}')
 
     # Step 2: 変更がなければスキップ
     r = run(['git', '-C', repo, 'diff', '--cached', '--quiet'])

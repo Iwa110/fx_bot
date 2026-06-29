@@ -1,11 +1,15 @@
-# FX日次分析プロンプト
+# FX日次分析プロンプト（実口座対応版）
 
-**使い方**: このファイルをそのままClaudeに貼り付けて実行する。
-戦略設定が変わった場合は「## 分析コンテキスト」セクションを更新する。
+**使い方**: このファイルをそのままClaudeに貼り付けて実行する。自動ルーティン（毎朝 scheduled）も本手順を実行する。
+戦略設定が変わった場合は「## 分析コンテキスト」を更新する（source of truth は `CLAUDE.md` Top of mind）。
+
+**前提**: 2026-06-24 に確定Grid 4本（AUDCAD/CADCHF/AUDNZD/EURGBP）が国内OANDAで実口座 go-live。
+demo（axiory/exness）は並行フォワードテスト継続。`history.csv` は `broker` 列で live/demo を分離する
+（`oanda_live`=実口座 / それ以外=demo。旧行は `legacy_demo`）。
 
 ---
 
-## データ取得
+## STEP 1: 取引実績データ取得（live / demo 分離）
 
 ```bash
 python3 - <<'EOF'
@@ -17,122 +21,129 @@ df = pd.read_csv('optimizer/history.csv')
 df['close_time'] = pd.to_datetime(df['close_time'])
 df['date_jst'] = df['close_time'].dt.tz_localize('UTC').dt.tz_convert(JST).dt.date
 
-today = datetime.now(JST).date()
-last7_start = today - timedelta(days=6)
+# broker列が無い旧CSVでも動くようフォールバック
+if 'broker' not in df.columns:
+    df['broker'] = 'legacy_demo'
+df['broker'] = df['broker'].fillna('legacy_demo')
+df['account'] = df['broker'].apply(lambda b: 'LIVE' if b == 'oanda_live' else 'DEMO')
 
-MAGIC = {20250001:'BB', 20260001:'stat_arb', 20260010:'SMA_SQ',
-         20240101:'MOM_JPY', 20240102:'MOM_GBJ', 20240104:'STR', 20240107:'MOM_GBU'}
+MAGIC = {
+    20250001:'BB', 20260001:'stat_arb', 20260010:'SMA_SQ',
+    20260030:'GRID_NZDUSD', 20260031:'GRID_GBPJPY', 20260032:'GRID_CHFJPY',
+    20260033:'GRID_NZDJPY', 20260034:'GRID_AUDCAD', 20260035:'GRID_EURGBP',
+    20260036:'GRID_AUDNZD', 20260037:'GRID_USDJPY', 20260038:'GRID_CADCHF',
+}
+LIVE_GRID = {'GRID_AUDCAD','GRID_CADCHF','GRID_AUDNZD','GRID_EURGBP'}  # 確定4本
 
 def pf(g):
-    w = g[g.profit>0].profit.sum()
-    l = abs(g[g.profit<0].profit.sum())
+    w = g[g.profit>0].profit.sum(); l = abs(g[g.profit<0].profit.sum())
     return round(w/l, 3) if l>0 else float('inf')
+def wr(g):
+    return round(len(g[g.profit>0])/max(len(g),1)*100, 1)
 
-today_df = df[df['date_jst']==today]
-last7_df = df[df['date_jst']>=last7_start]
+today = datetime.now(JST).date()
+last7 = today - timedelta(days=6)
+last30 = today - timedelta(days=29)
+df['strategy'] = df['magic'].map(MAGIC).fillna(df['magic'].astype(str))
 
-print('=== 本日', today, '===')
-print(f'総損益: {today_df.profit.sum():+,.0f}円  n={len(today_df)}  PF={pf(today_df):.3f}  WR={len(today_df[today_df.profit>0])/max(len(today_df),1)*100:.1f}%')
-for sym, g in today_df[~today_df.symbol.str.endswith("m")].groupby('symbol'):
-    print(f'  {sym}: {g.profit.sum():+,.0f}円 n={len(g)}')
-strats = today_df.copy(); strats['strategy'] = strats['magic'].map(MAGIC).fillna(strats['magic'].astype(str))
-for s, g in strats.groupby('strategy'):
-    print(f'  [{s}] PF={pf(g):.3f} WR={len(g[g.profit>0])/max(len(g),1)*100:.1f}% n={len(g)}')
+for acct in ['LIVE','DEMO']:
+    a = df[df['account']==acct]
+    if a.empty:
+        print(f'\n########## {acct} ########## (データなし)'); continue
+    print(f'\n########## {acct} 口座 ##########')
+    for label, sub in [('本日', a[a.date_jst==today]),
+                       ('直近7日', a[a.date_jst>=last7]),
+                       ('直近30日', a[a.date_jst>=last30])]:
+        if sub.empty:
+            print(f'[{label}] 約定なし'); continue
+        print(f'[{label}] 総損益={sub.profit.sum():+,.0f}円 n={len(sub)} '
+              f'PF={pf(sub):.3f} WR={wr(sub)}%')
+        for s, g in sub.groupby('strategy'):
+            print(f'   {s}: {g.profit.sum():+,.0f}円 PF={pf(g):.3f} WR={wr(g)}% n={len(g)}'
+                  f"{'  ★確定Grid' if s in LIVE_GRID else ''}")
 
-print()
-print('=== 直近7日 ===')
-print(f'総損益: {last7_df.profit.sum():+,.0f}円  n={len(last7_df)}  PF={pf(last7_df):.3f}  WR={len(last7_df[last7_df.profit>0])/max(len(last7_df),1)*100:.1f}%')
-for sym, g in last7_df[~last7_df.symbol.str.endswith("m")].groupby('symbol'):
-    print(f'  {sym}: {g.profit.sum():+,.0f}円 PF={pf(g):.3f} n={len(g)}')
+print('\n=== 確定Grid 4本 累計（全期間・口座別）===')
+grid = df[df.strategy.isin(LIVE_GRID)]
+for acct in ['LIVE','DEMO']:
+    a = grid[grid.account==acct]
+    if a.empty:
+        print(f'[{acct}] 約定なし'); continue
+    print(f'[{acct}]')
+    for s, g in a.groupby('strategy'):
+        n_tp = len(g[g.profit>0]); n_fs = len(g[g.profit<0])
+        print(f'   {s}: net={g.profit.sum():+,.0f}円 PF={pf(g):.3f} WR={wr(g)}% '
+              f'n={len(g)} (勝{n_tp}/負{n_fs})  期間{g.date_jst.min()}〜{g.date_jst.max()}')
 
-print()
-print('=== 日次推移（直近7日）===')
-for d, g in last7_df.groupby('date_jst'):
-    print(f'  {d}: {g.profit.sum():+,.0f}円')
-
-print()
-print(f'history.csv 総件数: {len(df)}件  期間: {df.date_jst.min()} 〜 {df.date_jst.max()}')
-
-print()
-print('=== 戦略×ペア別（直近7日）===')
-last7_df2 = last7_df.copy()
-last7_df2['strategy'] = last7_df2['magic'].map(MAGIC).fillna(last7_df2['magic'].astype(str))
-for s, g in last7_df2.groupby('strategy'):
-    print(f'[{s}] 総損益={g.profit.sum():+,.0f}円 PF={pf(g):.3f} WR={len(g[g.profit>0])/max(len(g),1)*100:.1f}% n={len(g)}')
-    for sym, sg in g[~g.symbol.str.endswith("m")].groupby('symbol'):
-        print(f'  {sym}: {sg.profit.sum():+,.0f}円 PF={pf(sg):.3f} n={len(sg)}')
-
-print()
-print('=== Phase1判定進捗 (BB戦略 magic=20250001, 全期間) ===')
-bb = df[df.magic==20250001]
-for sym, g in bb[~bb.symbol.str.endswith("m")].groupby('symbol'):
-    p = pf(g)
-    wr = len(g[g.profit>0])/max(len(g),1)*100
-    print(f'  {sym}: PF={p:.3f} WR={wr:.1f}% n={len(g)}  判定:{"OK" if p>1.2 and wr>50 else "NG"}')
+print(f'\nhistory.csv 総件数 {len(df)} / live {len(df[df.account=="LIVE"])} / demo {len(df[df.account=="DEMO"])}')
 EOF
 ```
 
+## STEP 2: Grid 未エントリー診断 + 次機会予測
+
+```bash
+python3 optimizer/grid_gate_review.py
+```
+
+- 確定4本それぞれの「今日なぜ建たないか（CI未達 / 上昇レジームでshort停止 / mom過大 / 建玉あり）」と
+  「次にレンジ（エントリー可能）になる時期の目安（CIトレンド外挿 ＋ 過去base-rate）」を出力。
+- データソースは `optimizer/grid_gate_log.csv`（VPS実ゲート値・go-live後から蓄積）優先、無ければ
+  `data/{PAIR}_1h_dukas.csv` で近似（`@ 日付` が古い場合は近似値である点に留意）。
+
 ---
 
-## 分析コンテキスト（戦略変更時に更新）
+## 分析コンテキスト（戦略変更時に更新 / source of truth = CLAUDE.md）
 
-**最終更新: 2026-05-16**
+**最終更新: 2026-06-29**
 
-### 稼働中の戦略
-| 戦略 | magic | 対象ペア | バージョン | 状態 |
-|------|-------|---------|-----------|------|
-| BB | 20250001 | GBPJPY / USDJPY / EURJPY | v22 | ✅ 稼働中 |
-| BB | 20250001 | EURUSD / GBPUSD | v20 | ❌ 停止（enabled=False） |
-| SMA_SQ | 20260010 | USDJPY/GBPJPY/EURUSD/GBPUSD/EURJPY | v3 | ✅ 稼働中 |
-| stat_arb | 20260001 | GBPJPY/USDJPY・EURUSD/GBPUSD ペア | - | ✅ 稼働中 |
-| MOM_JPY/MOM_GBJ/MOM_GBU/STR | 各magic | 各ペア | - | ✅ trail_monitor管理 |
+### 稼働中の戦略と口座
+| 戦略 | magic | 対象 | 口座 | 状態 |
+|------|-------|------|------|------|
+| **Grid（確定4本）** | AUDCAD 20260034 / CADCHF 20260038 / AUDNZD 20260036 / EURGBP 20260035 | 相関クロス | **LIVE(OANDA)+demo** | ✅ go-live 2026-06-24。実投入は forward-test 完了が前提 |
+| Grid（carry/No-Go） | NZDJPY 20260033 / USDJPY 20260037 / 他 20260030-32 | JPY等 | demo のみ | demo継続・**実口座スケール禁止** |
+| BB | 20250001 | USDJPY 他 | demo | USDJPY micro 蓄積のみ（10年BTで頑健エッジ無し）|
+| SMA_SQ | 20260010 | - | demo | 10年BTでエッジ無し・縮小/停止寄り |
+| stat_arb | 20260001 | ペア | demo | 参考 |
 
-### BB戦略 現在の設定（v21/v22）
-- GBPJPY: `htf4h_rsi_bw=True`（RSI<60/RSI>55）+ `fixed_tp_rr=1.5`、Stage2廃止
-- USDJPY: `htf4h_rsi_bw=True`（RSI<55/RSI>45）+ `fixed_tp_rr=1.5`、Stage2廃止
-- EURJPY: `htf4h=True`（4h EMA20のみ）+ `fixed_tp_rr=1.5`、Stage2廃止
-- EURUSD/GBPUSD: `enabled=False`（BT PF未達のため停止）
+### 実口座（LIVE）運用ルール（`optimizer/grid_forward_test_plan.md`）
+- ロット: `LIVE_LOT_PER_PAIR`（S0: AUDCAD 0.15 / CADCHF 0.05 / AUDNZD 0.08 / EURGBP 0.05、25倍レバ・証拠金律速）。
+- 昇格: 3ヶ月 ∧ TP≥30 ∧ FS最低1回発火 ∧ 実現PF>1.2。
+- 撤退/監視（決定論的）: 執行整合性 / FS単発スリッページ≤設定×1.3 / req_cap_99 ハードストップ。
+- 必要資本（暦月basis・等req_cap分散バスケット）: 月利30万=2.80M。実口座は25倍で満玉不可=本フェーズは税優位の検証フェーズ。
 
-### SMA_SQ v3 現在の設定（2026-05-16更新）
-- 全5ペア稼働: USDJPY / GBPJPY / EURUSD / GBPUSD / EURJPY
-- A-1 SMA_long slope reversal exit（slope_exit=3）: 傾き反転で強制決済
-- B-1 breakeven move（be_r=0.5）: profit≥0.5×SLでSLを建値移動
-- **v3追加**: 日足SMAスロープフィルター（1h/4h方向と日足方向が不一致→スキップ）
-  - USDJPY: daily_sma=20, daily_sp=3 / GBPJPY: daily_sma=20, daily_sp=3
-  - EURUSD: daily_sma=50, daily_sp=3 / GBPUSD: daily_sma=20, daily_sp=5
-  - EURJPY: daily_sma=20, daily_sp=5
-- **v3変更**: COOLDOWN_MIN=180分（60分→180分）、MAX_TOTAL_POS=5（3→5、BTと一致）
-- BT PF（日足フィルター後）: USDJPY=1.928 / GBPJPY=1.522 / EURUSD=2.831 / GBPUSD=1.372 / EURJPY=3.748
-
-### Phase1判定基準
-- PF > 1.2 / WR > 50% / DD < 15%
-- 対象: BB戦略 magic=20250001、GBPJPY/USDJPY/EURUSD/GBPUSD
+### Grid ゲート（確定4本）
+- エントリー条件: Choppiness Index(D1,14) > 65（レンジ要求）＋ regime_short(SMA1200, CADCHF/AUDCAD/AUDNZD は上昇局面でshort停止)＋ momentum gate。
+- **大半の日はCI未達でアイドル＝設計通り**（`project_grid_audcad_idle_observation_20260621`）。
 
 ---
 
 ## 分析タスク
 
-上記データを基に以下を分析してください：
+上記 STEP1/STEP2 の出力を基に、以下を**簡潔に**評価する。
 
-1. **本日の評価**: 損益・PF・WRを総合評価。勝ちトレードと負けトレードのパターン。
+1. **A. 実口座（LIVE）評価**:
+   - 当日/直近7日/30日の実損益・PF・WR、確定Grid 4本のペア別実績。
+   - forward-test 進捗（TP件数 / FS発火有無 / 実現PF）と昇格・撤退ルールへの抵触有無。
+   - 異常検知: FSスリッページが設定×1.3超 / 想定外magic・symbol / 執行不整合があれば最優先で指摘。
 
-2. **直近7日のトレンド**: 日次推移から改善・悪化を判断。ペア別の強弱。
+2. **B. demo（フォワードテスト）評価**:
+   - 確定4本の demo 実績（昇格条件 3ヶ月∧TP≥30∧FS発火∧PF>1.2 の進捗）。live との乖離。
+   - carry/No-Go（NZDJPY/USDJPY 等）は参考。スケール禁止の再確認。
 
-3. **戦略別評価**:
-   - BB戦略（GBPJPY/USDJPY/EURJPY）: htf4h_rsi_bwフィルター+固定TP(SL×1.5)の効果。
-   - SMA_SQ v3（全5ペア）: 日足フィルター・COOLDOWN=180追加済み。ログに「daily_slope=DN/UP vs 1h」が出ているか確認。GBPUSDはデータ蓄積目的で再開（実績PF要監視）。
-   - stat_arb: ペアトレードとしての機能評価。
+3. **C. Grid 未エントリー診断（STEP2）**:
+   - 4本それぞれ「今日建たない理由」を1行で。アイドルは異常ではない（設計通り）点を明示。
+   - 次機会予測: CIトレンド＋base-rate から「いつ頃レンジ入りしそうか」をレンジで提示（断定しない）。
+   - **損失/大DDの発生時期は予測不能**（`project_grid_episode_prediction`）。予測対象は「エントリー可能局面の到来」のみ。
 
-4. **改善提案**: PF<0.5のペアや連続損失パターンを特定し、具体的な改善アクションを提案。停止基準（PF<0.5 かつ n≥10）に該当するペアは即時対応を推奨。
-
-5. **Phase1判定進捗**: 各ペアの現状（PF/WR/n）と合格見込みを評価。100件超えたペアの再判定実施。
+4. **改善提案**:
+   - 実口座のリスク逸脱（DD/維持率/スリッページ）があれば具体的アクション。無ければ「現状維持・監視継続」と明記。
+   - demo で昇格条件に近いペアがあれば次ロット段階の検討。BT探索は墓場確定済（CLAUDE.md）＝新戦略提案は原則しない。
 
 ---
 
 ## 通知
 
-分析完了後、PushNotification ツールで以下の形式でiPhoneに通知してください（200字以内）：
+分析完了後、PushNotification ツールで iPhone に通知（200字以内）:
 
-`FX {MM-DD} 本日{損益:+,}円 PF{PF値} / 直近7日{損益:+,}円 / {最重要改善点1行}`
+`FX {MM-DD} 実{損益:+,}円(n) / demo{損益:+,}円 / Grid:{未エントリー診断1行 or 建った本数} / {最重要点1行}`
 
-例: `FX 05-15 本日-13,100円 PF0.00 / 直近7日-55,187円 / GBPUSD BB停止中・GBPJPY PF0.20要注意`
+例: `FX 06-29 実±0円(0) / demo+1,200円 / Grid:4本ともCI未達アイドル(CADCHF上昇中~3wで発火可能性) / 実口座DD/逸脱なし・監視継続`

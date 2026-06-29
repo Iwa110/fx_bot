@@ -247,6 +247,31 @@ def _rsym() -> str:
 _BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE  = os.path.join(_BASE_DIR, 'grid_log.txt')
 
+# Shared daily gate-state snapshot CSV (all pairs/brokers append here, 1 row/pair/day).
+# git-synced by sync_history.py so the local/cloud grid_gate_review.py can read it.
+GATE_LOG_FILE = os.path.normpath(
+    os.path.join(_BASE_DIR, '..', 'optimizer', 'grid_gate_log.csv'))
+JST_TZ = timezone(timedelta(hours=9))
+
+# Column order for grid_gate_log.csv (keep in sync with grid_gate_review.py).
+GATE_LOG_COLS = [
+    'date_jst', 'pair', 'broker', 'magic', 'mode',
+    'ci', 'ci_threshold', 'ci_gap', 'close', 'sma', 'atr',
+    'mom24', 'mom120', 'allow_long', 'allow_short',
+    'n_long', 'n_short', 'entries_prev_day', 'entered_prev_day',
+]
+
+def write_gate_snapshot(row: dict) -> None:
+    """Append one compact daily gate-state row to GATE_LOG_FILE (header if new)."""
+    try:
+        new_file = not os.path.exists(GATE_LOG_FILE)
+        with open(GATE_LOG_FILE, 'a', encoding='utf-8') as f:
+            if new_file:
+                f.write(','.join(GATE_LOG_COLS) + '\n')
+            f.write(','.join(str(row.get(c, '')) for c in GATE_LOG_COLS) + '\n')
+    except Exception as e:
+        log('gate_snapshot_error ' + str(e))
+
 def log(msg: str) -> None:
     ts   = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     line = ts + '  ' + STRATEGY_TAG + '  ' + msg
@@ -269,6 +294,8 @@ _STATE_DEFAULTS = {
     'week_realized_jpy':       0.0,
     'current_day':             '',
     'current_week':            '',
+    'last_snapshot_date':      '',    # JST date of last grid_gate_log.csv row
+    'entries_since_snapshot':  0,     # entries filled since last snapshot (=prev day)
 }
 
 def load_state() -> dict:
@@ -680,21 +707,26 @@ def main_loop() -> None:
             allow_long  = True
             allow_short = (DIR_MODE != 'long_only')
             regime_note = ''
+            regime_sma  = None
+            mom24_val   = None
+            mom120_val  = None
             if DIR_MODE == 'regime_short' and SMA_PERIOD:
-                sma = calc_sma_closed(df_h1, SMA_PERIOD)
+                regime_sma = calc_sma_closed(df_h1, SMA_PERIOD)
                 cprev = df_h1['close'].iloc[-2] if len(df_h1) >= 2 else None
-                if sma is not None and cprev is not None and cprev > sma:
+                if regime_sma is not None and cprev is not None and cprev > regime_sma:
                     allow_short = False   # up-regime: block new counter-trend shorts
                     regime_note = 'regime_up(no_short)'
 
             mom_long_ok = mom_short_ok = True
             if MOM_THR:
                 r = calc_ret_norm(df_h1, MOM_WINDOW, atr)
+                mom24_val = r
                 if r is not None:
                     mom_long_ok  = r > -MOM_THR
                     mom_short_ok = r < MOM_THR
             if MOM120_THR:
                 r2 = calc_ret_norm(df_h1, MOM120_WINDOW, atr)
+                mom120_val = r2
                 if r2 is not None:
                     mom_long_ok  = mom_long_ok  and (r2 > -MOM120_THR)
                     mom_short_ok = mom_short_ok and (r2 < MOM120_THR)
@@ -916,12 +948,50 @@ def main_loop() -> None:
                         '(safe to stop this daemon)')
             elif not entry_blocked:
                 if long_gated:
-                    place_order('LONG', grid_width, long_count + 1)
+                    if place_order('LONG', grid_width, long_count + 1):
+                        state['entries_since_snapshot'] = \
+                            int(state.get('entries_since_snapshot', 0)) + 1
                     longs, _ = get_positions()
                     long_count = len(longs)
 
                 if short_gated:
-                    place_order('SHORT', grid_width, short_count + 1)
+                    if place_order('SHORT', grid_width, short_count + 1):
+                        state['entries_since_snapshot'] = \
+                            int(state.get('entries_since_snapshot', 0)) + 1
+                    _, shorts = get_positions()
+                    short_count = len(shorts)
+
+            # ── Daily gate-state snapshot (1 row/pair/day to grid_gate_log.csv) ──
+            # Written on the first cycle of each new JST day; records this morning's
+            # gate state plus the entries filled during the PREVIOUS day, then resets.
+            date_jst = datetime.now(JST_TZ).strftime('%Y-%m-%d')
+            if state.get('last_snapshot_date', '') != date_jst:
+                entries_prev = int(state.get('entries_since_snapshot', 0))
+                ci_gap = (round(ci - CI_TH, 2) if ci is not None else '')
+                write_gate_snapshot({
+                    'date_jst':         date_jst,
+                    'pair':             SYMBOL,
+                    'broker':           BROKER_KEY,
+                    'magic':            MAGIC,
+                    'mode':             'live' if is_live_broker(BROKER_KEY) else 'demo',
+                    'ci':               round(ci, 2) if ci is not None else '',
+                    'ci_threshold':     CI_TH,
+                    'ci_gap':           ci_gap,
+                    'close':            round(float(df_h1['close'].iloc[-2]), 6),
+                    'sma':              round(regime_sma, 6) if regime_sma is not None else '',
+                    'atr':              round(atr, 6),
+                    'mom24':            round(mom24_val, 3) if mom24_val is not None else '',
+                    'mom120':           round(mom120_val, 3) if mom120_val is not None else '',
+                    'allow_long':       int(allow_long),
+                    'allow_short':      int(allow_short),
+                    'n_long':           long_count,
+                    'n_short':          short_count,
+                    'entries_prev_day': entries_prev,
+                    'entered_prev_day': int(entries_prev > 0),
+                })
+                state['last_snapshot_date']     = date_jst
+                state['entries_since_snapshot'] = 0
+                save_state(state)
 
         except Exception as e:
             log('loop_error ' + str(e))
