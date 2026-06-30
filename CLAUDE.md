@@ -79,6 +79,13 @@ C:\Users\Administrator\fx_bot\
 
 ## Top of mind（2026-06-30 更新）
 
+### ★結論: USDJPY 為替介入プレイ(案B 反応型ショート / 案D 介入後の押し目買い) → 介入固有のエッジは無し・demo forward専用（2026-06-30）
+ユーザー依頼「またUSDJPY介入があると見る。可能性検証+利益の仕込み」。現状(2026-06-30): USDJPY~162(39年ぶり安値)/4-5月に過去最大11.7兆円介入も全戻し/BOJ6/17に1.00%利上げも日米差275bpでキャリー不変/片山財務相「断固たる措置」+ベッセント協調/直近1ヶ月は介入ゼロ。**介入確率=水準でなくスピード次第**(無秩序な急騰時に高)。検証規律(載せる前に過去実測)を踏襲し2案を較正→BT→vps実装。
+- **較正(`optimizer/intervention_event_study.py`, USDJPY 5m 10y で2022/2024/2026の全MOF介入を実測)**: 介入シグネチャ=~30分で1h ATRの~4倍/絶対>=1.5円の急落。**案B(反応型ショート)はデータ上弱い**=検出時点で大半終了、検出後の追随(median 0.3-0.9円)<直後の戻り(median 1.1-1.5円)。**案D(押し目買い)**=9イベント中8が介入前水準へ完全回復(median ~20営業日)+正キャリー。唯一の死因=介入がマクロ転換点と重なる場合(2022-10 Fed打ち止め:谷を更に7.7円割れ/2024-07 8月キャリー巻き戻し:15.7円割れ未回復)。較正防御=「凍結trough-3円下抜けで全撤退」(通常のleanは谷を0-2.7円しか割らない)。
+- **★プレイブックBT(`optimizer/intervention_playbook_bt.py`, monitor案D状態機械を忠実再生・abort込み)が決定打**: **文書化5介入だけ では案Dは net-NEGATIVE(-77k〜-102k円)**。2/5が真のマクロ転換でabort限定しても勝3例を上回る。flush窓6h追跡で偽abort(早すぎるarm)を是正しても結論不変。**全発火(介入+非介入ディップ)はnet-POSITIVE(+199k〜+229k, 勝率65-73%)だが、その黒字は非介入ディップ(+276k〜+331k)=「USDJPY上昇+キャリーの汎用的押し目買い」(既存long-only carry-gridと同型)から来ており、介入固有のエッジでは無い**。「相関≈0だがエッジ無し」群と同じ構図(apparent edgeがregime/carryに解消)。
+- **vps実装(`vps/intervention_monitor.py` v1, magic 案B=20260061/INTV_B・案D=20260062/INTV_D)**: 検出→flush窓→反発でラダー買い(3段)→abort/TP(pre_high全リトレース)/time(30営業日)。案Bは既定OFF(弱い・`--enable-B`で有効)。**LIVE_LOT_SCALE=0でlive拒否=demo forward / データ収集 / テール警告 専用**(検証済みエッジでないため)。mr_monitor規約準拠(broker_utils/heartbeat/state/ASCIIクォート)。
+- **正直な含意/次アクション**: ①「介入を取りに行く」頑健エッジは無い(案B弱・案Dは本物の介入で負け)。②構造的に有利なUSDJPYの取り方は汎用キャリー押し目買い=既存 carry-grid 系。③**介入検出器の最大の実用価値は利益源でなくテール警告**=スパイクがマクロ転換と重なる時こそcarry long露出が傷む(=既存ロングGrid/BBの停止トリガに転用が筋)。④demo forwardでBT乖離を観測してから実マネー再判定。⑤n=5は極小標本=結論は方向性として読む。成果物: `intervention_event_study.py`(+_result.csv) / `intervention_playbook_bt.py`(+_result.csv) / `vps/intervention_monitor.py`。
+
 ### ★★新戦略確定: AUDCAD(4h)平均回帰・3段不等分割エントリー → 配分(Allocation)がエッジを強化する初の実証・実運用計画+vps実装完了（2026-06-30）
 Grid(平均回帰の自動ナンピン)とは別建付けで、**相関クロスの素のZ-score平均回帰に「資本配分」を最適化**した新戦略。YouTube由来アイデアをChat(Gemini)と往復しPhase1-7+ストレステストで検証。**核心の発見=平均回帰の改善は「エントリーの選別(フィルタ)」でなく「エッジ濃度(高Z)への資本配分」**。検証規律(IS=2015-21凍結/OOS=2022-26/年次WFO/フルコスト/Lookahead排除/次足始値約定)は全Grid踏襲。成果物は全て `optimizer/` 下。
 - **Phase1-2(死因分析+動的ロット)**: MFE/MAE分布(`mfe_mae_analysis.py`)で前回の逆張り敗因を解明=負けの54.5%が即逆行(死因B=方向にエッジ無し)。動的ロット(`dynamic_lot_mr_bt.py`)=Z-scale/voladjはnetとDDを比例スケールするだけで**PF不変(dPF一様±0.03)**=サイジングはエッジ生成器でない(Grid動的化Closeと同型)。但し**|Z|↔PF正相関+0.62**を発見(乖離大ほど期待値高=平均回帰圧力)。
