@@ -77,7 +77,20 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-06-16 更新）
+## Top of mind（2026-06-30 更新）
+
+### ★★新戦略確定: AUDCAD(4h)平均回帰・3段不等分割エントリー → 配分(Allocation)がエッジを強化する初の実証・実運用計画+vps実装完了（2026-06-30）
+Grid(平均回帰の自動ナンピン)とは別建付けで、**相関クロスの素のZ-score平均回帰に「資本配分」を最適化**した新戦略。YouTube由来アイデアをChat(Gemini)と往復しPhase1-7+ストレステストで検証。**核心の発見=平均回帰の改善は「エントリーの選別(フィルタ)」でなく「エッジ濃度(高Z)への資本配分」**。検証規律(IS=2015-21凍結/OOS=2022-26/年次WFO/フルコスト/Lookahead排除/次足始値約定)は全Grid踏襲。成果物は全て `optimizer/` 下。
+- **Phase1-2(死因分析+動的ロット)**: MFE/MAE分布(`mfe_mae_analysis.py`)で前回の逆張り敗因を解明=負けの54.5%が即逆行(死因B=方向にエッジ無し)。動的ロット(`dynamic_lot_mr_bt.py`)=Z-scale/voladjはnetとDDを比例スケールするだけで**PF不変(dPF一様±0.03)**=サイジングはエッジ生成器でない(Grid動的化Closeと同型)。但し**|Z|↔PF正相関+0.62**を発見(乖離大ほど期待値高=平均回帰圧力)。
+- **Phase3,5(フィルタ系)=全て無効**: 反転確認フィルタ(EMA/ローソク足/RSI)もHTFレジームゲート(4h ADX/SMA傾き)も**勝率は上げるがPF不変〜悪化**(確認待ち=エントリー価格劣化で利幅相殺/ゲートはnを減らすだけ)。「高勝率≠高PF」を定量実証。
+- **Phase4(分布解析`mr_distribution_analysis.py`)**: 保有時間別PFのビン分析で「13-24本でPF最大・25-48本でPF崩壊」だが**max_holdスイープで実検証すると短縮は逆効果**(早期決済が回復益を殺す=Grid float_stop教訓と同型)。ビン別PFは生存条件付きで読み違え注意の警告を実装。
+- **Phase6-7(層化エントリー)=唯一の純改善**: 高Z域に資本を寄せる不等分割。**3段(Z2.0=0.2/Z2.5=0.3/Z3.0=0.5lot, 最大合計1.0)+MA一括決済(構成A)**がベスト。決済A vs B(部分利確)はペア/TF依存=4hは反転がクリーンで両ペアA優位。
+- **4h移行でエッジが質的に強化**: AUDCAD baseline PF 1h1.48→4h1.77、tier3+A で **OOS PF 2.60 / wfoMin 0.92→1.81(フォールド頑健性が劇的向上=ノイズ排除)**。但し|Z|↔PF相関は4hで弱化(0.64→0.47, サンプル減)。保有時間はbar-count基準で不変(~14本)=タイムストップ48本据置(実時間8日に自然延長)。AUDNZDは限界的(PF1.13)、EURGBPは1hでIS<1.0除外、CADCHFは素のz-MRでPF<1(エッジはGrid側)。
+- **ストレステスト(`audcad_stress_test.py`)=合格だが重要caveat**: ①イベント窓(USD指標/RBA第1火曜±24h)もPF>2で破滅せず、高ボラ(ATR上位20%)もPF1.35で黒字維持=破滅的逆行なし。②期待値分布は歪度-2.46(損失側テール, 平均回帰の構造)。③**不等分割は負けトレードMAE中央値を同TF比-67%**(浅Zで0.2lotのみ=含み損が物理的に小)。④MC(10000シャッフル)maxDD 95%ile=628 lot-pip。**⚠️最重要=ヘッドラインOOS PF2.60は順風レジーム限定、IS(2015-21)PF1.17・純損失年2015/2017/2020(マクロ高ボラ年)・全11年PF1.56**。
+- **高ボラ・ロットスロットル採用(Gemini助言を実測検証)**: フィルタでなく配分で年次DD抑制。**ATRパーセンタイル≥0.7でエントリー全段lot×0.5**(エントリーは止めない=エッジ維持)→maxDD 553→322(-42%)/MC95 627→398(-37%)/full PF 1.56→**1.61**(向上)/OOS 2.57維持/2020年-214→-98。全throttle変種がDD下げPF維持=構造的risk-reductionでcurve-fitでない。
+- **実運用計画(`audcad_mr_deployment_plan.md`)**: ①基準=OOS2.60でなく**全期間PF1.61+MC95DD**でサイジング(安全lotスケール=許容DD額÷43万円, AUDCAD 1lot=10CAD≒1080円)。②キルスイッチ=ローリング12ヶ月PF<1.0 or 現DD>MC95(43万円/lot) or AUD/CAD構造関係崩壊→停止&前提再検証。③段階投入=demoフォワード(3ヶ月∧30約定∧SL発火)→micro-lot→漸増。マクロ高ボラ年の年次DDは平均回帰の構造的コスト(保険料)として受容。
+- **vps実装完了(`vps/mr_monitor.py` v1)**: **magic=20260050 / tag='MR_AC' / 単一クラスタ管理(Grid並行ラダーと別)**。H4足・確定足z(SMA40/SD40)・ATR percentile(500本)・3段不等分割・vol throttle・MA一括決済(構成A)・タイムストップ48本/ハードストップ|Z|≥4.5。**指標計算はBTエンジンとz/atr_pct一致を機械精度(差~1e-13)で検証済**。demo(axiory/exness)はLOT_SCALE=1.0でBT比較可、live(LIVE_LOT_SCALE=0でdemoフォワード完了まで拒否)。実行=4h足確定時/5分poll(exit responsive)。詳細メモリ`[[project_audcad_mr_tiered_strategy_20260630]]`。
+- **次アクション**: ①CLAUDE.md稼働状態にMR追加 ②VPSへ git pull → mr_monitor.py をdemo起動(タスクスケジューラ/bat) ③demoフォワードでBT乖離・スリッページ監視 ④strategy_spec.md/html更新。
 
 ### ★★Grid動的化深掘り(動的ロット/TP/SL/エントリー + 地合い予測) → 5案連続Closeで確定4本は Pareto フロンティアと確定・損失側最適化完了（2026-06-16）
 確定Grid 4本(AUDCAD/CADCHF/AUDNZD/EURGBP, combo+R-SMA1200+2026-06-15 DD圧縮)を更に動的化/リスク構造/地合い予測で上積みできるか、4観点を検証。**結論=損失/サイジング/予測のどの軸を足しても inert か net-worse=確定構成は平均回帰Gridの genuine な Pareto フロンティアに在る**。検証規律(静的一致assert→IS=2015-21凍結→OOS/WFO→暦月MC, 失敗signature点検)は既存踏襲。詳細は `[[project_grid_regime_persistence_e1_20260616]]`。
