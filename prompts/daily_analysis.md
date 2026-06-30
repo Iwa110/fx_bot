@@ -32,6 +32,7 @@ MAGIC = {
     20260030:'GRID_NZDUSD', 20260031:'GRID_GBPJPY', 20260032:'GRID_CHFJPY',
     20260033:'GRID_NZDJPY', 20260034:'GRID_AUDCAD', 20260035:'GRID_EURGBP',
     20260036:'GRID_AUDNZD', 20260037:'GRID_USDJPY', 20260038:'GRID_CADCHF',
+    20260050:'MR_AC',
 }
 LIVE_GRID = {'GRID_AUDCAD','GRID_CADCHF','GRID_AUDNZD','GRID_EURGBP'}  # 確定4本
 
@@ -91,6 +92,20 @@ python3 optimizer/grid_gate_review.py
 
 ---
 
+## STEP 3: MR（AUDCAD平均回帰）フォワード監視
+
+```bash
+python3 optimizer/mr_forward_review.py
+```
+
+- AUDCAD(4h)平均回帰・3段不等分割（MR_AC, magic=20260050）の demo 実績をクラスタ単位
+  （1シグナル＝最大3段を一括決済）で集計し、昇格ゲートとキルスイッチを判定。
+- 昇格ゲート（計画§5）: 3ヶ月 ∧ 30約定 ∧ SL最低1発火 ∧ 実現PF>1.2。
+- キルスイッチ（計画§4）: ローリング12ヶ月PF<1.0 / 実現maxDD>MC95（demo=約43万円）。
+- まだ約定が無ければ「監視待機中」。建ち始めたら BT期待（full PF1.61 / OOS2.57=順風）との乖離を見る。
+
+---
+
 ## 分析コンテキスト（戦略変更時に更新 / source of truth = CLAUDE.md）
 
 **最終更新: 2026-06-29**
@@ -101,6 +116,7 @@ python3 optimizer/grid_gate_review.py
 | **Grid（確定4本）** | AUDCAD 20260034 / CADCHF 20260038 / AUDNZD 20260036 / EURGBP 20260035 | 相関クロス | **LIVE(OANDA)+demo** | ✅ go-live 2026-06-24。実投入は forward-test 完了が前提 |
 | Grid（carry/No-Go） | NZDJPY 20260033 / USDJPY 20260037 / 他 20260030-32 | JPY等 | demo のみ | demo継続・**実口座スケール禁止** |
 | BB | 20250001 | USDJPY 他 | demo | USDJPY micro 蓄積のみ（10年BTで頑健エッジ無し）|
+| **MR_AC（AUDCAD平均回帰）** | 20260050 | AUDCAD 4h | demo | 🆕 demoフォワード（2026-06-30開始）。配分最適化の新戦略。昇格条件達成まで実マネー禁止（`project_audcad_mr_tiered_strategy_20260630`）|
 | SMA_SQ | 20260010 | - | demo | 10年BTでエッジ無し・縮小/停止寄り |
 | stat_arb | 20260001 | ペア | demo | 参考 |
 
@@ -134,9 +150,14 @@ python3 optimizer/grid_gate_review.py
    - 次機会予測: CIトレンド＋base-rate から「いつ頃レンジ入りしそうか」をレンジで提示（断定しない）。
    - **損失/大DDの発生時期は予測不能**（`project_grid_episode_prediction`）。予測対象は「エントリー可能局面の到来」のみ。
 
-4. **改善提案**:
+4. **D. MR（AUDCAD平均回帰）フォワード評価（STEP3）**:
+   - demo の実現PF/WR/maxDD と昇格ゲート進捗（3ヶ月∧30約定∧SL発火∧PF>1.2）。約定ゼロなら「監視待機中」。
+   - BT期待（full PF1.61 / OOS2.57=順風レジーム限定）との乖離。実現が大きく下振れする場合のみ要注意。
+   - キルスイッチ抵触（12moPF<1.0 / 実現maxDD>MC95≒43万円）があれば指摘。建玉中の含み損DDは本集計外（注記参照）。
+
+5. **改善提案**:
    - 実口座のリスク逸脱（DD/維持率/スリッページ）があれば具体的アクション。無ければ「現状維持・監視継続」と明記。
-   - demo で昇格条件に近いペアがあれば次ロット段階の検討。BT探索は墓場確定済（CLAUDE.md）＝新戦略提案は原則しない。
+   - demo で昇格条件に近いペア（Grid 4本 / MR_AC）があれば次ロット段階の検討。BT探索は墓場確定済（CLAUDE.md）＝新戦略提案は原則しない。
 
 ---
 
@@ -144,6 +165,6 @@ python3 optimizer/grid_gate_review.py
 
 分析完了後、PushNotification ツールで iPhone に通知（200字以内）:
 
-`FX {MM-DD} 実{損益:+,}円(n) / demo{損益:+,}円 / Grid:{未エントリー診断1行 or 建った本数} / {最重要点1行}`
+`FX {MM-DD} 実{損益:+,}円(n) / demo{損益:+,}円 / Grid:{未エントリー診断1行 or 建った本数} / MR:{約定n・実現PF or 待機} / {最重要点1行}`
 
-例: `FX 06-29 実±0円(0) / demo+1,200円 / Grid:4本ともCI未達アイドル(CADCHF上昇中~3wで発火可能性) / 実口座DD/逸脱なし・監視継続`
+例: `FX 06-29 実±0円(0) / demo+1,200円 / Grid:4本ともCI未達アイドル(CADCHF上昇中~3wで発火可能性) / MR:待機中(約定0) / 実口座DD/逸脱なし・監視継続`
