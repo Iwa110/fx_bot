@@ -21,6 +21,7 @@
 12. [共通リスク管理](#12-共通リスク管理-risk_managerpy)
 13. [COT極値×日足トレンド](#13-cot極値日足トレンド-cot_monitorpy-v2)
 14. [グリッド戦略](#14-グリッド戦略-grid_monitorpy-v8)
+16. [相関クロス平均回帰 3段不等分割](#16-相関クロス平均回帰-3段不等分割-mr_monitorpy-v2)
 
 ---
 
@@ -1110,3 +1111,69 @@ NEWS force-close: USDJPY LONG hold=30.5min ticket=XXXXXXX
 heartbeat alive pos=0/1 pending=0 cycle=30
 loop error: ...
 ```
+
+---
+
+## 16. 相関クロス平均回帰 3段不等分割 (mr_monitor.py v2)
+
+### 概要
+相関クロス（同一ドライバを共有し独立トレンドを持たない通貨ペア）の **H4 足 Z-score 平均回帰** を、**「配分（資本の不等分割）」でエッジを強化**する戦略。Grid（絶対水準のナンピン）とは別建付けで、素のZ平均回帰に「高乖離（高Z）域への資本集中」を最適化したもの。核心の発見＝**平均回帰の改善はエントリーの選別（フィルタ）でなく高Zへの資本配分**（BT: `optimizer/dynamic_lot_mr_bt.py` / 横展開検証: `optimizer/mr_tiered_transfer_bt.py`）。
+
+### 基本情報
+
+| 項目 | 値 |
+|------|-----|
+| スクリプト | mr_monitor.py v2 |
+| 時間足 | H4（確定足で判定・次足始値約定の analog） |
+| 稼働ブローカー | axiory / exness（demo フォワードテスト先行。live は LIVE_LOT_SCALE>0 まで拒否） |
+| ループ間隔 | 300秒（決済はライブtickで毎サイクル応答的に判定） |
+| 単一クラスタ | 同時に片側のみ保有（反対側クラスタの同時保有なし） |
+| State / Log | `mr_monitor_state_{PAIR}_{broker}.json` / `mr_log_{PAIR}_{broker}.txt` |
+
+### 対象ペアと確定構成（BT IS=2015-21 / OOS=2022-26 / 年次WFO）
+
+| ペア | magic | tag | 決済 | z_stop | vol_th | BT実績 | 位置付け |
+|------|-------|-----|------|-------:|-------:|--------|----------|
+| AUDCAD | 20260050 | MR_AC | A（一括MA回帰） | 4.5 | 0.70 | OOS PF 2.60 / wfoMin 1.81 | Tier1 主軸 |
+| CADCHF | 20260051 | MR_CC | B（Tier3部分利確） | 4.0 | 0.90 | OOS PF 1.26 / IS 1.28 / wfoMin 0.91 | Tier2 分散 |
+
+- **AUDNZD（限界 OOS 1.24/wfoMin 1.04）・EURGBP（IS↔OOS 符号反転で棄却）は不採用**。
+- **決済ロジックは回帰速度 T_reg（|Z|>=2.0→Z=0 までの本数）で選定**: CADCHF は最速（中央値19本）で部分利確（B）が最適、AUDCAD は中庸（21本）で一括（A）。
+- **ポートフォリオ**: MRスリーブ間相関 ≤0.13・MR⟷同一ペアGrid相関 0.09〜0.29（別エッジ）。AUDCAD+CADCHF を逆ボラ加重（0.45/0.55）で **Sharpe 1.09 / MaxDD 151＝AUDCAD単独（1.03/222）の Pareto 改善**。
+
+### 3段不等分割エントリー（共通・凍結）
+```
+z = (close - SMA40) / SD40   (直近確定足 t-1, lookahead なし)
+Tier1 |z|>=2.0 -> 0.2 lot ;  Tier2 |z|>=2.5 -> 0.3 ;  Tier3 |z|>=3.0 -> 0.5
+  (最大合計 exposure = 1.0 lot * LOT_SCALE) ; short if z>0, long if z<0
+高ボラ・ロットスロットル: Tier1 シグナル足で ATR パーセンタイル(t-1, 直近500本) >= vol_th なら
+  全段ロットを VOL_MULT(=0.5) 倍（エントリーは止めず exposure のみ圧縮＝エッジ維持）。
+  スロットル係数は Tier1 で固定し全レッグに適用（BT一致）。
+```
+
+### 決済（ペア別）
+- **構成A（AUDCAD）一括**: 価格が SMA40（z=0）へ回帰でバスケット全決済。
+- **構成B（CADCHF）深部部分利確**: 最深 Tier3 レッグを |z|<=PARTIAL_Z(=1.5) で先に部分利確 → 残り T1/T2 は SMA40（z=0）で決済。`n_filled_max`（到達ティア数の単調カウンタ＝BTの next_tier）で管理し、B で部分決済された Tier3 が再建てされない。
+- **共通ハードストップ/タイムストップ（バスケット全体）**: ハード |z|>=z_stop（AUDCAD 4.5 / CADCHF 4.0）、タイムストップ MAX_HOLD_BARS=48本（H4＝8日）。
+
+### 起動方法
+```powershell
+# VPS（git pull 後）。AUDCAD + CADCHF を demo（axiory/exness）で起動
+powershell -ExecutionPolicy Bypass -File C:\Users\Administrator\fx_bot\vps\restart_mr.ps1
+# 単体起動
+python mr_monitor.py --pair CADCHF --broker axiory
+```
+
+### ログ出力仕様
+```
+start  symbol=CADCHF magic=20260051 lot_scale=1.0 tiers=[2.0, 2.5, 3.0]/[0.2, 0.3, 0.5] exit=B z_stop=4.0 vol_th=0.90 partial_z=1.5 close_only=False
+entry T1 short lot=0.2 price=0.65432 z=2.14 tmul=1.00 thr=2.0
+entry T3 short lot=0.5 price=0.65890 z=3.05 tmul=1.00 thr=3.0
+partial_tp T3 short legs=1 z=1.47 pnl=+820     # 構成B: 最深ティアを 1.5σ で部分利確
+exit_TP short legs=2 held=11bar z=0.02 pnl=+1240
+heartbeat alive side=flat legs=0 z=0.43 sma=0.65510 atr_pct=0.31 held=0bar
+```
+
+### 実装注意 / live 投入条件
+- **live は demo フォワードテスト完走まで拒否**（LIVE_LOT_SCALE=0）。CADCHF を live 投入する際は **CADCHF 自身の MC95 DD** からロットを算定（AUDCAD の値を流用しない）。
+- demo lot_scale=1.0（ティアロット 0.2/0.3/0.5 ＝ BT 比較可能）。昇格条件は AUDCAD と同様（3ヶ月 ∧ 約定≥30 ∧ ハード/タイムストップ最低1回発火 ∧ 実現PF>1.2）。
