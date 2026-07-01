@@ -1,211 +1,208 @@
 """
-intervention_playbook_bt.py - 案D(介入後の押し目買い)プレイブックのオフライン検証
+intervention_playbook_bt.py - 案D(介入後の押し目買い)プレイブック検証 + 撤退基準比較
 
-vps/intervention_monitor.py の案D状態機械(検出->安定確認->ラダー買い->abort/TP/time)を
-USDJPY 5m 10y で忠実に再生し、実行ルール(特に abort ストップ)込みでエッジが残るかを実測する。
+vps/intervention_monitor.py の案D状態機械(検出->flush窓->反発でラダー買い)を USDJPY 5m 10y
+で再生する。本版は「無レバなら塩漬けできる」前提を受け、撤退ポリシーを比較する:
 
-重要な検証点:
-  monitor は live で "本物の介入" か "ただのリスクオフ急落(誤検出)" を判別できない。
-  よって ALL FIRINGS(介入+誤検出) のネット期待値が真の期待値。
-  KNOWN介入サブセット だけでなく全発火を集計する。
+  ABORT3    : 凍結trough-3円 で撤退(損失確定, 資本回転重視)。
+  HOLD_PH   : abort無し・pre_high(元水準)まで塩漬け保有(回復まで待つ, 無レバ)。
+  HOLD_BE   : abort無し・avg_entry(建値=ブレークイーブン)復帰で決済(資本回転しつつ塩漬け容認)。
+  各ポリシーで long は max_hold_days 超で強制決済(None=無期限。データ末で未決済は unrealized)。
 
-ロジック(monitor と一致):
-  検出      = 直近 SPIKE_WIN_MIN 分の高値から現値が max(ATR1h*MULT, MIN_YEN) 下落。
-  trough    = arm 前の running-min(flush 安値)。arm で凍結。
-  arm/tier1 = trough から D_BOUNCE_YEN 反発で安定 -> tier1 買い。
-  追加tier  = 前回約定から D_ADD_GAP_YEN 下、かつ abort 手前。最大 D_TIERS 段。
-  abort     = 価格が 凍結trough - D_ABORT_YEN 下抜け -> 全決済(マクロ転換限定)。
-  TP        = 価格が pre_high 到達 -> 全決済(完全リトレース)。
-  time      = D_MAX_DAYS 営業日 超過 -> 全決済。
-  arm無し   = D_ARM_TIMEOUT_H 内に反発しなければエピソード放棄(建てない)。
+計測(無レバ・塩漬けの是非を判断する核心指標):
+  maxDD_yen / maxDD_jpy : avg_entry からの最深含み損(=塩漬け中に耐える必要のある評価損)。
+  days_to_BE            : 最終建てから 建値復帰 までの営業日(資本拘束期間)。
+  days_to_PH            : 元水準(pre_high)復帰までの営業日。
+  recovered             : データ内で pre_high 回復したか(未回復=構造転換テールの疑い)。
 
-P&L: 各 tier (exit-entry)*lot*100000 JPY。carry(long正スワップ)は別途概算で加算(保守的に下限)。
+P&L: (exit-entry)*lot*100000 JPY + carry(long正スワップ 2.5%/年 概算, 常に追い風)。
+各検出は独立評価(flat制約なし)= "この介入を取ったらどうなるか" の分布を見る。
 
 実行: python optimizer/intervention_playbook_bt.py
-出力: コンソールサマリ + optimizer/intervention_playbook_bt_result.csv
+出力: コンソール比較表 + optimizer/intervention_playbook_bt_result.csv (per-event x policy)
 """
 
-import argparse
 from pathlib import Path
 
 import numpy as np
 import pandas as pd
 
-from intervention_event_study import (load_5m, add_atr_1h, detect_spikes, nearest_known,
-                                       PER_HOUR)
+from intervention_event_study import load_5m, add_atr_1h, detect_spikes, nearest_known
 
-# monitor と一致させる較正パラメータ
+# monitor と一致させる検出/エントリ較正
 SPIKE_WIN_MIN   = 30
 SPIKE_ATR_MULT  = 3.5
 SPIKE_MIN_YEN   = 1.5
 CLUSTER_H       = 18
 PRE_HIGH_MIN    = 120
-
-FLUSH_WIN_H     = 6.0        # 検出後この時間 flush 安値を追跡してから arm(早すぎる凍結=偽abort回避)
+FLUSH_WIN_H     = 6.0
 D_BOUNCE_YEN    = 0.4
 D_TIERS         = 3
 D_TIER_LOT      = 0.10
 D_ADD_GAP_YEN   = 0.5
-D_ABORT_YEN     = 3.0
-D_MAX_DAYS      = 30          # 営業日
 D_ARM_TIMEOUT_H = 12
 
-CONTRACT        = 100_000     # USDJPY 1.0 lot = 100k USD
-CARRY_ANNUAL    = 0.025       # long USDJPY 正キャリー概算(保守 2.5%/年)。常に追い風(下限)。
+CONTRACT        = 100_000
+CARRY_ANNUAL    = 0.025
+
+# 撤退ポリシー: (name, abort_yen(None=無), tp('pre_high'|'breakeven'), max_hold_days(None=無期限))
+POLICIES = [
+    ('ABORT3',  3.0,  'pre_high',  30),
+    ('HOLD_PH', None, 'pre_high',  None),
+    ('HOLD_BE', None, 'breakeven', None),
+]
 
 
-def simulate_episode(df, i_start):
-    """1エピソードを再生。dict(結果) を返す。建てなければ reason='abandon'/'no_arm'。"""
-    high = df['high'].values
-    low  = df['low'].values
-    close = df['close'].values
-    t = df['datetime'].values
+def build_entries(df, i_start):
+    """検出->flush窓->反発arm->ラダー追加。約定リスト entries[(price,time)] と
+    pre_high, frozen trough, arm時刻 を返す。arm しなければ entries=[]。"""
+    high, low, close, t = (df['high'].values, df['low'].values,
+                           df['close'].values, df['datetime'].values)
     n = len(df)
-
     w_pre = PRE_HIGH_MIN // 5
     pre_high = float(high[max(0, i_start - w_pre):i_start + 1].max())
     t0 = pd.Timestamp(t[i_start])
+    flush_end = t0 + pd.Timedelta(hours=FLUSH_WIN_H)
+    arm_timeout = t0 + pd.Timedelta(hours=D_ARM_TIMEOUT_H)
 
     armed = False
     trough = float(low[i_start])
-    entries = []           # list of (fill_price, fill_time)
-    last_add = None
-    t_arm = None
-    flush_end = t0 + pd.Timedelta(hours=FLUSH_WIN_H)
-    arm_timeout = t0 + pd.Timedelta(hours=D_ARM_TIMEOUT_H)
-    abort_lvl = None
-
+    entries, last_add, t_arm, arm_idx = [], None, None, None
     j = i_start
-    exit_price = None
-    reason = None
     while j < n:
         tj = pd.Timestamp(t[j])
         if not armed:
             trough = min(trough, float(low[j]))
             if tj > arm_timeout:
-                reason = 'abandon'
                 break
-            # flush 窓が終わるまで安値追跡のみ(真の谷で凍結)。窓後に反発で arm。
             if tj >= flush_end and float(high[j]) >= trough + D_BOUNCE_YEN:
-                fill = float(close[j])                 # 現実的: arm 時の市場価格で約定
-                armed = True
-                t_arm = tj
-                abort_lvl = trough - D_ABORT_YEN
-                entries.append((fill, tj))
-                last_add = fill
+                fill = float(close[j])
+                armed, t_arm, arm_idx = True, tj, j
+                entries.append((fill, tj)); last_add = fill
         else:
-            # exits(優先)
-            if float(low[j]) <= abort_lvl:
-                exit_price, reason = abort_lvl, 'ABORT'
-                break
-            if float(high[j]) >= pre_high:
-                exit_price, reason = pre_high, 'TP'
-                break
-            if tj > t_arm + pd.Timedelta(days=D_MAX_DAYS * 7.0 / 5.0):
-                exit_price, reason = float(close[j]), 'TIME'
-                break
-            # 追加 tier(押し目買い)
+            # 追加tierだけ先に置く(撤退判定はポリシー別に後段で)。abort手前制約は最深(-3)基準で緩め置き。
             if len(entries) < D_TIERS:
                 lvl = last_add - D_ADD_GAP_YEN
-                if float(low[j]) <= lvl and lvl > abort_lvl:
-                    entries.append((lvl, tj))
-                    last_add = lvl
+                if float(low[j]) <= lvl and lvl > trough - 3.0:
+                    entries.append((lvl, tj)); last_add = lvl
+            # ラダー完成後は探索終了(以降はポリシー別simで評価)
+            if len(entries) >= D_TIERS or (tj > t_arm + pd.Timedelta(days=60)):
+                break
         j += 1
+    return pre_high, trough, t_arm, arm_idx, entries
 
-    if armed and exit_price is None:           # データ末尾まで到達
-        exit_price, reason = float(close[-1]), 'EOD'
-        j = n - 1
-    if not armed:
-        return {'reason': reason or 'no_arm', 'tiers': 0, 'pnl_yen': 0.0,
-                'carry_yen': 0.0, 'held_days': 0.0, 'pre_high': round(pre_high, 3),
-                'trough': round(trough, 3)}
 
-    t_exit = pd.Timestamp(t[j])
-    pnl = 0.0
-    carry = 0.0
-    for (fp, ft) in entries:
-        pnl += (exit_price - fp) * D_TIER_LOT * CONTRACT
-        held_d = max(0.0, (t_exit - ft).total_seconds() / 86400.0)
-        notional_jpy = fp * D_TIER_LOT * CONTRACT
-        carry += notional_jpy * CARRY_ANNUAL * held_d / 365.0
-    held_days = (t_exit - t_arm).total_seconds() / 86400.0
-    return {'reason': reason, 'tiers': len(entries), 'avg_entry': round(np.mean([e[0] for e in entries]), 3),
-            'exit': round(exit_price, 3), 'pnl_yen': round(pnl, 0), 'carry_yen': round(carry, 0),
-            'held_days': round(held_days, 1), 'pre_high': round(pre_high, 3),
-            'trough': round(trough, 3), 't_exit': t_exit}
+def run_policy(df, arm_idx, entries, pre_high, trough, t_arm,
+               abort_yen, tp, max_hold_days):
+    """ラダー約定後をポリシーで前進評価。dict を返す。"""
+    high, low, close, t = (df['high'].values, df['low'].values,
+                           df['close'].values, df['datetime'].values)
+    n = len(df)
+    lots = D_TIER_LOT * len(entries)
+    avg_entry = float(np.mean([e[0] for e in entries]))
+    abort_lvl = (trough - abort_yen) if abort_yen is not None else -1e9
+    be_lvl = avg_entry
+    # 最終建て時刻から計測(資本拘束/含み損は全建て完了後で評価)
+    t_last = entries[-1][1]
+    start_j = arm_idx
+    # start_j を最終建てバーへ進める
+    while start_j < n and pd.Timestamp(t[start_j]) < t_last:
+        start_j += 1
+
+    run_min = avg_entry
+    days_to_be = np.nan
+    days_to_ph = np.nan
+    exit_price, reason, t_exit = None, None, None
+    for j in range(start_j, n):
+        tj = pd.Timestamp(t[j])
+        run_min = min(run_min, float(low[j]))
+        if np.isnan(days_to_be) and float(high[j]) >= be_lvl:
+            days_to_be = (tj - t_last).total_seconds() / 86400.0 * 5.0 / 7.0
+        if np.isnan(days_to_ph) and float(high[j]) >= pre_high:
+            days_to_ph = (tj - t_last).total_seconds() / 86400.0 * 5.0 / 7.0
+        # 撤退判定
+        if abort_yen is not None and float(low[j]) <= abort_lvl:
+            exit_price, reason, t_exit = abort_lvl, 'ABORT', tj; break
+        tgt = pre_high if tp == 'pre_high' else be_lvl
+        if float(high[j]) >= tgt:
+            exit_price, reason, t_exit = tgt, ('TP' if tp == 'pre_high' else 'BE'), tj; break
+        if max_hold_days is not None and tj > t_last + pd.Timedelta(days=max_hold_days * 7.0 / 5.0):
+            exit_price, reason, t_exit = float(close[j]), 'TIME', tj; break
+    if exit_price is None:                       # データ末まで未決済(=塩漬け継続)
+        exit_price, reason, t_exit = float(close[-1]), 'OPEN', pd.Timestamp(t[-1])
+
+    maxdd_yen = round(avg_entry - run_min, 3)
+    pnl = (exit_price - avg_entry) * lots * CONTRACT
+    held_days = (t_exit - t_last).total_seconds() / 86400.0
+    carry = avg_entry * lots * CONTRACT * CARRY_ANNUAL * max(0.0, held_days) / 365.0
+    return {
+        'reason': reason, 'tiers': len(entries), 'avg_entry': round(avg_entry, 3),
+        'exit': round(exit_price, 3), 'pre_high': round(pre_high, 3),
+        'maxDD_yen': maxdd_yen, 'maxDD_jpy': round(maxdd_yen * lots * CONTRACT, 0),
+        'days_to_BE': round(days_to_be, 1) if not np.isnan(days_to_be) else np.nan,
+        'days_to_PH': round(days_to_ph, 1) if not np.isnan(days_to_ph) else np.nan,
+        'recovered': int(not np.isnan(days_to_ph)),
+        'pnl_yen': round(pnl, 0), 'carry_yen': round(carry, 0),
+        'held_days': round(held_days, 1),
+    }
 
 
 def main():
-    global D_ABORT_YEN
-    ap = argparse.ArgumentParser()
-    ap.add_argument('--abort-yen', type=float, default=D_ABORT_YEN)
-    ap.add_argument('--no-abort', action='store_true', help='abort 無しで死因テールを観察')
-    args = ap.parse_args()
-    D_ABORT_YEN = 999.0 if args.no_abort else args.abort_yen
-
     df = load_5m()
     df = add_atr_1h(df)
     reps = detect_spikes(df, SPIKE_WIN_MIN, SPIKE_ATR_MULT, SPIKE_MIN_YEN, CLUSTER_H)
-    print('detections=%d (win=%dm atr_mult=%.1f min_yen=%.1f) abort=%.1f' %
-          (len(reps), SPIKE_WIN_MIN, SPIKE_ATR_MULT, SPIKE_MIN_YEN, D_ABORT_YEN))
+
+    events = []
+    for i in reps:
+        pre_high, trough, t_arm, arm_idx, entries = build_entries(df, i)
+        if not entries:
+            continue
+        ts = df['datetime'].iloc[i]
+        events.append({'i': i, 'datetime': ts, 'known': nearest_known(ts),
+                       'pre_high': pre_high, 'trough': trough, 't_arm': t_arm,
+                       'arm_idx': arm_idx, 'entries': entries})
+    print('detections=%d  armed episodes=%d' % (len(reps), len(events)))
 
     rows = []
-    last_exit_time = None
-    for i in reps:
-        ts = df['datetime'].iloc[i]
-        # "flat時のみ検出" を模倣: 前エピソードの保有窓内の発火はスキップ
-        if last_exit_time is not None and ts <= last_exit_time:
-            continue
-        r = simulate_episode(df, i)
-        r['datetime'] = ts
-        r['known'] = nearest_known(ts)
-        rows.append(r)
-        if r.get('t_exit') is not None:
-            last_exit_time = r['t_exit']
-
+    for ev in events:
+        for (name, ab, tp, mh) in POLICIES:
+            r = run_policy(df, ev['arm_idx'], ev['entries'], ev['pre_high'],
+                           ev['trough'], ev['t_arm'], ab, tp, mh)
+            r.update({'policy': name, 'datetime': ev['datetime'], 'known': ev['known']})
+            rows.append(r)
     res = pd.DataFrame(rows)
-    traded = res[res['tiers'] > 0].copy()
     out_csv = Path(__file__).resolve().parent / 'intervention_playbook_bt_result.csv'
-    keep = ['datetime', 'known', 'reason', 'tiers', 'avg_entry', 'exit', 'pre_high',
-            'trough', 'held_days', 'pnl_yen', 'carry_yen']
-    traded[keep].to_csv(out_csv, index=False)
-
-    pd.set_option('display.width', 240); pd.set_option('display.max_columns', 40)
+    keep = ['datetime', 'known', 'policy', 'reason', 'tiers', 'avg_entry', 'exit',
+            'pre_high', 'maxDD_yen', 'maxDD_jpy', 'days_to_BE', 'days_to_PH',
+            'recovered', 'held_days', 'pnl_yen', 'carry_yen']
+    res[keep].to_csv(out_csv, index=False)
+    pd.set_option('display.width', 260); pd.set_option('display.max_columns', 40)
 
     def summarize(name, d):
-        if len(d) == 0:
-            print('\n=== %s: n=0 ===' % name); return
-        price = d['pnl_yen'].sum()
-        carry = d['carry_yen'].sum()
+        price, carry = d['pnl_yen'].sum(), d['carry_yen'].sum()
         wins = (d['pnl_yen'] > 0).sum()
-        print('\n=== %s (n=%d) ===' % (name, len(d)))
-        print('  price PnL  : %12s JPY (win %d/%d = %.0f%%)' %
-              (f'{price:,.0f}', wins, len(d), 100.0 * wins / len(d)))
-        print('  + carry    : %12s JPY (long正スワップ概算, 追い風)' % f'{carry:,.0f}')
-        print('  = total    : %12s JPY' % f'{price + carry:,.0f}')
-        print('  per-episode: price %s / total %s JPY' %
-              (f'{price/len(d):,.0f}', f'{(price+carry)/len(d):,.0f}'))
-        by = d.groupby('reason')['pnl_yen'].agg(['count', 'sum'])
-        print('  by reason  :')
-        for r, row in by.iterrows():
-            print('     %-8s n=%-3d price=%12s JPY' % (r, int(row['count']), f"{row['sum']:,.0f}"))
+        openn = (d['reason'] == 'OPEN').sum()
+        print('  %-8s n=%-3d price=%11s +carry=%9s =tot=%11s win=%d/%d maxDD_yen(med/max)=%.1f/%.1f openTail=%d'
+              % (name, len(d), f'{price:,.0f}', f'{carry:,.0f}', f'{price+carry:,.0f}',
+                 wins, len(d), d['maxDD_yen'].median(), d['maxDD_yen'].max(), openn))
 
-    print('\n注: lot=%.2f/tier(最大%d段), 全エピソードは demo lot_scale=1.0 基準。'
-          % (D_TIER_LOT, D_TIERS))
-    summarize('ALL FIRINGS (介入+誤検出=真の期待値)', traded)
-    summarize('KNOWN INTERVENTIONS のみ', traded[traded['known'] != ''])
-    summarize('NON-INTERVENTION (誤検出)のみ', traded[traded['known'] == ''])
+    for scope, mask in [('ALL FIRINGS(真の期待値)', res['known'].notna()),
+                        ('KNOWN介入のみ', res['known'] != ''),
+                        ('非介入ディップのみ', res['known'] == '')]:
+        sub = res[mask] if scope != 'ALL FIRINGS(真の期待値)' else res
+        print('\n=== %s ===  (lot %.2f/tier x%d)' % (scope, D_TIER_LOT, D_TIERS))
+        for (name, _, _, _) in POLICIES:
+            summarize(name, sub[sub['policy'] == name])
 
-    # 既知介入の個別行
-    k = traded[traded['known'] != '']
-    if len(k):
-        print('\n--- KNOWN intervention episodes ---')
-        print(k[keep].to_string(index=False))
-
-    abandoned = res[(res['tiers'] == 0)]
-    print('\n放棄/未arm エピソード: %d (うち known=%d) = grind下落で建てず回避'
-          % (len(abandoned), (abandoned['known'] != '').sum()))
-    print('wrote %s' % out_csv)
+    # 既知介入の per-event 深さ・期間(撤退基準の再検討材料)
+    print('\n--- KNOWN interventions: drawdown & recovery by policy ---')
+    k = res[res['known'] != ''].copy()
+    show = ['datetime', 'known', 'policy', 'reason', 'maxDD_yen', 'maxDD_jpy',
+            'days_to_BE', 'days_to_PH', 'recovered', 'held_days', 'pnl_yen']
+    print(k[show].sort_values(['datetime', 'policy']).to_string(index=False))
+    print('\nwrote %s' % out_csv)
+    print('注: maxDD_jpy は demo lot(0.10/tier)基準。実lotに比例。塩漬けはこの評価損を'
+          '無レバで耐えられる資本が前提。recovered=0 は構造転換テール(データ内未回復)。')
 
 
 if __name__ == '__main__':
