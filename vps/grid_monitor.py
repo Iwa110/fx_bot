@@ -165,7 +165,13 @@ LOT_PER_PAIR = {
 # full concurrence; the 150% guard only trims the deepest level in that rare tail.
 # These are EXPLICIT (NOT auto-derived from equity), updated MONTHLY from REALIZED
 # PnL (含み益は使わない / plan §4), broker-min 0.01 step. Carry/No-Go pairs absent
-# => refuse to trade live.
+# => refuse to trade live. AUDNZD present for documentation but excluded from the
+# live launch (restart_grid $livePairs) - OANDA serves no AUDNZD H1 history.
+#
+# S0->S1 migration (plan §2d): on a pair's forward-test pass (§3), raise that pair's
+# lot x1.25 (S1 target at equity 50万: AUDCAD 0.19 / CADCHF 0.06 / EURGBP 0.06).
+# Margin guard STAYS 150% (never lower to 100% - it is the daily-recalc buffer).
+# On deposit, scale the whole dict by equity/500000 (keeps margin level constant).
 LIVE_LOT_PER_PAIR = {
     'AUDCAD': 0.15, 'CADCHF': 0.05, 'AUDNZD': 0.08, 'EURGBP': 0.05,
 }
