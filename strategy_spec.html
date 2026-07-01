@@ -1347,6 +1347,49 @@ python news_monitor.py --broker axiory --dry-run</pre>
   </div>
 </div>
 
+<!-- 16. 相関クロス平均回帰 3段不等分割 -->
+<div class="section" id="mr">
+  <div class="section-header" onclick="toggleSection(this)">
+    <h2>16. 相関クロス平均回帰 3段不等分割 <small style="font-size:11px;color:var(--muted)">mr_monitor.py v2</small></h2>
+    <span class="toggle">▾</span>
+  </div>
+  <div class="section-body">
+    <h3>概要</h3>
+    <p>相関クロス（同一ドライバを共有し独立トレンドを持たない通貨ペア）の <b>H4足 Z-score 平均回帰</b> を、<b>「配分（資本の不等分割）」でエッジを強化</b>する戦略。Grid（絶対水準のナンピン）とは別建付け。核心＝<b>平均回帰の改善はフィルタ（選別）でなく高Zへの資本配分</b>（BT: <code>optimizer/dynamic_lot_mr_bt.py</code> / 横展開検証: <code>optimizer/mr_tiered_transfer_bt.py</code>）。</p>
+
+    <h3>対象ペアと確定構成（BT IS=2015-21 / OOS=2022-26 / 年次WFO）</h3>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ペア</th><th>magic</th><th>tag</th><th>決済</th><th>z_stop</th><th>vol_th</th><th>BT実績</th><th>位置付け</th></tr></thead>
+        <tbody>
+          <tr><td>AUDCAD</td><td class="magic-num">20260050</td><td><code>MR_AC</code></td><td>A 一括MA回帰</td><td>4.5</td><td>0.70</td><td>OOS PF 2.60 / wfoMin 1.81</td><td>Tier1 主軸</td></tr>
+          <tr><td>CADCHF</td><td class="magic-num">20260051</td><td><code>MR_CC</code></td><td>B Tier3部分利確</td><td>4.0</td><td>0.90</td><td>OOS PF 1.26 / IS 1.28 / wfoMin 0.91</td><td>Tier2 分散</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>AUDNZD（限界 OOS 1.24/wfoMin 1.04）・EURGBP（IS↔OOS 符号反転で棄却）は<b>不採用</b>。決済は回帰速度 T_reg（|Z|>=2.0→Z=0 の本数）で選定＝CADCHF 最速（中央値19本）で部分利確B、AUDCAD 中庸（21本）で一括A。MRスリーブ間相関 ≤0.13・MR⟷同一ペアGrid相関 0.09〜0.29（別エッジ）。AUDCAD+CADCHF を逆ボラ加重（0.45/0.55）で <b>Sharpe 1.09 / MaxDD 151＝AUDCAD単独（1.03/222）の Pareto 改善</b>。</p>
+
+    <h3>3段不等分割エントリー（共通・凍結）</h3>
+    <pre>z = (close - SMA40) / SD40   (直近確定足 t-1, lookahead なし)
+Tier1 |z|>=2.0 -> 0.2 lot ;  Tier2 |z|>=2.5 -> 0.3 ;  Tier3 |z|>=3.0 -> 0.5
+  (最大合計 exposure = 1.0 lot * LOT_SCALE) ; short if z>0, long if z<0
+高ボラ・ロットスロットル: Tier1 足で ATR パーセンタイル(t-1, 直近500本) >= vol_th なら
+  全段ロット x VOL_MULT(=0.5)（エントリーは止めず exposure のみ圧縮＝エッジ維持）</pre>
+
+    <h3>決済（ペア別）</h3>
+    <ul>
+      <li><b>構成A（AUDCAD）一括</b>: 価格が SMA40（z=0）へ回帰でバスケット全決済。</li>
+      <li><b>構成B（CADCHF）深部部分利確</b>: 最深 Tier3 を |z|&lt;=PARTIAL_Z(=1.5) で先に部分利確 → 残り T1/T2 は SMA40（z=0）で決済。<code>n_filled_max</code>（到達ティア数の単調カウンタ）で管理し B 部分決済後の Tier3 を再建てしない。</li>
+      <li><b>共通</b>: ハード |z|&gt;=z_stop（AUDCAD 4.5 / CADCHF 4.0）、タイムストップ 48本（H4＝8日）。</li>
+    </ul>
+
+    <h3>起動方法</h3>
+    <pre>powershell -ExecutionPolicy Bypass -File C:\Users\Administrator\fx_bot\vps\restart_mr.ps1
+python mr_monitor.py --pair CADCHF --broker axiory</pre>
+    <p>ログ: <code>mr_log_{PAIR}_{broker}.txt</code> / State: <code>mr_monitor_state_{PAIR}_{broker}.json</code>。<b>live は demo フォワードテスト完走まで拒否（LIVE_LOT_SCALE=0）。CADCHF の live ロットは CADCHF 自身の MC95 DD から算定（AUDCAD 値を流用しない）。</b></p>
+  </div>
+</div>
+
 <!-- Magic番号早見表 -->
 <div class="section" id="magic">
   <div class="section-header" onclick="toggleSection(this)">
@@ -1383,6 +1426,8 @@ python news_monitor.py --broker axiory --dry-run</pre>
           <tr><td>Grid USDJPY</td><td class="magic-num">20260037</td><td><code>GRID_USJ</code></td><td>grid_monitor.py</td></tr>
           <tr><td>Grid CADCHF</td><td class="magic-num">20260038</td><td><code>GRID_CDC</code></td><td>grid_monitor.py</td></tr>
           <tr><td>経済指標(NEWS)</td><td class="magic-num">20260040</td><td><code>NEWS_{event}</code></td><td>news_monitor.py</td></tr>
+          <tr><td>MR AUDCAD</td><td class="magic-num">20260050</td><td><code>MR_AC</code></td><td>mr_monitor.py</td></tr>
+          <tr><td>MR CADCHF</td><td class="magic-num">20260051</td><td><code>MR_CC</code></td><td>mr_monitor.py</td></tr>
         </tbody>
       </table>
     </div>

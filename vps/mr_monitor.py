@@ -1,8 +1,8 @@
 """
-mr_monitor.py - AUDCAD(4h) Mean-Reversion, 3-tier unequal-split monitor v1
+mr_monitor.py - Correlation-cross 4h Mean-Reversion, 3-tier unequal-split monitor v2
 
-Strategy (BT: optimizer/dynamic_lot_mr_bt.run_bt_tiered3, exit_mode='A';
-stress test: optimizer/audcad_stress_test.py; plan: optimizer/audcad_mr_deployment_plan.md):
+Strategy (BT: optimizer/dynamic_lot_mr_bt.run_bt_tiered3; transfer validation:
+optimizer/mr_tiered_transfer_bt.py; AUDCAD plan: optimizer/audcad_mr_deployment_plan.md):
   TF = H4. z = (close - SMA40) / SD40 on the last CLOSED bar (t-1, no lookahead).
   3-tier UNEQUAL split, ONE cluster at a time (no concurrent opposite cluster):
     Tier1 |z|>=2.0 -> 0.2 lot ; Tier2 |z|>=2.5 -> 0.3 ; Tier3 |z|>=3.0 -> 0.5
@@ -11,18 +11,31 @@ stress test: optimizer/audcad_stress_test.py; plan: optimizer/audcad_mr_deployme
     ATR_LOOKBACK bars) >= VOL_TH, multiply ALL tier lots by VOL_MULT (do NOT skip
     the entry -> keep the edge, compress exposure when risk is high). The throttle
     factor is fixed at Tier1 and applied to every leg (matches BT).
-  Exit (construction A, whole basket at once):
-    TP  : price returns to SMA40 (z=0).
-    SL  : hard stop |z|>=4.5  OR  time stop MAX_HOLD_BARS (48 H4 bars = 8 days).
+  Exit depends on the per-pair regression speed (T_reg, BT Part1):
+    construction A (whole basket at once)  -- slow-reverting pairs:
+      TP : price returns to SMA40 (z=0).  SL: hard |z|>=Z_STOP or time MAX_HOLD_BARS.
+    construction B (deepest-tier partial)  -- fast-reverting pairs:
+      Tier3 leg(s) partial-close at |z|<=PARTIAL_Z first; the remaining T1/T2 then
+      exit at SMA40 (z=0). Same hard-stop / time-stop applies to the whole basket.
   Entries/adds are evaluated ONCE per newly-closed H4 bar (next-bar-open analog).
   Exits are checked every cycle against the live tick (responsive).
 
-Magic/tag: 20260050 / MR_AC  (separate from grid 20260030-038).
-Brokers: demo axiory/exness (forward-test first). Live refused until LIVE_LOT_SCALE>0.
+Confirmed per-pair configs (BT IS=2015-21 / OOS=2022-26 / yearly WFO):
+  AUDCAD : magic 20260050 / MR_AC / exit A / z_stop 4.5 / vol_th 0.70
+           OOS PF 2.60, wfoMin 1.81 (Tier1, deployment plan).
+  CADCHF : magic 20260051 / MR_CC / exit B / z_stop 4.0 / vol_th 0.90
+           OOS PF 1.26, IS 1.28, wfoMin 0.91 -- fastest regression (T_reg med 19),
+           partial-TP (B) optimal; pairs with AUDCAD inverse-vol => Sharpe 1.09/MaxDD151
+           (Pareto improvement over AUDCAD-alone 1.03/222). Tier2 diversifier.
+  (AUDNZD marginal / EURGBP rejected: IS<->OOS sign reversal. Not deployed.)
+
+Brokers: demo axiory/exness (forward-test first). Live refused until LIVE_LOT_SCALE>0
+  (and live lot must be sized from that pair's own MC95 DD, not AUDCAD's).
 State: mr_monitor_state_{PAIR}_{broker}.json   Log: mr_log_{PAIR}_{broker}.txt
 
 Run (per the plan, 4h cadence; loop is light so a 5-min poll is fine):
   python mr_monitor.py --pair AUDCAD --broker axiory
+  python mr_monitor.py --pair CADCHF --broker axiory
 """
 
 import sys
@@ -48,18 +61,27 @@ SMA_N           = 40                # MA/SD window (H4 bars)
 ATR_N           = 14
 ATR_LOOKBACK    = 500               # ATR percentile window
 Z_TP            = 0.0               # take-profit z (0 = MA)
-Z_STOP          = 4.5               # hard-stop |z|
 MAX_HOLD_BARS   = 48                # time stop (H4 bars = 8 days)
-VOL_TH          = 0.70              # ATR percentile threshold for throttle
 VOL_MULT        = 0.5               # lot multiplier when high-vol
+PARTIAL_Z_DEF   = 1.5              # construction B: Tier3 partial-TP z level
 H4_SECONDS      = 4 * 3600
+
+# Per-pair (set as runtime globals in main from the selected PAIR_CONFIG entry).
+Z_STOP          = 4.5               # hard-stop |z| (AUDCAD default; overridden per-pair)
+VOL_TH          = 0.70              # ATR percentile throttle threshold (overridden per-pair)
+EXIT_MODE       = 'A'              # 'A' whole-basket / 'B' deepest-tier partial-TP
+PARTIAL_Z       = PARTIAL_Z_DEF
 
 LOOP_INTERVAL   = 300               # 5-min poll (4h strategy; exits stay responsive)
 HB_CYCLES       = 12                # heartbeat every ~1h
 
-# Per-pair (currently AUDCAD only; structure mirrors grid_monitor for extension).
+# Per-pair confirmed configs (BT: optimizer/mr_tiered_transfer_bt.py). exit_mode/z_stop/
+# vol_th are pair-specific; tiers (0.2/0.3/0.5) and SMA/ATR/hold are shared & frozen.
 PAIR_CONFIG = {
-    'AUDCAD': {'magic': 20260050, 'tag': 'MR_AC'},
+    'AUDCAD': {'magic': 20260050, 'tag': 'MR_AC', 'exit_mode': 'A',
+               'z_stop': 4.5, 'vol_th': 0.70, 'partial_z': 1.5},
+    'CADCHF': {'magic': 20260051, 'tag': 'MR_CC', 'exit_mode': 'B',
+               'z_stop': 4.0, 'vol_th': 0.90, 'partial_z': 1.5},
 }
 
 # Lot scale. Demo forward-test = 1.0 (=> tier lots 0.2/0.3/0.5, BT-comparable).
@@ -104,6 +126,9 @@ _STATE_DEFAULTS = {
     'tmul':            1.0,    # high-vol throttle factor fixed at Tier1
     'tier1_bar_iso':   '',     # H4 bar (UTC) of Tier1 entry (fallback for time-stop)
     'last_eval_bar':   '',     # last closed H4 bar we evaluated entry/add on
+    'n_filled_max':    0,      # highest tier count reached this cluster (monotonic =
+                               # BT next_tier counter; survives B partial-close so a
+                               # closed Tier3 is never re-added).
 }
 
 def load_state() -> dict:
@@ -265,8 +290,10 @@ def bars_held(positions) -> int:
 def main_loop():
     state = load_state()
     cycle = 0
-    log('start  symbol=%s magic=%d lot_scale=%s tiers=%s/%s close_only=%s' %
-        (SYMBOL, MAGIC, LOT_SCALE, TIER_ZS, TIER_LOTS, CLOSE_ONLY))
+    log('start  symbol=%s magic=%d lot_scale=%s tiers=%s/%s exit=%s z_stop=%.1f '
+        'vol_th=%.2f partial_z=%.1f close_only=%s' %
+        (SYMBOL, MAGIC, LOT_SCALE, TIER_ZS, TIER_LOTS, EXIT_MODE, Z_STOP,
+         VOL_TH, PARTIAL_Z, CLOSE_ONLY))
     while True:
         cycle += 1
         try:
@@ -295,12 +322,30 @@ def main_loop():
                     z_live = (px - sma) / sd
                     hit_tp = px <= sma                  # returned to MA
                     hit_stop = z_live >= Z_STOP
+                    hit_ptp = z_live <= PARTIAL_Z       # reverted to within partial band
                 else:
                     px = tick.bid
                     z_live = (px - sma) / sd
                     hit_tp = px >= sma
                     hit_stop = z_live <= -Z_STOP
+                    hit_ptp = z_live >= -PARTIAL_Z
                 held = bars_held(positions)
+
+                # construction B: partial-close the deepest tier (T3) before full exit.
+                # Only fires while T3 is open; degrades to construction A if T3 absent.
+                if (EXIT_MODE == 'B' and not hit_stop and held < MAX_HOLD_BARS
+                        and hit_ptp):
+                    t3 = [p for p in positions
+                          if str(getattr(p, 'comment', '')).endswith('_T3')]
+                    if t3:
+                        nclosed, pnl = close_cluster(t3, '_PTP')
+                        if nclosed:
+                            log('partial_tp T3 %s legs=%d z=%.2f pnl=%.0f' %
+                                (side, nclosed, z_live, pnl))
+                            t3_tk = {p.ticket for p in t3}
+                            positions = [p for p in positions if p.ticket not in t3_tk]
+                            n_filled = len(positions)
+
                 reason = None
                 if hit_stop:
                     reason = '_ZSTOP'
@@ -308,12 +353,13 @@ def main_loop():
                     reason = '_TP'
                 elif held >= MAX_HOLD_BARS:
                     reason = '_TIME'
-                if reason:
+                if reason and positions:
                     nclosed, pnl = close_cluster(positions, reason)
                     log('exit%s %s legs=%d held=%dbar z=%.2f pnl=%.0f' %
                         (reason, side, nclosed, held, z_live, pnl))
                     state['tmul'] = 1.0
                     state['tier1_bar_iso'] = ''
+                    state['n_filled_max'] = 0
                     save_state(state)
                     side, positions, n_filled = None, [], 0
 
@@ -329,15 +375,18 @@ def main_loop():
                         if place_tier(new_side, 0, tmul, z):
                             state['tmul'] = tmul
                             state['tier1_bar_iso'] = ind['bar_iso']
+                            state['n_filled_max'] = 1
                 else:
-                    # in cluster -> deeper tier reached?
-                    nxt = n_filled                      # next tier index (1 or 2)
+                    # in cluster -> deeper tier reached? Use the monotonic counter
+                    # (not the live leg count) so a B-partial-closed Tier3 is never re-added.
+                    nxt = int(state.get('n_filled_max', n_filled) or n_filled)
                     if nxt < len(TIER_ZS):
                         thr = TIER_ZS[nxt]
                         deeper = (side == 'short' and z >= thr) or (side == 'long' and z <= -thr)
                         if deeper:
                             tmul = float(state.get('tmul', 1.0))
-                            place_tier(side, nxt, tmul, z)
+                            if place_tier(side, nxt, tmul, z):
+                                state['n_filled_max'] = nxt + 1
                 state['last_eval_bar'] = ind['bar_iso']
                 save_state(state)
 
@@ -359,8 +408,9 @@ def main_loop():
 def main():
     global MAGIC, STRATEGY_TAG, SYMBOL, BROKER_KEY, LOT_SCALE
     global LOG_FILE, _STATE_FILE, CLOSE_ONLY
+    global EXIT_MODE, Z_STOP, VOL_TH, PARTIAL_Z
 
-    ap = argparse.ArgumentParser(description='AUDCAD(4h) mean-reversion tier3 monitor v1')
+    ap = argparse.ArgumentParser(description='Correlation-cross 4h mean-reversion tier3 monitor v2')
     ap.add_argument('--pair', default='AUDCAD', choices=list(PAIR_CONFIG.keys()))
     ap.add_argument('--broker', default=BROKER_KEY,
                     choices=['axiory', 'exness', 'oanda', 'oanda_demo', 'oanda_live'])
@@ -371,6 +421,10 @@ def main():
 
     cfg = PAIR_CONFIG[args.pair]
     SYMBOL, MAGIC, STRATEGY_TAG = args.pair, cfg['magic'], cfg['tag']
+    EXIT_MODE = cfg.get('exit_mode', 'A')
+    Z_STOP = cfg.get('z_stop', 4.5)
+    VOL_TH = cfg.get('vol_th', 0.70)
+    PARTIAL_Z = cfg.get('partial_z', PARTIAL_Z_DEF)
     BROKER_KEY = args.broker
 
     # Demo (BT-comparable lot_scale=1.0) vs live (explicit, sized from MC95 DD).
