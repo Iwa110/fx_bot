@@ -43,7 +43,49 @@ D_ADD_GAP_YEN   = 0.5
 D_ARM_TIMEOUT_H = 12
 
 CONTRACT        = 100_000
-CARRY_ANNUAL    = 0.025
+
+# ── スワップ(キャリー) = 米日 政策金利差の時変ステップ関数で日次積算 ──
+# USD=Fed funds上限 / JPY=BoJ政策金利 (build_policy_rates.py と同値。2026分は
+# 6月の事実 BOJ 1.00%/日米差~275bp から point-in-time 補完)。announce日から反映。
+RATE_USD = [
+    ('2014-01-01', 0.25), ('2015-12-17', 0.50), ('2016-12-15', 0.75),
+    ('2017-03-16', 1.00), ('2017-06-15', 1.25), ('2017-12-14', 1.50),
+    ('2018-03-22', 1.75), ('2018-06-14', 2.00), ('2018-09-27', 2.25),
+    ('2018-12-20', 2.50), ('2019-08-01', 2.25), ('2019-09-19', 2.00),
+    ('2019-10-31', 1.75), ('2020-03-03', 1.25), ('2020-03-16', 0.25),
+    ('2022-03-17', 0.50), ('2022-05-05', 1.00), ('2022-06-16', 1.75),
+    ('2022-07-28', 2.50), ('2022-09-22', 3.25), ('2022-11-03', 4.00),
+    ('2022-12-15', 4.50), ('2023-02-02', 4.75), ('2023-03-23', 5.00),
+    ('2023-05-04', 5.25), ('2023-07-27', 5.50), ('2024-09-19', 5.00),
+    ('2024-11-08', 4.75), ('2024-12-19', 4.50), ('2025-09-18', 4.25),
+    ('2025-10-30', 4.00), ('2026-03-18', 3.75),   # 2026: 日米差~275bp(BOJ1.00%)に整合
+]
+RATE_JPY = [
+    ('2014-01-01', 0.10), ('2016-02-16', -0.10), ('2024-03-19', 0.10),
+    ('2024-07-31', 0.25), ('2025-01-24', 0.50), ('2025-07-31', 0.75),
+    ('2026-06-17', 1.00),                          # 2026-06-17 に1.00%へ利上げ(既報)
+]
+SWAP_HAIRCUT = 0.85   # 実ブローカーswapは金利差の概ね70-90%(マークアップ)。既定0.85で控えめに。
+_DIFF = None          # 日次(米-日)金利差% Series (main で構築)
+
+
+def build_diff_series():
+    idx = pd.date_range('2014-01-01', '2026-12-31', freq='D')
+    def step(tbl):
+        s = pd.Series(index=idx, dtype='float64')
+        for d, r in tbl:
+            s.loc[pd.Timestamp(d):] = r
+        return s.ffill().bfill()
+    return step(RATE_USD) - step(RATE_JPY)      # 常に正(米>日) = long USDJPY はキャリー受取
+
+
+def carry_jpy(notional_jpy, t_start, t_end, haircut=1.0):
+    """[t_start,t_end] を時変金利差で日次積算した long USDJPY スワップ(JPY)。"""
+    if _DIFF is None or t_end <= t_start:
+        return 0.0
+    s = _DIFF.loc[pd.Timestamp(t_start).normalize():pd.Timestamp(t_end).normalize()]
+    # 日次カーリー = notional*(diff/100)/365 を日数分合算
+    return float(notional_jpy) / 100.0 / 365.0 * float(s.sum()) * haircut
 
 # 撤退ポリシー: (name, abort_yen(None=無), tp('pre_high'|'breakeven'), max_hold_days(None=無期限))
 POLICIES = [
@@ -134,7 +176,9 @@ def run_policy(df, arm_idx, entries, pre_high, trough, t_arm,
     maxdd_yen = round(avg_entry - run_min, 3)
     pnl = (exit_price - avg_entry) * lots * CONTRACT
     held_days = (t_exit - t_last).total_seconds() / 86400.0
-    carry = avg_entry * lots * CONTRACT * CARRY_ANNUAL * max(0.0, held_days) / 365.0
+    # スワップ = 各tierを建て時刻から t_exit まで時変金利差で積算(notionalは建値近似)
+    carry = sum(carry_jpy(fp * D_TIER_LOT * CONTRACT, ft, t_exit, SWAP_HAIRCUT)
+                for (fp, ft) in entries)
     return {
         'reason': reason, 'tiers': len(entries), 'avg_entry': round(avg_entry, 3),
         'exit': round(exit_price, 3), 'pre_high': round(pre_high, 3),
@@ -148,6 +192,10 @@ def run_policy(df, arm_idx, entries, pre_high, trough, t_arm,
 
 
 def main():
+    global _DIFF
+    _DIFF = build_diff_series()
+    print('swap model: 米日金利差(時変) * haircut %.2f。直近差=%.2f%% (2026-06 BOJ1.00/US3.75)'
+          % (SWAP_HAIRCUT, float(_DIFF.iloc[-1])))
     df = load_5m()
     df = add_atr_1h(df)
     reps = detect_spikes(df, SPIKE_WIN_MIN, SPIKE_ATR_MULT, SPIKE_MIN_YEN, CLUSTER_H)
@@ -194,15 +242,28 @@ def main():
         for (name, _, _, _) in POLICIES:
             summarize(name, sub[sub['policy'] == name])
 
-    # 既知介入の per-event 深さ・期間(撤退基準の再検討材料)
+    # 既知介入の per-event: long塩漬け(HOLD_PH) の price+swap+total を明示
+    print('\n--- KNOWN interventions: long塩漬け(HOLD_PH) price + swap + total ---')
+    kph = res[(res['known'] != '') & (res['policy'] == 'HOLD_PH')].copy()
+    kph['total_yen'] = kph['pnl_yen'] + kph['carry_yen']
+    ph_show = ['datetime', 'known', 'reason', 'held_days', 'maxDD_yen', 'maxDD_jpy',
+               'days_to_PH', 'recovered', 'pnl_yen', 'carry_yen', 'total_yen']
+    print(kph[ph_show].sort_values('datetime').to_string(index=False))
+    print('  --- 合計 --- price=%s + swap=%s = total=%s JPY (demo 0.30lot, n=%d)'
+          % (f"{kph['pnl_yen'].sum():,.0f}", f"{kph['carry_yen'].sum():,.0f}",
+             f"{kph['total_yen'].sum():,.0f}", len(kph)))
+
+    # 全ポリシー比較(撤退基準の再検討材料)
     print('\n--- KNOWN interventions: drawdown & recovery by policy ---')
     k = res[res['known'] != ''].copy()
     show = ['datetime', 'known', 'policy', 'reason', 'maxDD_yen', 'maxDD_jpy',
-            'days_to_BE', 'days_to_PH', 'recovered', 'held_days', 'pnl_yen']
+            'days_to_BE', 'days_to_PH', 'recovered', 'held_days', 'pnl_yen', 'carry_yen']
     print(k[show].sort_values(['datetime', 'policy']).to_string(index=False))
     print('\nwrote %s' % out_csv)
     print('注: maxDD_jpy は demo lot(0.10/tier)基準。実lotに比例。塩漬けはこの評価損を'
           '無レバで耐えられる資本が前提。recovered=0 は構造転換テール(データ内未回復)。')
+    print('注: carry_yen = 米日金利差(時変ステップ)*haircut %.2f の日次積算。'
+          '長期塩漬けほど寄与大(2022-24は差4-5%%)。実swapはブローカー/曜日で変動。' % SWAP_HAIRCUT)
 
 
 if __name__ == '__main__':
