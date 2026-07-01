@@ -100,6 +100,23 @@ D_ABORT_YEN     = 3.0       # abort ポリシー時のみ使用
 D_TP_MODE       = 'full'    # 'full' = 目標で全決済 / 'half' = 50%地点で半分利確(pre_high系のみ)
 D_MAX_DAYS      = 30        # abort ポリシー時の陳腐化決済(営業日)
 D_HOLD_MAX_DAYS = None      # hold系の安全上限(営業日, None=無期限塩漬け)。数値化すれば強制手仕舞い
+
+# --- ★BOJ連続利上げ撤退トリガ(金利差消滅=塩漬け前提の崩壊で手仕舞い) ---
+# 米日政策金利差(USD Fed上限 - JPY BoJ, build_policy_rates.py同値+2026補完)。
+# 政策決定のたびに手で追記すること(発表日, 水準%)。CURRENT_RATE_DIFF_OVERRIDE を
+# 数値にすると当日のテーブル計算を上書き(速報対応)。
+RATE_USD_TABLE = [
+    ('2020-03-16', 0.25), ('2022-03-17', 0.50), ('2022-06-16', 1.75),
+    ('2022-09-22', 3.25), ('2022-12-15', 4.50), ('2023-07-27', 5.50),
+    ('2024-09-19', 5.00), ('2024-12-19', 4.50), ('2025-10-30', 4.00),
+    ('2026-03-18', 3.75),
+]
+RATE_JPY_TABLE = [
+    ('2016-02-16', -0.10), ('2024-03-19', 0.10), ('2024-07-31', 0.25),
+    ('2025-01-24', 0.50), ('2025-07-31', 0.75), ('2026-06-17', 1.00),
+]
+RATE_EXIT_TH   = 1.0        # 金利差(%)がこれ以下に縮小したら塩漬けを手仕舞い(BOJ利上げ回路遮断)
+CURRENT_RATE_DIFF_OVERRIDE = None   # 速報で手動上書き(例 0.75)。None=テーブルから当日算出。
 # ★塩漬け CAVEAT: 実測 maxDD ~21円(2022-10)/~19円(2024-07, データ内未回復=構造転換テール)。
 #   demo lot(0.10/tier x3=0.30lot)で ~640k JPY の評価損。実lotに線形。無レバでこれを耐える資本必須。
 #   "永久に戻らない"構造転換(日本財政危機/恒常円高)は塩漬けを永久損に変える真のテール。
@@ -212,6 +229,19 @@ def window_high(df: pd.DataFrame, minutes: int) -> float:
     cutoff = df['datetime'].iloc[-1] - pd.Timedelta(minutes=minutes)
     seg = df[df['datetime'] >= cutoff]
     return float(seg['high'].max()) if len(seg) else float(df['high'].iloc[-1])
+
+def current_rate_diff() -> float:
+    """本日の米日政策金利差(%). CURRENT_RATE_DIFF_OVERRIDE 優先, なければテーブルから算出。"""
+    if CURRENT_RATE_DIFF_OVERRIDE is not None:
+        return float(CURRENT_RATE_DIFF_OVERRIDE)
+    today = pd.Timestamp.now(tz='UTC').tz_localize(None)
+    def _rate(tbl):
+        r = None
+        for d, v in tbl:
+            if pd.Timestamp(d) <= today:
+                r = v
+        return r if r is not None else 0.0
+    return _rate(RATE_USD_TABLE) - _rate(RATE_JPY_TABLE)
 
 # ══════════════════════════════════════════
 # Positions / orders
@@ -371,13 +401,18 @@ def main_loop():
                         state['d_half_done'] = True
                         d_pos = get_positions(MAGIC_D)
                 hit_tp = cur_bid >= tp_lvl
+                # ★BOJ連続利上げ撤退: 金利差が RATE_EXIT_TH 以下に縮小したら塩漬け手仕舞い
+                rdiff = current_rate_diff()
+                hit_ratexit = (D_EXIT_POLICY in ('hold_ph', 'hold_be')
+                               and rdiff <= RATE_EXIT_TH)
                 reason = ('_ABORT' if hit_abort else
-                          ('_TP' if hit_tp else ('_TIME' if expired else None)))
+                          ('_RATEEXIT' if hit_ratexit else
+                           ('_TP' if hit_tp else ('_TIME' if expired else None))))
                 if reason and d_pos:
                     nclosed, pnl = close_positions(d_pos, MAGIC_D, TAG_D, reason)
-                    log('exitD%s[%s] legs=%d held=%.1fd avg=%.3f trough=%.3f pre_high=%.3f pnl=%.0f' %
+                    log('exitD%s[%s] legs=%d held=%.1fd avg=%.3f trough=%.3f pre_high=%.3f rdiff=%.2f pnl=%.0f' %
                         (reason, D_EXIT_POLICY, nclosed, held_days, avg_entry, trough,
-                         pre_high, pnl))
+                         pre_high, rdiff, pnl))
                     d_pos = []
 
             # ───────────────── エピソード終了判定 ─────────────────
@@ -453,10 +488,11 @@ def main_loop():
             # ───────────────── Heartbeat ─────────────────
             if cycle % HB_CYCLES == 0:
                 log('heartbeat alive ep=%s d_legs=%d b=%s price=%.3f atr1h=%s '
-                    'trough=%.3f pre_high=%.3f tiers=%d' %
+                    'trough=%.3f pre_high=%.3f tiers=%d policy=%s rdiff=%.2f%%' %
                     (state['episode_active'], len(d_pos), state['b_open'], cur_bid,
                      ('%.3f' % atr1h) if not np.isnan(atr1h) else 'na',
-                     state['trough'], state['pre_high'], state['d_tiers_filled']))
+                     state['trough'], state['pre_high'], state['d_tiers_filled'],
+                     D_EXIT_POLICY, current_rate_diff()))
 
         except Exception as e:
             log('loop_error ' + str(e))
@@ -477,6 +513,9 @@ def main():
     ap.add_argument('--exit-policy', default=D_EXIT_POLICY,
                     choices=['hold_ph', 'abort', 'hold_be'],
                     help='案D撤退: hold_ph=塩漬け元水準(既定/BT黒字) / abort=-3円撤退 / hold_be=建値決済')
+    ap.add_argument('--live-total-lot', type=float, default=0.0,
+                    help='live時の合計ロット(3tier合計)。intervention_sizing.py の safe_lot を入れる。'
+                         '例 0.17。未指定(0)は live 拒否。demoは無視(常に0.30)。')
     ap.add_argument('--close-only', action='store_true', help='既存ポジ管理のみ・新規なし')
     args = ap.parse_args()
 
@@ -489,11 +528,17 @@ def main():
         D_ENABLED = False
 
     if is_live_broker(BROKER_KEY):
-        LOT_SCALE = LIVE_LOT_SCALE
+        # live合計ロット -> LOT_SCALE(tier lot 0.10*3=0.30 を基準にスケール)
+        base_total = D_TIER_LOT * D_TIERS
+        live_scale = (args.live_total_lot / base_total) if args.live_total_lot > 0 else LIVE_LOT_SCALE
+        LOT_SCALE = live_scale
         if LOT_SCALE <= 0:
-            log('LIVE refuse: LIVE_LOT_SCALE not set (clear demo forward-test first, '
-                'size from event-study DD) broker=%s' % BROKER_KEY)
+            log('LIVE refuse: --live-total-lot 未指定 (intervention_sizing.py で safe_lot を算出し '
+                '--live-total-lot に渡す。demo forward-test 先行を強く推奨) broker=%s' % BROKER_KEY)
             return
+        log('LIVE sizing: total_lot=%.3f -> LOT_SCALE=%.3f (tier=%.3f) rate_diff=%.2f%% exit_th=%.2f%%'
+            % (args.live_total_lot or base_total * LIVE_LOT_SCALE, LOT_SCALE,
+               D_TIER_LOT * LOT_SCALE, current_rate_diff(), RATE_EXIT_TH))
     else:
         LOT_SCALE = LOT_SCALE_DEMO
 
