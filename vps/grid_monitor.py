@@ -1116,6 +1116,22 @@ def main() -> None:
     else:
         log('symbol_select ok ' + rsym)
 
+    # H1 warm-up: OANDA may need up to 60s to serve H1 bars after symbol_select.
+    # Retry until at least 5 bars are available (or timeout). The main loop will
+    # continue to retry if CI needs more data (e.g. SMA1200 unavailable while
+    # history accumulates — regime_short is skipped gracefully until then).
+    _wu_deadline = time.time() + 60
+    while True:
+        _wu_bars = mt5.copy_rates_from_pos(rsym, mt5.TIMEFRAME_H1, 0, 25)
+        if _wu_bars is not None and len(_wu_bars) >= 5:
+            log('h1_warmup ok  bars_avail=' + str(len(_wu_bars)))
+            break
+        if time.time() >= _wu_deadline:
+            log('h1_warmup timeout  ' + rsym +
+                ': broker may lack H1 history; main_loop will retry each cycle')
+            break
+        time.sleep(10)
+
     try:
         main_loop()
     finally:

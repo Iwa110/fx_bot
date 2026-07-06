@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git pull *)",
+      "Bash(git stash *)",
+      "Bash(python3 -)",
+      "Bash(python3 optimizer/daily_step1.py)",
+      "Bash(python3 optimizer/grid_gate_review.py)",
+      "Bash(python3 optimizer/mr_forward_review.py)",
+      "PushNotification"
+    ]
+  }
+}
