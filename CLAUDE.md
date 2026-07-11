@@ -77,7 +77,14 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
-## Top of mind（2026-06-30 更新）
+## Top of mind（2026-07-11 更新）
+
+### ★crypto拡張C0-C3: 候補A(ETH/BTC比率MR)=構造的エッジ皆無でClose / 候補B(ファンディング・ベーシス)=本物だが税+海外リスクで薄すぎ・海外拡張は非推奨（2026-07-11）
+FX botの土日無稼働を埋めるcrypto拡張。設計はChatで確定(memory `[[project_crypto_extension_plan_20260711]]`)=検証規律とBTエンジンを転用しMT5→ccxt置換、国内現物のみ、候補A/B並行BT、税ハンデ(雑所得55%・繰越なし)を最初から織り込む。
+- **C0 基盤**: `.venv_crypto`(ccxt4.5)+`optimizer/fetch_crypto_ohlc.py`(Binance公開API・口座不要=Dukascopy相当の真値役)。ETHBTC/BTCUSDT/ETHUSDT 4h・1d を9年取得(ETHBTCは現物直接上場=真の比率OHLC, 2017-07〜2026-07・19,691本)。data/はgitignore(再取得可)。
+- **C1 候補A=NO-GO(構造的エッジなし)**: `optimizer/crypto_ratio_mr_bt.py`=AUDCAD確定エンジン`run_bt_tiered3`(3段不等分割0.2/0.3/0.5+vol throttle+MA一括/部分利確)を**一切改変せず**ETH/BTC比率へ差し替え。IS=2017-21凍結/OOS=2022-26。コストは比率が0.016-0.117と広く動くため**各区間の中央価格×cost_frac(0.8%往復)でcost_pips換算**しcross-regime歪みを排除。**全スイープ(exit A/B×z_stop×vol_throttle)・全暦年(IS/OOS)でPF<1.0**。決定打=**ゼロコストでもgross PF 0.60(full)/0.44(IS)/0.97(OOS)**=コスト問題でなく信号自体にエッジ無し。WR55%・TP率66%(小さい+24勝多数)だが方向テール損(z_stop-70/time-232)が食い潰す典型的MR死。回帰速度T_reg中央値26本(AUDCAD21と大差なし=「遅い回帰」が主因でもない)。**真因=ETHとBTCは数年単位で乖離(2021アルトシーズン等)しAUDCADの「同一ドライバ→独立トレンド無し→構造的レンジ」が無い**。→FX墓場がcryptoで反復するとの事前予測どおりClose。税引後ゲート以前に構造で落選。
+- **C2 候補B=構造は本物だが薄い(研究のみ・国内執行不可)**: `optimizer/fetch_funding_rates.py`(Binance funding履歴7年)+`optimizer/crypto_basis_research_bt.py`=デルタ中立(現物long+perp short)ファンディング収穫。**全年プラス圏・maxDD僅少1.6-1.9%・市場中立=carry long-only Gridのcrypto版として構造は健全**(BTC損失年0/8)。**但し税引後年率中央=2.6%(gross6.5%→net5.7%→55%課税で2.6%)、OOS中央2.6%・最悪年0.2%**。2020-21の高利回り(gross17-37%)は強気相場の産物で直近OOSは4-13%gross。**counterparty ヘアカット3%/yrを課すとBTC税引後OOS中央1.2%・最悪-2.6%・損失年2/8に崩壊**。
+- **C3 判定**: 候補A=Close(構造的エッジ皆無)。候補B=**海外拡張は非推奨**(carryは本物でDD極小だが、税引後2.6%→ヘアカット後1.2%は海外取引所リスク=破綻/出金停止/規制(FTX級=-100%)を負うに値しない)。土日稼働の動機だけでは正当化不能。**現時点でvps実装候補ゼロ**。将来もし海外執行を再考するならヘアカット前提を精緻化(取引所分散・保険的サイジング)してから。リソースは確定FXエッジ(AUDCAD MR+確定Grid4本+CADCHF追加)へ集約継続。成果物: `optimizer/{fetch_crypto_ohlc,crypto_ratio_mr_bt,fetch_funding_rates,crypto_basis_research_bt}.py`(+_result/_yearly.csv)、`data/{ETHBTC,BTCUSDT,ETHUSDT}_{4h,1d}.csv`・`data/FUNDING_{BTC,ETH}USDT_binance.csv`(再利用可・gitignore)。
 
 ### ★★新戦略確定: AUDCAD(4h)平均回帰・3段不等分割エントリー → 配分(Allocation)がエッジを強化する初の実証・実運用計画+vps実装完了（2026-06-30）
 Grid(平均回帰の自動ナンピン)とは別建付けで、**相関クロスの素のZ-score平均回帰に「資本配分」を最適化**した新戦略。YouTube由来アイデアをChat(Gemini)と往復しPhase1-7+ストレステストで検証。**核心の発見=平均回帰の改善は「エントリーの選別(フィルタ)」でなく「エッジ濃度(高Z)への資本配分」**。検証規律(IS=2015-21凍結/OOS=2022-26/年次WFO/フルコスト/Lookahead排除/次足始値約定)は全Grid踏襲。成果物は全て `optimizer/` 下。

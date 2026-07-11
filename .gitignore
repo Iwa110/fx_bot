@@ -41,6 +41,9 @@ optimizer/news_bt_quick_trades.csv
 # local dukascopy fetch venv
 .venv_dukas/
 
+# local crypto (ccxt) fetch/BT venv
+.venv_crypto/
+
 # macOS / local agent artifacts
 .DS_Store
 **/.DS_Store
