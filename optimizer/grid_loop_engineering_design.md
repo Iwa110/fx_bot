@@ -86,6 +86,9 @@
 - ループの出力上限 = **demo forward-test候補のPR作成まで**。live設定ディレクトリへの書込権限は物理分離(別ディレクトリ+ブランチ保護)。
 - 台帳ステータス遷移: `candidate → gate_passed → approved → demo → live_eligible → live`。live_eligible判定は既存基準(3ヶ月∧TP≥30∧float-stop最低1回発火∧実現PF>1.2)を自動判定、**liveへの遷移だけは人間の明示操作のみ**。
 - **準備タスク#1(人間側・ループ稼働前)**: コアBT `grid_floatstop_bt.py` に部分利確・非対称TP(ラダー深さ別TP)を実装し、静的一致テストを追加する。
+  - **✅完了(2026-07-18)**: 新cfgキー = `tp_mult`(一律TP倍率) / `tp_level_mults`(ラダー深さ別TP倍率リスト=非対称TP) / `ptp_frac`+`ptp_mult`(部分利確: レッグlotの一部を近距離ターゲットで決済、残りは本TPへ。部分決済後もレッグはmax_levelsにカウント=MT5部分決済と同義)。全キーはデフォルトOFFで`cfg.get`読み取り=既存派生スクリプトのシグネチャ非破壊。
+  - **静的一致テスト**: `optimizer/test_grid_floatstop_static.py`。変更前エンジンで凍結した基準(`grid_floatstop_static_baseline.json`: 実データ5ペア+決定論的合成データ、FS/B48発火込み)に対し、(1)新キー不在=完全一致 (2)中立値明示=完全一致 (3)機能ON=発火・差分ありの3点をassert。実データ基準はCLAUDE.md記録値(GBPJPY PF1.96等)と一致確認済み。
+  - **変更不可化(実装完了をもって発効)**: エンジン+テスト+基準JSONのSHA-256を `optimizer/loop/protected_hashes.json` に凍結。Phase 0の `evaluate_candidate.py` は起動時にこれを検証し不一致なら実行拒否とする。以後の人間側エンジン変更は、静的一致テスト再実行+ハッシュ更新を同一コミットで行うこと。
 
 ---
 

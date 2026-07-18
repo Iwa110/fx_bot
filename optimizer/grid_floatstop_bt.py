@@ -14,6 +14,23 @@ Faithful to live grid_monitor.py config (1.00 lot):
 Float-stop modeled intrabar at the adverse bar extreme (low for longs, high for
 shorts) = conservative/faithful worst-case detection, realized at that extreme.
 
+2026-07-18 additions (AI-loop prep task #1, grid_loop_engineering_design.md
+sec 7.5; guarded by test_grid_floatstop_static.py - all new cfg keys default
+OFF and reproduce the frozen pre-change baseline exactly):
+  tp_mult        : uniform per-leg TP distance multiplier (TP = gw * tp_mult).
+                   Default 1.0 = legacy TP = gw.
+  tp_level_mults : list of TP multipliers by ladder depth (asymmetric TP).
+                   Leg added as k-th open leg uses tp_level_mults[k-1]
+                   (last element extends for deeper legs). Overrides tp_mult.
+                   Default None = uniform.
+  ptp_frac       : partial take-profit. Close this fraction of a leg's lot at
+                   a nearer target, remainder rides to the full TP. 0 < f < 1.
+                   Default None = off.
+  ptp_mult       : partial target distance = gw * ptp_mult (default 0.5).
+                   Only used when ptp_frac is set.
+Partial closes keep the leg open (counts toward max_levels) with reduced lot,
+matching an MT5 partial-close implementation on the live side.
+
 Usage:
   python grid_floatstop_bt.py
 """
@@ -108,10 +125,33 @@ def run_backtest(pair, cfg, df, atr_series, ci_series):
     global _QJ
     _QJ = cfg.get('quote_jpy', 1.0)
 
+    # 2026-07-18 knobs (all default OFF = legacy behaviour, see docstring)
+    tp_mult = cfg.get('tp_mult', 1.0)
+    tp_level_mults = cfg.get('tp_level_mults')   # list by ladder depth, or None
+    ptp_frac = cfg.get('ptp_frac')               # 0<f<1 partial close, None = off
+    ptp_mult = cfg.get('ptp_mult', 0.5)
+    if ptp_frac is not None and not (0.0 < ptp_frac < 1.0):
+        raise ValueError('ptp_frac must be in (0, 1) or None')
+
+    def tp_mult_for(depth):
+        if tp_level_mults:
+            return tp_level_mults[min(depth - 1, len(tp_level_mults) - 1)]
+        return tp_mult
+
+    def new_pos(side, price, gw, depth):
+        m = tp_mult_for(depth)
+        p = {'entry': price, 'lot': lot, 'lot0': lot,
+             'tp': price + gw * m if side > 0 else price - gw * m}
+        if ptp_frac:
+            p['ptp'] = price + gw * ptp_mult if side > 0 else price - gw * ptp_mult
+            p['ptp_done'] = False
+        return p
+
     long_pos, short_pos = [], []
     b48_long_start = b48_short_start = None
 
     tp_pnls, b48_pnls, b48_pos_pnls = [], [], []
+    ptp_pnls = []                        # partial take-profit closes
     fs_pnls, fs_pos_pnls = [], []        # float-stop events / per-position
     skip_count = 0
 
@@ -137,31 +177,47 @@ def run_backtest(pair, cfg, df, atr_series, ci_series):
         long_was_max = len(long_pos) >= max_levels
         short_was_max = len(short_pos) >= max_levels
 
+        # ── Partial TP check (before full TP; if both hit in one bar the
+        #    partial books at ptp price, remainder at full tp price) ──
+        if ptp_frac:
+            for p in long_pos:
+                if not p['ptp_done'] and bar_h >= p['ptp']:
+                    part = p['lot0'] * ptp_frac
+                    pnl = pnl_jpy(p['ptp'] - p['entry'], part)
+                    ptp_pnls.append(pnl); realized_pnl += pnl; add_month(ts, pnl)
+                    p['lot'] -= part; p['ptp_done'] = True
+            for p in short_pos:
+                if not p['ptp_done'] and bar_l <= p['ptp']:
+                    part = p['lot0'] * ptp_frac
+                    pnl = pnl_jpy(p['entry'] - p['ptp'], part)
+                    ptp_pnls.append(pnl); realized_pnl += pnl; add_month(ts, pnl)
+                    p['lot'] -= part; p['ptp_done'] = True
+
         # ── TP check ──
         for p in [p for p in long_pos if bar_h >= p['tp']]:
-            pnl = pnl_jpy(p['tp'] - p['entry'], lot)
+            pnl = pnl_jpy(p['tp'] - p['entry'], p['lot'])
             tp_pnls.append(pnl); realized_pnl += pnl; add_month(ts, pnl)
             long_pos.remove(p)
         for p in [p for p in short_pos if bar_l <= p['tp']]:
-            pnl = pnl_jpy(p['entry'] - p['tp'], lot)
+            pnl = pnl_jpy(p['entry'] - p['tp'], p['lot'])
             tp_pnls.append(pnl); realized_pnl += pnl; add_month(ts, pnl)
             short_pos.remove(p)
 
         # ── FLOAT STOP (intrabar adverse extreme) ──
         # Longs hurt by low; shorts hurt by high.
         if long_pos:
-            unreal = sum(pnl_jpy(bar_l - p['entry'], lot) for p in long_pos)
+            unreal = sum(pnl_jpy(bar_l - p['entry'], p['lot']) for p in long_pos)
             if unreal <= float_stop:
-                pos_pnls = [pnl_jpy(bar_l - p['entry'], lot) for p in long_pos]
+                pos_pnls = [pnl_jpy(bar_l - p['entry'], p['lot']) for p in long_pos]
                 ev = sum(pos_pnls)
                 fs_pos_pnls.extend(pos_pnls); fs_pnls.append(ev)
                 realized_pnl += ev; add_month(ts, ev)
                 worst_event = min(worst_event, ev)
                 long_pos = []; b48_long_start = None
         if short_pos:
-            unreal = sum(pnl_jpy(p['entry'] - bar_h, lot) for p in short_pos)
+            unreal = sum(pnl_jpy(p['entry'] - bar_h, p['lot']) for p in short_pos)
             if unreal <= float_stop:
-                pos_pnls = [pnl_jpy(p['entry'] - bar_h, lot) for p in short_pos]
+                pos_pnls = [pnl_jpy(p['entry'] - bar_h, p['lot']) for p in short_pos]
                 ev = sum(pos_pnls)
                 fs_pos_pnls.extend(pos_pnls); fs_pnls.append(ev)
                 realized_pnl += ev; add_month(ts, ev)
@@ -177,7 +233,7 @@ def run_backtest(pair, cfg, df, atr_series, ci_series):
         # ── B48 expiry ──
         if b48_long_start is not None:
             if (ts - b48_long_start).total_seconds() / 3600.0 >= b48_hours:
-                pos_pnls = [pnl_jpy(bar_cl - p['entry'], lot) for p in long_pos]
+                pos_pnls = [pnl_jpy(bar_cl - p['entry'], p['lot']) for p in long_pos]
                 ev = sum(pos_pnls)
                 b48_pos_pnls.extend(pos_pnls); b48_pnls.append(ev)
                 realized_pnl += ev; add_month(ts, ev)
@@ -185,7 +241,7 @@ def run_backtest(pair, cfg, df, atr_series, ci_series):
                 long_pos = []; b48_long_start = None
         if b48_short_start is not None:
             if (ts - b48_short_start).total_seconds() / 3600.0 >= b48_hours:
-                pos_pnls = [pnl_jpy(p['entry'] - bar_cl, lot) for p in short_pos]
+                pos_pnls = [pnl_jpy(p['entry'] - bar_cl, p['lot']) for p in short_pos]
                 ev = sum(pos_pnls)
                 b48_pos_pnls.extend(pos_pnls); b48_pnls.append(ev)
                 realized_pnl += ev; add_month(ts, ev)
@@ -200,11 +256,11 @@ def run_backtest(pair, cfg, df, atr_series, ci_series):
         ci_ok = (not pd.isna(ci)) and (ci > ci_threshold)
         if len(long_pos) == 0:
             if ci_ok:
-                long_pos.append({'entry': bar_cl, 'tp': bar_cl + gw})
+                long_pos.append(new_pos(+1, bar_cl, gw, len(long_pos) + 1))
                 if len(long_pos) == max_levels: b48_long_start = ts
         elif len(long_pos) < max_levels:
             if bar_cl <= min(p['entry'] for p in long_pos) - gw and ci_ok:
-                long_pos.append({'entry': bar_cl, 'tp': bar_cl + gw})
+                long_pos.append(new_pos(+1, bar_cl, gw, len(long_pos) + 1))
                 if len(long_pos) == max_levels: b48_long_start = ts
         else:
             if bar_cl <= min(p['entry'] for p in long_pos) - gw and ci_ok:
@@ -212,17 +268,17 @@ def run_backtest(pair, cfg, df, atr_series, ci_series):
 
         if len(short_pos) == 0:
             if ci_ok:
-                short_pos.append({'entry': bar_cl, 'tp': bar_cl - gw})
+                short_pos.append(new_pos(-1, bar_cl, gw, len(short_pos) + 1))
                 if len(short_pos) == max_levels: b48_short_start = ts
         elif len(short_pos) < max_levels:
             if bar_cl >= max(p['entry'] for p in short_pos) + gw and ci_ok:
-                short_pos.append({'entry': bar_cl, 'tp': bar_cl - gw})
+                short_pos.append(new_pos(-1, bar_cl, gw, len(short_pos) + 1))
                 if len(short_pos) == max_levels: b48_short_start = ts
         else:
             if bar_cl >= max(p['entry'] for p in short_pos) + gw and ci_ok:
                 skip_count += 1
 
-    all_pnls = tp_pnls + b48_pos_pnls + fs_pos_pnls
+    all_pnls = tp_pnls + ptp_pnls + b48_pos_pnls + fs_pos_pnls
     wins = [p for p in all_pnls if p >= 0]
     losses = [p for p in all_pnls if p < 0]
     gp = sum(wins); gl = abs(sum(losses))
@@ -232,6 +288,8 @@ def run_backtest(pair, cfg, df, atr_series, ci_series):
         'pf': round(pf, 4),
         'total_pnl': round(realized_pnl, 0),
         'n_tp': len(tp_pnls),
+        'n_ptp': len(ptp_pnls),
+        'ptp_total': round(sum(ptp_pnls), 0),
         'n_b48': len(b48_pnls),
         'b48_total': round(sum(b48_pnls), 0),
         'n_fstop': len(fs_pnls),
@@ -263,6 +321,8 @@ def main():
         print(f'  PF (net) : {res["pf"]}')
         print(f'  total    : {res["total_pnl"]:>14,.0f} JPY')
         print(f'  TP       : n={res["n_tp"]}')
+        if res['n_ptp']:
+            print(f'  PTP      : n={res["n_ptp"]}  total={res["ptp_total"]:>12,.0f}')
         print(f'  B48      : n={res["n_b48"]}  total={res["b48_total"]:>12,.0f}')
         print(f'  FLOAT-STOP: n={res["n_fstop"]}  total={res["fstop_total"]:>12,.0f}')
         print(f'  worst single forced-exit event: {res["worst_event"]:>12,.0f}')
