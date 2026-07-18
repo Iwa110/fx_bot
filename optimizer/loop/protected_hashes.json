@@ -1,0 +1,9 @@
+{
+ "_comment": "Frozen SHA-256 of the core BT engine and its static-equivalence guard. Written at completion of AI-loop prep task #1 (2026-07-18). Phase 0 evaluate_candidate.py must verify these at startup and refuse to run on mismatch (read-only protection, design sec 7.1/7.5). Any human-side engine change must re-run test_grid_floatstop_static.py and update this file in the same commit.",
+ "frozen_at": "2026-07-18",
+ "sha256": {
+  "optimizer/grid_floatstop_bt.py": "249c9d224141c4c1c0a5a4293750aa0b4c7f0a058ac3c0351dbce1f0c353cc14",
+  "optimizer/test_grid_floatstop_static.py": "8c7400e6a630c8ec0d9ce974e17e6f8314467cf547a6bbc3c4e01fb9c8637e7f",
+  "optimizer/grid_floatstop_static_baseline.json": "e44cfd32efc3ecb72abab1742148d6cf2a63d5c52d2ecfea7463e8e3be8d3467"
+ }
+}
