@@ -1,0 +1,65 @@
+{
+  "_comment": "Static registry of structurally-closed families, seeded from CLAUDE.md 'Top of mind' history (design doc sec 7.2 gate5). A new hypothesis whose family_tag matches an entry here is closed immediately without spending an OOS budget slot. This is a starting list, not exhaustive - the ledger's own closed records (via ledger.get_closed_family_tags()) are checked in addition to this file.",
+  "closed_families": [
+    {
+      "family_tag": "price_pattern_generic_trend",
+      "closed_reason": "Grid補完trendレッグ(案A/B/D)・順張り4戦略10年BT・日足/週足トレンド探索が全滅。トレンドフォロー単体に頑健エッジ無し(価格パターン単体)。",
+      "closed_date": "2026-06-13"
+    },
+    {
+      "family_tag": "low_correlation_only_allocation",
+      "closed_reason": "配分層(vol-target/risk-parity)・レジーム層・三角stat_arbで『相関≈0だがエッジ無し』を繰り返し確認。低相関のみを採用理由にしない。",
+      "closed_date": "2026-06-07"
+    },
+    {
+      "family_tag": "event_blackout",
+      "closed_reason": "NFP/CPI/FOMC前後のエントリー制限は全ペアで無効〜有害(pre-event vol_squeeze・grid_event_trend_gate_bt)。",
+      "closed_date": "2026-06-11"
+    },
+    {
+      "family_tag": "session_gate",
+      "closed_reason": "セッション・ゲート(London/NY overlap等)は薄標本の崖スパイクで棄却、または任意の弱い改善止まり。",
+      "closed_date": "2026-06-13"
+    },
+    {
+      "family_tag": "regime_predictive_dynamic_param",
+      "closed_reason": "地合い持続性テスト(path_eff/variance-ratio/trend-z/CI gate share)は予測力ゼロ(IS/OOS符号反転率42%)。動的パラメータ化全般もPF不変・DDのみスケール。",
+      "closed_date": "2026-06-16"
+    },
+    {
+      "family_tag": "cross_sectional_carry",
+      "closed_reason": "横断的キャリー・ファクター(ドル中立L/S)はIS非selectable、OOS Calmar不達。",
+      "closed_date": "2026-06-15"
+    },
+    {
+      "family_tag": "pairs_cointegration",
+      "closed_reason": "相関クロスのスプレッド共和分平均回帰は共和分ペアが既存クロスへ縮約、かつOOSで残差がrandom walk化。",
+      "closed_date": "2026-06-15"
+    },
+    {
+      "family_tag": "commodity_lead_lag",
+      "closed_reason": "コモディティ->資源通貨のリード/ラグは同時点relationのみで取引可能な予測力ゼロ。",
+      "closed_date": "2026-06-15"
+    },
+    {
+      "family_tag": "carry_crash_tail_hedge",
+      "closed_reason": "carry-crashの状態条件付きヘッジは最悪テール検出不能・LOCO不達・保険コストが方向ベット化。",
+      "closed_date": "2026-06-15"
+    },
+    {
+      "family_tag": "crypto_extension",
+      "closed_reason": "crypto拡張(比率MR/ファンディングベーシス/トレンドフォロー)は税ハードル(繰延buy&holdの構造優位)に全て敗北。",
+      "closed_date": "2026-07-11"
+    },
+    {
+      "family_tag": "grid_complement_drift_sleeve",
+      "closed_reason": "Grid非発火窓の方向ドリフト補完スリーブは5ペア全てOOS PF<1・Sharpe負。",
+      "closed_date": "2026-06-13"
+    },
+    {
+      "family_tag": "bleed_hedge",
+      "closed_reason": "含み損接近時の同方向ヘッジは直後の平均回帰で踏まれ負EV。DD圧縮は保険コスト付き。",
+      "closed_date": "2026-06-08"
+    }
+  ]
+}

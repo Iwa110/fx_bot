@@ -1,0 +1,37 @@
+{
+  "_comment": "Overfitting gate thresholds (design doc sec 7.2). Editable (unlike protected_hashes.json). Confirmed 2026-07-18: added gate6_wfo (wfo_min_pf >= 1.0) per user request; CADCHF added to scope.",
+  "gate1_is_oos": {
+    "is_pf_min": 1.0,
+    "oos_pf_min": 1.2,
+    "decay_max": 0.5
+  },
+  "gate2_sample_size": {
+    "n_trades_per_year_min": 15
+  },
+  "gate3_plateau": {
+    "neighbor_variation_max_pct": 0.30
+  },
+  "gate4_family_budget": {
+    "oos_evaluations_per_month_max": 4
+  },
+  "gate5_graveyard": {
+    "structural_reason_min_len": 20,
+    "banned_reason_patterns": [
+      "price pattern",
+      "価格パターン単体",
+      "low correlation only",
+      "相関が低いので",
+      "低相関のみを理由"
+    ]
+  },
+  "gate6_wfo": {
+    "wfo_min_pf": 1.0
+  },
+  "mc_capital": {
+    "n_mc": 20000,
+    "block_months": 3,
+    "horizon_months": 60,
+    "gap_buffer_default": 1.2,
+    "seed": 42
+  }
+}

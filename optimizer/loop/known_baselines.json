@@ -1,0 +1,46 @@
+{
+  "_comment": "Go-pair baseline cfgs expressible by the frozen grid_floatstop_bt.py core engine (atr_mult/ci_threshold/b48_hours/lot/max_levels/float_stop/quote_jpy + tp_mult/tp_level_mults/ptp_frac/ptp_mult). Live v8 configs also layer regime_short/mom_thr/cull_frac/taper/dir_mode, which the core BT does not implement (derived-engine only, see grid_loop_engineering_design.md sec 7.5 and CLAUDE.md sec 2). Phase 0 candidates are these baselines plus a gain-side delta (tp_level_mults or ptp_frac/ptp_mult) only.",
+  "_sources": "CLAUDE.md 'GridAIループヨンジニアリング設計' sec2 (magic/params) + optimizer/grid_corrcross_screen.py QUOTE_JPY for CADCHF/EURGBP/AUDNZD quote factors",
+  "baselines": {
+    "AUDCAD": {
+      "magic": 20260034,
+      "atr_mult": 1.5,
+      "ci_threshold": 65.0,
+      "b48_hours": 48,
+      "lot": 1.0,
+      "max_levels": 5,
+      "float_stop": -750000.0,
+      "quote_jpy": 108.0
+    },
+    "CADCHF": {
+      "magic": 20260038,
+      "atr_mult": 1.5,
+      "ci_threshold": 65.0,
+      "b48_hours": 48,
+      "lot": 1.0,
+      "max_levels": 5,
+      "float_stop": -943000.0,
+      "quote_jpy": 170.0
+    },
+    "EURGBP": {
+      "magic": 20260035,
+      "atr_mult": 1.5,
+      "ci_threshold": 65.0,
+      "b48_hours": 48,
+      "lot": 1.0,
+      "max_levels": 5,
+      "float_stop": -1320000.0,
+      "quote_jpy": 190.0
+    },
+    "AUDNZD": {
+      "magic": 20260036,
+      "atr_mult": 1.5,
+      "ci_threshold": 65.0,
+      "b48_hours": 48,
+      "lot": 1.0,
+      "max_levels": 5,
+      "float_stop": -625000.0,
+      "quote_jpy": 90.0
+    }
+  }
+}
