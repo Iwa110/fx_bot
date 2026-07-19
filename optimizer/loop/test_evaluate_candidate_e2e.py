@@ -1,15 +1,23 @@
-"""test_evaluate_candidate_e2e.py - Phase 0 mechanism E2E test.
+"""test_evaluate_candidate_e2e.py - Phase 0 mechanism + real-data E2E test.
 
 Drives the full explore -> confirm -> card path through the real CLI
-(evaluate_candidate.py) against a throwaway ledger/review_queue under a temp
-dir, so it never touches the committed optimizer/loop/ledger.jsonl or
-review_queue/. This repo currently only has 2yr CSVs (data/AUDCAD_1h.csv) -
-Dukascopy 11yr fetch is blocked by this environment's network policy - so
-this test exercises the MECHANISM (ledger writes, hash guard, gate wiring,
-budget accounting, card rendering) on a 60/40 proxy split and asserts the
-pipeline honestly flags insufficient_data rather than claiming a real
-gate_passed verdict. Once data/AUDCAD_1h_dukas.csv (etc.) lands, re-running
-this same spec will exercise the real IS(2015-21)/OOS(2022-26) gates.
+(evaluate_candidate.py) against throwaway ledgers/review_queue/data dirs
+under a temp dir, so it never touches the committed
+optimizer/loop/ledger.jsonl or review_queue/.
+
+Two data scenarios are covered:
+  - test_explore_confirm_card_real_data(): uses the repo's real
+    data/AUDCAD_1h_dukas.csv (11yr Dukascopy, fetched 2026-07-19 once this
+    environment's network policy allowed reaching freeserv.dukascopy.com).
+    This exercises the REAL IS(2015-21)/OOS(2022-26)/annual-WFO/MC pipeline
+    and asserts the gate verdicts are self-consistent - it does not assert a
+    specific pass/fail outcome, since that is a property of the strategy,
+    not the harness.
+  - test_insufficient_data_fallback(): points --data-dir at a temp dir
+    containing only a short 2yr legacy CSV (no _dukas.csv sibling), so
+    data_loader.py's real fallback path is exercised in isolation from
+    whatever real data does or doesn't exist in the repo, and asserts
+    confirm() forces status=insufficient_data regardless of gate outcome.
 
 Usage:
   python optimizer/loop/test_evaluate_candidate_e2e.py
@@ -23,6 +31,7 @@ import tempfile
 from pathlib import Path
 
 LOOP_DIR = Path(__file__).resolve().parent
+REPO_ROOT = LOOP_DIR.parent.parent
 sys.path.insert(0, str(LOOP_DIR))
 sys.path.insert(0, str(LOOP_DIR.parent))
 
@@ -31,19 +40,19 @@ import hash_guard  # noqa: E402
 import ledger as L  # noqa: E402
 
 
-def make_args(ledger, review_queue_dir=None, **kw):
-    ns = argparse.Namespace(ledger=str(ledger), data_dir=None,
+def make_args(ledger, review_queue_dir=None, data_dir=None, **kw):
+    ns = argparse.Namespace(ledger=str(ledger), data_dir=str(data_dir) if data_dir else None,
                              review_queue_dir=str(review_queue_dir) if review_queue_dir else None)
     for k, v in kw.items():
         setattr(ns, k, v)
     return ns
 
 
-def write_spec(path, family_tag, values=(0.2, 0.3, 0.4, 0.5, 0.6)):
+def write_spec(path, family_tag, values=(0.2, 0.3, 0.4, 0.5, 0.6), pair='AUDCAD'):
     spec = {
         'family_tag': family_tag,
-        'pair': 'AUDCAD',
-        'base': 'AUDCAD',
+        'pair': pair,
+        'base': pair,
         'structural_reason': (
             '浅い含み益を早期に一部確定させ回転率を上げつつ本TPまでの回復力を残す。'
             'テストHで機構検証のためのダミー構造理由。'
@@ -90,11 +99,17 @@ def test_graveyard_rejects_closed_family(tmp):
     print('[PASS] gate5_graveyard rejects a known-closed family_tag before any BT compute')
 
 
-def test_explore_confirm_card_mechanism(tmp):
-    ledger_path = tmp / 'ledger_main.jsonl'
+def test_explore_confirm_card_real_data(tmp):
+    dukas_path = REPO_ROOT / 'data' / 'AUDCAD_1h_dukas.csv'
+    if not dukas_path.exists():
+        print('[SKIP] data/AUDCAD_1h_dukas.csv not present - skipping real-data test '
+              '(run optimizer/fetch_dukascopy_ohlc.py first)')
+        return
+
+    ledger_path = tmp / 'ledger_real.jsonl'
     review_queue = tmp / 'review_queue'
-    spec_path = tmp / 'spec_main.json'
-    write_spec(spec_path, family_tag='gain_partial_tp_e2e')
+    spec_path = tmp / 'spec_real.json'
+    write_spec(spec_path, family_tag='gain_partial_tp_e2e_real')
 
     args = make_args(ledger_path, review_queue_dir=review_queue, spec=str(spec_path))
     rep_hid = EC.cmd_explore(args)
@@ -104,27 +119,59 @@ def test_explore_confirm_card_mechanism(tmp):
     assert len(records) == 5, f'expected 5 grid-point records, got {len(records)}'
     reps = [r for r in records if r['status'] == 'plateau_selected']
     assert len(reps) == 1 and reps[0]['hypothesis_id'] == rep_hid
-    print(f'[PASS] explore: 5 grid points recorded, representative={rep_hid}')
+    print(f'[PASS] explore (real 11yr data): 5 grid points recorded, representative={rep_hid}')
 
-    confirm_args = make_args(ledger_path, hypothesis_id=rep_hid)
-    result = EC.cmd_confirm(confirm_args)
-    assert result['status'] == 'insufficient_data', (
-        f'expected insufficient_data (only 2yr data present), got {result["status"]}')
-    assert result['is_metrics'] is not None and result['oos_metrics'] is not None
-    assert result['wfo_metrics']['folds'], 'expected at least one WFO fold'
+    result = EC.cmd_confirm(make_args(ledger_path, hypothesis_id=rep_hid))
+    assert result['status'] in ('gate_passed', 'closed'), (
+        f'expected a real gate verdict (gate_passed/closed) on real 11yr data, got {result["status"]}')
+    assert result['data_meta']['sufficient_for_is_oos'] is True
+    assert result['is_metrics']['n_trades'] > 100, 'IS window should have a real sample size over 6+ years'
+    assert result['oos_metrics']['n_trades'] > 50
+    assert len(result['wfo_metrics']['folds']) >= 3, 'annual WFO over 2022-2026 should yield multiple folds'
     assert result['mc_metrics']['req_cap_99'] > 0
-    assert result['gate_results']['gates']['gate1_is_oos']['pf_is'] > 0
-    assert result['oos_consumed_at'] is not None, 'confirm must record OOS budget consumption'
-    print('[PASS] confirm: full IS/OOS/WFO/MC/gates pipeline ran and honestly '
-          'flagged insufficient_data on the 2yr proxy split (not gate_passed)')
+    assert result['baseline_mc_metrics']['req_cap_99'] > 0
+    assert result['oos_consumed_at'] is not None
+    print(f'[PASS] confirm (real data): status={result["status"]} '
+          f'IS_pf={result["is_metrics"]["pf"]} OOS_pf={result["oos_metrics"]["pf"]} '
+          f'wfo_folds={[f["pf"] for f in result["wfo_metrics"]["folds"]]}')
 
-    card_args = make_args(ledger_path, review_queue_dir=review_queue, hypothesis_id=rep_hid)
-    card_path = EC.cmd_card(card_args)
+    card_path = EC.cmd_card(make_args(ledger_path, review_queue_dir=review_queue, hypothesis_id=rep_hid))
     text = card_path.read_text()
     assert card_path.exists()
     assert 'Candidate Card' in text and rep_hid in text
     assert '構造的理由' in text and 'Gate verdicts' in text
-    print(f'[PASS] card: rendered to {card_path.relative_to(tmp)}')
+    assert 'dukas_11yr' in text
+    print(f'[PASS] card (real data): rendered to {card_path.relative_to(tmp)}')
+
+
+def test_insufficient_data_fallback(tmp):
+    """Isolates the insufficient-data fallback path from whatever real data
+    does or doesn't exist in the repo, by pointing --data-dir at a temp dir
+    holding only a short legacy-style CSV (no _dukas.csv sibling)."""
+    fake_data_dir = tmp / 'fake_data'
+    fake_data_dir.mkdir()
+    legacy_src = REPO_ROOT / 'data' / 'AUDCAD_1h.csv'
+    if not legacy_src.exists():
+        print('[SKIP] data/AUDCAD_1h.csv (legacy 2yr) not present - skipping insufficient-data test')
+        return
+    shutil.copy(legacy_src, fake_data_dir / 'AUDCAD_1h.csv')
+
+    ledger_path = tmp / 'ledger_insufficient.jsonl'
+    spec_path = tmp / 'spec_insufficient.json'
+    write_spec(spec_path, family_tag='gain_partial_tp_e2e_insufficient')
+
+    args = make_args(ledger_path, data_dir=fake_data_dir, spec=str(spec_path))
+    rep_hid = EC.cmd_explore(args)
+    assert rep_hid is not None
+
+    result = EC.cmd_confirm(make_args(ledger_path, data_dir=fake_data_dir, hypothesis_id=rep_hid))
+    assert result['status'] == 'insufficient_data', (
+        f'expected insufficient_data on a 2yr-only data dir, got {result["status"]}')
+    assert result['data_meta']['sufficient_for_is_oos'] is False
+    assert result['is_metrics'] is not None and result['oos_metrics'] is not None
+    assert result['gate_results']['gates']['gate1_is_oos']['pf_is'] > 0
+    print('[PASS] confirm (2yr-only data dir): pipeline ran end-to-end and forced '
+          'status=insufficient_data regardless of gate outcome')
 
 
 def test_oos_budget_cap(tmp):
@@ -157,9 +204,10 @@ def main():
         test_hash_guard_ok()
         test_hash_guard_detects_tamper(tmp)
         test_graveyard_rejects_closed_family(tmp)
-        test_explore_confirm_card_mechanism(tmp)
+        test_explore_confirm_card_real_data(tmp)
+        test_insufficient_data_fallback(tmp)
         test_oos_budget_cap(tmp)
-        print('\nALL PHASE 0 E2E MECHANISM TESTS PASSED')
+        print('\nALL PHASE 0 E2E TESTS PASSED')
     finally:
         if args.keep:
             print(f'(kept temp dir: {tmp})')

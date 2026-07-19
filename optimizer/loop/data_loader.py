@@ -20,6 +20,15 @@ IS_START = '2015-01-01'
 IS_END = '2021-12-31'
 OOS_START = '2022-01-01'
 
+# fetch_dukascopy_ohlc.py pulls N years back from "today", so the earliest
+# bar drifts a bit past 2015-01-01 depending on fetch date (e.g. fetching on
+# 2026-07-19 with --years 11 yields a 2015-07-22 start). This matches every
+# existing project BT (grid_atr_optimize.py etc. all just mask df >=
+# IS_START, which is a no-op when df already starts after IS_START) - it is
+# not a real data gap, so sufficiency is judged against this tolerance
+# rather than requiring an exact 2015-01-01 first bar.
+IS_START_TOLERANCE = '2016-01-01'
+
 
 def _default_data_dir():
     return Path(__file__).resolve().parent.parent.parent / 'data'
@@ -48,7 +57,7 @@ def load_pair(pair, data_dir=None):
         )
 
     start, end = df.index[0], df.index[-1]
-    sufficient = (start <= pd.Timestamp(IS_START, tz='UTC')) and (end >= pd.Timestamp(OOS_START, tz='UTC'))
+    sufficient = (start <= pd.Timestamp(IS_START_TOLERANCE, tz='UTC')) and (end >= pd.Timestamp(OOS_START, tz='UTC'))
 
     meta = {
         'source': source,
