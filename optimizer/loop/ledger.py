@@ -107,21 +107,37 @@ def next_hypothesis_id(ledger_path=None):
 
 
 def oos_budget_used(month, ledger_path=None):
-    """Counts distinct hypotheses that consumed an OOS evaluation (i.e. ran
-    `confirm`) in the given YYYY-MM month, for gate4's monthly cap."""
-    used = 0
+    """Counts distinct family_tags that consumed at least one OOS evaluation
+    (i.e. ran `confirm`) in the given YYYY-MM month, for gate4's monthly cap.
+
+    Confirming the same family_tag across several pairs is one hypothesis
+    validated on several markets, not several hypotheses - it counts once
+    against the monthly cap, not once per pair (2026-07-19, per user
+    instruction during the Phase 1 session)."""
+    families = set()
     for rec in get_latest_per_id(ledger_path).values():
         consumed_at = rec.get('oos_consumed_at')
         if consumed_at and consumed_at.startswith(month):
-            used += 1
-    return used
+            tag = rec.get('family_tag')
+            if tag:
+                families.add(tag)
+    return len(families)
 
 
-def get_closed_family_tags(ledger_path=None):
-    """Family tags the ledger itself has already closed (in addition to the
-    static optimizer/loop/graveyard.json seed list)."""
+def get_closed_family_pair_tags(ledger_path=None):
+    """(family_tag, pair) pairs the ledger itself has closed.
+
+    This is the ledger-derived half of gate5's graveyard check, scoped per
+    pair: a close on one pair must not block explore for a different pair
+    under the same family_tag, since testing the same hypothesis across
+    several markets is the normal Phase 1 workflow, not re-litigation.
+    (2026-07-19, per user instruction during the Phase 1 session.)
+
+    The static optimizer/loop/graveyard.json registry is the human-curated,
+    cross-pair half - it still blocks a family_tag unconditionally regardless
+    of pair; only this ledger-derived half is pair-scoped."""
     tags = set()
     for rec in get_latest_per_id(ledger_path).values():
-        if rec.get('status') == 'closed' and rec.get('family_tag'):
-            tags.add(rec['family_tag'])
+        if rec.get('status') == 'closed' and rec.get('family_tag') and rec.get('pair'):
+            tags.add((rec['family_tag'], rec['pair']))
     return tags

@@ -69,7 +69,12 @@ def gate4_family_budget(family_tag, month, ledger_path, cfg):
             'cap': th['oos_evaluations_per_month_max'], 'month': month}
 
 
-def gate5_graveyard(family_tag, structural_reason, graveyard, ledger_path, cfg):
+def gate5_graveyard(family_tag, pair, structural_reason, graveyard, ledger_path, cfg):
+    """The static graveyard.json registry blocks a family_tag unconditionally
+    (human-curated, cross-pair conclusion). The ledger's own closed records
+    only block the specific (family_tag, pair) that actually closed, so a
+    close on one pair does not pre-empt testing the same family on a
+    different pair (2026-07-19, see ledger.get_closed_family_pair_tags)."""
     th = cfg['gate5_graveyard']
     import ledger as L
 
@@ -83,10 +88,13 @@ def gate5_graveyard(family_tag, structural_reason, graveyard, ledger_path, cfg):
         if pattern.lower() in lowered:
             return {'pass': False, 'reason': f'banned pattern matched: "{pattern}"'}
 
-    closed_tags = {e['family_tag'] for e in graveyard.get('closed_families', [])}
-    closed_tags |= L.get_closed_family_tags(ledger_path)
-    if family_tag in closed_tags:
-        return {'pass': False, 'reason': f'family_tag "{family_tag}" already closed in graveyard'}
+    static_closed_tags = {e['family_tag'] for e in graveyard.get('closed_families', [])}
+    if family_tag in static_closed_tags:
+        return {'pass': False, 'reason': f'family_tag "{family_tag}" already closed in graveyard.json'}
+
+    if (family_tag, pair) in L.get_closed_family_pair_tags(ledger_path):
+        return {'pass': False,
+                'reason': f'family_tag "{family_tag}" already closed for pair "{pair}" in ledger'}
 
     return {'pass': True}
 
@@ -102,7 +110,7 @@ def gate6_wfo(wfo_pf_list, cfg):
 
 
 def run_all_gates(*, is_pf, oos_pf, n_is, n_oos, n_years_is, n_years_oos,
-                   neighbor_pfs, center_pf, family_tag, month, ledger_path,
+                   neighbor_pfs, center_pf, family_tag, pair, month, ledger_path,
                    structural_reason, graveyard, wfo_pf_list, cfg):
     """Runs all 6 gates and returns {'pass': bool, 'gates': {...}}. All gates
     must pass for the overall candidate to be gate_passed."""
@@ -111,7 +119,7 @@ def run_all_gates(*, is_pf, oos_pf, n_is, n_oos, n_years_is, n_years_oos,
         'gate2_sample_size': gate2_sample_size(n_is, n_oos, n_years_is, n_years_oos, cfg),
         'gate3_plateau': gate3_plateau(neighbor_pfs, center_pf, cfg),
         'gate4_family_budget': gate4_family_budget(family_tag, month, ledger_path, cfg),
-        'gate5_graveyard': gate5_graveyard(family_tag, structural_reason, graveyard, ledger_path, cfg),
+        'gate5_graveyard': gate5_graveyard(family_tag, pair, structural_reason, graveyard, ledger_path, cfg),
         'gate6_wfo': gate6_wfo(wfo_pf_list, cfg),
     }
     overall = all(g['pass'] for g in gates.values())

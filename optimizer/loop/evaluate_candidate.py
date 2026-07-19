@@ -106,7 +106,7 @@ def cmd_explore(args):
 
     # graveyard check up-front - do not spend even the cheap IS compute on a
     # closed family.
-    gy_check = GT.gate5_graveyard(family_tag, structural_reason, graveyard, args.ledger, gate_cfg)
+    gy_check = GT.gate5_graveyard(family_tag, pair, structural_reason, graveyard, args.ledger, gate_cfg)
     if not gy_check['pass']:
         print(f'[REJECTED at explore] gate5_graveyard: {gy_check}')
         return None
@@ -255,7 +255,7 @@ def cmd_confirm(args):
         n_is=is_m['n_trades'], n_oos=oos_m['n_trades'] if oos_m else 0,
         n_years_is=is_m['n_years'], n_years_oos=oos_m['n_years'] if oos_m else 1e-6,
         neighbor_pfs=neighbor_pfs, center_pf=center_pf,
-        family_tag=family_tag, month=month, ledger_path=args.ledger,
+        family_tag=family_tag, pair=pair, month=month, ledger_path=args.ledger,
         structural_reason=record['structural_reason'], graveyard=graveyard,
         wfo_pf_list=wfo_pf_list, cfg=gate_cfg,
     )

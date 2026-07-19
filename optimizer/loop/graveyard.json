@@ -1,5 +1,5 @@
 {
-  "_comment": "Static registry of structurally-closed families, seeded from CLAUDE.md 'Top of mind' history (design doc sec 7.2 gate5). A new hypothesis whose family_tag matches an entry here is closed immediately without spending an OOS budget slot. This is a starting list, not exhaustive - the ledger's own closed records (via ledger.get_closed_family_tags()) are checked in addition to this file.",
+  "_comment": "Static registry of structurally-closed families, seeded from CLAUDE.md 'Top of mind' history (design doc sec 7.2 gate5). A new hypothesis whose family_tag matches an entry here is closed immediately (regardless of pair) without spending an OOS budget slot. This is a starting list, not exhaustive - the ledger's own closed records (via ledger.get_closed_family_pair_tags(), scoped per (family_tag, pair) since 2026-07-19) are checked in addition to this file.",
   "closed_families": [
     {
       "family_tag": "price_pattern_generic_trend",
