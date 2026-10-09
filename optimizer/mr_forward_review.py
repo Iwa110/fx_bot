@@ -96,7 +96,7 @@ def build_clusters(df: pd.DataFrame) -> pd.DataFrame:
         })
     cl = pd.DataFrame(rows).sort_values('close_time').reset_index(drop=True)
     cl['hold_h'] = (cl['close_time'] - cl['open_time']).dt.total_seconds() / 3600.0
-    cl['hold_bars'] = (cl['hold_h'] / 4.0).round().astype(int)
+    cl['hold_bars'] = (cl['hold_h'] / 4.0).round()  # open_time欠損行はNaNのまま(median/quantileはNaNを除外)
     cl['close_jst'] = cl['close_time'].dt.tz_localize('UTC').dt.tz_convert(JST)
     cl['win'] = cl['net'] > 0
     return cl
