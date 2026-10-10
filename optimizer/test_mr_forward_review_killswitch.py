@@ -7,7 +7,8 @@ test_mr_forward_review_killswitch.py - mr_forward_review.py のキルスイッ�
 (=回帰テストで境界を担保する)。
 
 対象: kill_check() / promo_check() (純関数, dictを受けて判定dictを返す) と、
-      summarize() の pf_12mo 計算(時系列クラスタ -> ローリング12ヶ月PF)の結合経路。
+      summarize() の pf_12mo 計算(時系列クラスタ -> ローリング12ヶ月PF)の結合経路、
+      および --basket バックストップ(mc95_jpy_override / load_mr の複数magic合算)。
 pytest不要(本プロジェクトの既存規約: test_grid_floatstop_static.py と同じ plain-assert 形式)。
 
 Usage: python3 optimizer/test_mr_forward_review_killswitch.py   (exit 0 = 全件PASS)
@@ -161,6 +162,42 @@ s_h = R.summarize(cl_healthy, lot_scale=1.0)
 kc_h = R.kill_check(s_h)
 check('対照(連敗を除いた健全系列)はTRIGGERしない', not kc_h['TRIGGER'][0],
       f"pf_12mo={s_h['pf_12mo']:.2f} maxDD={s_h['max_dd']:,.0f}")
+
+print('\n' + '=' * 78)
+print('[6] --basket バックストップ: mc95_jpy_override / load_mr の複数magic合算')
+print('=' * 78)
+# summarize の mc95_jpy_override: override無しなら従来通り REF(AUDCAD) 基準で計算される
+s_ref = R.summarize(cl_healthy, lot_scale=1.0)
+expected_ref = R.REF['mc95_lotpip'] * R.REF['pip_value_jpy'] * 1.0
+check('override無しはREF(現PAIR)基準のmc95_jpyになる', abs(s_ref['mc95_jpy'] - expected_ref) < 1e-6,
+      f"mc95_jpy={s_ref['mc95_jpy']:,.0f} expected={expected_ref:,.0f}")
+
+# mc95_jpy_override指定時はREFを無視してその値(xlot_scale)を使う
+s_ov = R.summarize(cl_healthy, lot_scale=1.0, mc95_jpy_override=R.BASKET_REQ_CAP_99_JPY)
+check('override指定時はbasket_req_cap_99を使う(lot_scale=1.0)',
+      abs(s_ov['mc95_jpy'] - R.BASKET_REQ_CAP_99_JPY) < 1e-6, f"mc95_jpy={s_ov['mc95_jpy']:,.0f}")
+s_ov2 = R.summarize(cl_healthy, lot_scale=0.5, mc95_jpy_override=R.BASKET_REQ_CAP_99_JPY)
+check('overrideもlot_scaleで比例スケールされる',
+      abs(s_ov2['mc95_jpy'] - R.BASKET_REQ_CAP_99_JPY * 0.5) < 1e-6, f"mc95_jpy={s_ov2['mc95_jpy']:,.0f}")
+
+# load_mr(magics=[...]) で複数ペアの生レッグが正しく連結される(=n行が単純合算と一致)
+if R.HISTORY_CSV.exists():
+    magic_ac, magic_cc = R.PAIRS['AUDCAD']['magic'], R.PAIRS['CADCHF']['magic']
+    df_ac = R.load_mr([magic_ac])
+    df_cc = R.load_mr([magic_cc])
+    df_both = R.load_mr([magic_ac, magic_cc])
+    check('load_mr(複数magic)は単独読み込みの合計行数と一致',
+          len(df_both) == len(df_ac) + len(df_cc),
+          f"both={len(df_both)} ac+cc={len(df_ac)}+{len(df_cc)}")
+    # build_clusters は symbol がキーに入るため両ペアを混線させず別クラスタに分離するはず
+    cl_both = R.build_clusters(df_both) if not df_both.empty else pd.DataFrame()
+    cl_ac = R.build_clusters(df_ac) if not df_ac.empty else pd.DataFrame()
+    cl_cc = R.build_clusters(df_cc) if not df_cc.empty else pd.DataFrame()
+    check('build_clusters(両magic)のクラスタ数は単独2本の合計と一致(symbolキーで混線しない)',
+          len(cl_both) == len(cl_ac) + len(cl_cc),
+          f"both={len(cl_both)} ac+cc={len(cl_ac)}+{len(cl_cc)}")
+else:
+    print('  [skip] history.csv 無し(実データ連結テストはskip)')
 
 print('\n' + '=' * 78)
 print(f"結果: PASS={len(PASS)}  FAIL={len(FAIL)}")

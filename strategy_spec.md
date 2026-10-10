@@ -1226,6 +1226,6 @@ heartbeat alive side=flat legs=0 z=0.43 sma=0.65510 atr_pct=0.31 held=0bar
 **キルスイッチ条件案（個別キルスイッチに「バスケット」バックストップを追加）**:
 1. **個別キルスイッチ（既存, 計画§4, `mr_forward_review.kill_check`）が第一防衛線**: ローリング12ヶ月PF<1.0（n≥10）、または実現maxDD>そのペア単独のMC95。
 2. **バスケット・キルスイッチ（新設, バックストップ）**: 両ペアを合算した「ローリング12ヶ月の実現PF（基準: `pf_12mo`と同じロジックをマージ後の時系列に適用）」が1.0未満、**または**合算の実現maxDDが `basket_req_cap_99 × lot_scale` を超過。これは「各ペア単独では未発火だが、同時保有による相関構造の変化（想定していた低相関が崩れる）で複合ドローダウンが膨らむ」ケースを捕捉するための層であり、個別キルスイッチの代替ではなく上乗せ。発火時は**両ペアの新規エントリーを停止**し、月次相関（本節表の+0.073〜+0.13）が実際に拡大していないかを再検証する（`[[project_mr_health_monitor_20260716]]`の「予測でなく実現ベースの決定論モニタに集約」方針と同じ設計思想）。
-3. 実装は未着手（本節は設計のみ）。既存 `mr_forward_review.py --json --pair {AUDCAD,CADCHF}` の出力を `daily_gate.py` 側で合算し、上記2条件を追加するのが最小実装（新スクリプトを増やさずに済む）。
+3. **実装済み（2026-10-10）**: `mr_forward_review.py --basket`（AUDCAD+CADCHFの生レッグを連結→同じクラスタ集約→合算PF/maxDD/ローリング12moPFを算出し、`mc95_jpy`は`basket_req_cap_99`で上書き）を追加し、`kill_check()`をそのまま再利用。`daily_gate.py`が個別2回の呼び出しに加えてこれも実行し、発火時は同じ`mr_kill`フラグ型で`BASKET(AUDCAD+CADCHF)`ラベルの検知を追加。回帰テストは `optimizer/test_mr_forward_review_killswitch.py` [6]。
 
 **留保**: 本バスケットMC95はBT（2015-2026）由来。実デモは2026-07開始で両ペア合計n=56クラスタのみのため、相関前提（+0.073〜+0.13）がデモ期間でも保たれているかは要継続監視。また `audcad_stress_test.py` を現状のまま再実行すると**高ボラ・ロットスロットルが効いていない値（MC95=637 lot-pip）が出る**（`_Args`に`vol_throttle_th`が渡っておらず`run_bt_tiered3`既定値1.01=OFFで評価されるため）。本節の数値は`mr_tiered_transfer_bt.make_cfg`（=デプロイ済み`vps/mr_monitor.py`と同一cfg）を直接使う`mr_joint_basket_mc.py`で算出しており、この食い違いの影響は受けていない。
