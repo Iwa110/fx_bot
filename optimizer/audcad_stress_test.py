@@ -43,7 +43,13 @@ class _Args:
                  atr_n=14, atr_lookback=500, ema_span=5, rsi_n=7, rsi_os=30, rsi_ob=70,
                  confirm_window=6, adx_max=25.0, slope_max=1.0, z_in2=2.5, tier_lot=0.5,
                  htf_tf='4h', htf_adx_n=14, htf_slope_ma=50, htf_slope_lb=10,
-                 tier3_zs=[2.0, 2.5, 3.0], tier3_lots=[0.2, 0.3, 0.5], partial_z=1.5)
+                 tier3_zs=[2.0, 2.5, 3.0], tier3_lots=[0.2, 0.3, 0.5], partial_z=1.5,
+                 # 高ボラ・ロットスロットル(vps/mr_monitor.py PAIR_CONFIG['AUDCAD']と同値:
+                 # ATRパーセンタイル(t-1)>=vol_throttle_th で全段lot x vol_throttle_mult)。
+                 # base_cfg()はこの2キーをそのままcfgへ転記するだけ(run_bt_tiered3側で
+                 # cfg.get('vol_throttle_th', 1.01)として読まれる。1.01=実質OFF)。
+                 # 旧 vol_hi/vol_hi_mult は別の未使用経路で、tiered3エンジンはここを見ない。
+                 vol_throttle_th=0.70, vol_throttle_mult=0.5)
         d.update(kw)
         self.__dict__.update(d)
 

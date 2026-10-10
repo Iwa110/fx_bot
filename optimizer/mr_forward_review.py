@@ -49,7 +49,14 @@ PAIRS = {
     # optimizer/audcad_mr_deployment_plan.md / audcad_stress_test.py
     'AUDCAD': {'magic': 20260050, 'tag': 'MR_AC',
                'full_pf': 1.61, 'oos_pf': 2.57, 'wr': 0.71,
-               'mc95_lotpip': 398.0,        # throttle後 MC maxDD 95%ile (lot-pip)
+               # mc95_lotpip: 2026-10-10修正。旧398.0はaudcad_stress_test.pyがvol_throttle_th
+               # (高ボラ・ロットスロットル)を base_cfg() へ渡しておらず実質throttle OFFで
+               # 計算されていた不整合値(修正前に再現すると637 lot-pipが出る)。_Args/base_cfg
+               # にvol_throttle_th/vol_throttle_mult配線を追加し再計算した411(=throttle後 MC
+               # maxDD 95%ile)に更新。optimizer/mr_joint_basket_mc.py(別エンジン経路
+               # mr_tiered_transfer_bt.make_cfgベース, 同一seed/n_iter)の410.7と一致し
+               # クロスチェック済み。
+               'mc95_lotpip': 410.7,
                'pip_value_jpy': 1080.0},    # AUDCAD 1.0lot の 1pip ≒ 10CAD × CADJPY108
     # optimizer/mr_tiered_transfer_best.csv (IS1.28/OOS1.26/full1.28, exit=B/z_stop=4.0/vt=0.9)
     # mc95_lotpip: mr_tiered_transfer_bt.py --mc で算出(full期間トレード順シャッフル10,000回、

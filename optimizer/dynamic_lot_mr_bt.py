@@ -613,6 +613,12 @@ def base_cfg(args):
         'max_hold': args.max_hold, 'zk': args.zk, 'max_lot': args.max_lot,
         'squeeze_lo': args.squeeze_lo, 'squeeze_mult': args.squeeze_mult,
         'vol_hi': args.vol_hi, 'vol_hi_mult': args.vol_hi_mult,
+        # run_bt_tiered3 の高ボラ・ロットスロットル(cfg.get('vol_throttle_th', 1.01)で読まれる;
+        # 'vol_hi'/'vol_hi_mult'は別の未使用経路でtiered3はそこを見ない)。getattrはこのCLI/他の
+        # 呼び出し元(dynamic_lot_mr_bt.py の argparse Namespace 等)が未定義のままでも
+        # 1.01/1.0(=実質OFF)で既存動作を変えないためのデフォルト。
+        'vol_throttle_th': getattr(args, 'vol_throttle_th', 1.01),
+        'vol_throttle_mult': getattr(args, 'vol_throttle_mult', 1.0),
         'sizing_mode': 'fixed',
         'confirm_mode': 'none', 'confirm_window': args.confirm_window,
         'rsi_os': args.rsi_os, 'rsi_ob': args.rsi_ob,
