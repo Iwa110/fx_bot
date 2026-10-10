@@ -1404,6 +1404,40 @@ Tier1 |z|>=2.0 -> 0.2 lot ;  Tier2 |z|>=2.5 -> 0.3 ;  Tier3 |z|>=3.0 -> 0.5
     <pre>powershell -ExecutionPolicy Bypass -File C:\Users\Administrator\fx_bot\vps\restart_mr.ps1
 python mr_monitor.py --pair CADCHF --broker axiory</pre>
     <p>ログ: <code>mr_log_{PAIR}_{broker}.txt</code> / State: <code>mr_monitor_state_{PAIR}_{broker}.json</code>。<b>live は demo フォワードテスト完走まで拒否（LIVE_LOT_SCALE=0）。CADCHF の live ロットは CADCHF 自身の MC95 DD から算定（AUDCAD 値を流用しない）。</b></p>
+
+    <h3>バスケット（AUDCAD+CADCHF 同時稼働）昇格/キルスイッチ設計（2026-10-10）</h3>
+    <p>各ペア単独のゲート/キルスイッチ（<code>mr_forward_review.py</code>）は2本が<b>同一アカウントで同時稼働</b>することを考慮しない。両ペアのBTトレード列を時系列マージし合算MC95を算出（<code>optimizer/mr_joint_basket_mc.py</code>）した上で、バスケット単位の条件を追加する。</p>
+    <p>手法2方式（JPY換算: AUDCAD 1,080円/CADCHF 1,850円 per lot-pip, lot_scale=1.0）: <b>(a) トレード順シャッフルMC</b>（<code>audcad_stress_test.mc_maxdd</code>と同一手法を2本マージ列へ流用, 10,000回）/ <b>(b) ブロックブートストラップ</b>（<code>grid_joint_stepb.py</code>と同一手法。暦月0埋め整列の月次バスケットを先に合算してから block=3/horizon=60mo/20000回でリサンプル＝月内同時点相関を保持）。</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>系列</th><th>手法</th><th>MC50</th><th>MC95</th><th>MC99</th><th>MC99.9</th></tr></thead>
+        <tbody>
+          <tr><td>AUDCAD単独</td><td>shuffle</td><td>—</td><td>443,575円</td><td>536,496円</td><td>—</td></tr>
+          <tr><td>CADCHF単独</td><td>shuffle</td><td>—</td><td>805,317円</td><td>966,469円</td><td>—</td></tr>
+          <tr><td>単純合算（線形和）</td><td>shuffle</td><td>—</td><td>1,248,892円</td><td>—</td><td>—</td></tr>
+          <tr><td><b>BASKET</b></td><td>shuffle</td><td>495,847円</td><td><b>774,353円</b></td><td>949,907円</td><td>1,154,502円</td></tr>
+          <tr><td>AUDCAD単独</td><td>block</td><td>—</td><td>378,966円</td><td>513,718円</td><td>—</td></tr>
+          <tr><td>CADCHF単独</td><td>block</td><td>—</td><td>623,216円</td><td>833,329円</td><td>—</td></tr>
+          <tr><td>単純合算（線形和）</td><td>block</td><td>—</td><td>1,002,182円</td><td>—</td><td>—</td></tr>
+          <tr><td><b>BASKET</b></td><td>block</td><td>321,986円</td><td><b>653,232円</b></td><td>861,586円</td><td>1,179,059円</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>月次相関 AUDCAD⟷CADCHF = +0.073〜+0.13（弱相関）のため、<b>バスケットMC95は単純合算の線形和より約35〜38%小さい</b>。実現バスケットmaxDD（時系列どおり, BTフル期間）= 508,560円。</p>
+    <p><b>採用基準（保守側＝2手法の大きい方）</b>: <code>basket_req_cap_99 = 949,907円</code>（lot_scale=1.0, shuffle手法の99%ile。block手法861,586円より高く保守的）。</p>
+    <p><b>昇格条件案（個別ゲートにバスケット条件を追加する2段構成）</b>:</p>
+    <ol>
+      <li><b>個別ゲート（既存, 計画§5）が両ペアともクリア</b>: 3ヶ月 ∧ 約定≥30 ∧ ハード/タイムストップ最低1回発火 ∧ 実現PF&gt;1.2。2026-10-10時点: CADCHF=クリア（96日/n30/SL12回/PF2.29）、AUDCAD=未達（86日/n26）。</li>
+      <li><b>バスケット条件（新設）</b>: 両ペアの実約定を時系列マージした合算の実現maxDDが <code>basket_req_cap_99 × lot_scale</code> を一度も超過していないこと。</li>
+      <li>live ロットは <code>lot_scale = 許容DD予算 ÷ basket_req_cap_99</code> で算定し、AUDCAD/CADCHF 双方に<b>同一のlot_scale</b>を適用（単独MC95から個別算定すると合算リスクを過小評価／単純合算基準では過度に保守的）。</li>
+    </ol>
+    <p><b>キルスイッチ条件案（個別キルスイッチにバスケット・バックストップを追加）</b>:</p>
+    <ol>
+      <li><b>個別キルスイッチ（既存, 計画§4, <code>mr_forward_review.kill_check</code>）が第一防衛線</b>: ローリング12ヶ月PF&lt;1.0（n≥10）、または実現maxDD&gt;そのペア単独のMC95。</li>
+      <li><b>バスケット・キルスイッチ（新設, バックストップ）</b>: 両ペア合算のローリング12ヶ月実現PFが1.0未満、<b>または</b>合算の実現maxDDが <code>basket_req_cap_99 × lot_scale</code> を超過。各ペア単独では未発火でも相関構造の変化で複合DDが膨らむケースを捕捉する上乗せ層。発火時は両ペアの新規エントリーを停止し月次相関を再検証（<code>project_mr_health_monitor_20260716</code>「実現ベースの決定論モニタ」と同じ思想）。</li>
+      <li>実装は未着手（本節は設計のみ）。<code>mr_forward_review.py --json --pair {AUDCAD,CADCHF}</code> の出力を <code>daily_gate.py</code> 側で合算し上記2条件を追加するのが最小実装。</li>
+    </ol>
+    <p style="color:var(--muted);font-size:13px;">留保: 本バスケットMC95はBT（2015-2026）由来。デモは2026-07開始でn=56クラスタのみのため相関前提が保たれているか継続監視が必要。また<code>audcad_stress_test.py</code>を現状のまま再実行すると高ボラ・ロットスロットルが効いていない値（MC95=637 lot-pip）が出る（<code>_Args</code>に<code>vol_throttle_th</code>が渡らず<code>run_bt_tiered3</code>既定値1.01=OFFで評価されるため）。本節は<code>mr_tiered_transfer_bt.make_cfg</code>（デプロイ済み<code>vps/mr_monitor.py</code>と同一cfg）を直接使う<code>mr_joint_basket_mc.py</code>で算出しており影響を受けていない。</p>
   </div>
 </div>
 
