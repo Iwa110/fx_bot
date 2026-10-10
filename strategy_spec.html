@@ -1435,7 +1435,7 @@ python mr_monitor.py --pair CADCHF --broker axiory</pre>
     <ol>
       <li><b>個別キルスイッチ（既存, 計画§4, <code>mr_forward_review.kill_check</code>）が第一防衛線</b>: ローリング12ヶ月PF&lt;1.0（n≥10）、または実現maxDD&gt;そのペア単独のMC95。</li>
       <li><b>バスケット・キルスイッチ（新設, バックストップ）</b>: 両ペア合算のローリング12ヶ月実現PFが1.0未満、<b>または</b>合算の実現maxDDが <code>basket_req_cap_99 × lot_scale</code> を超過。各ペア単独では未発火でも相関構造の変化で複合DDが膨らむケースを捕捉する上乗せ層。発火時は両ペアの新規エントリーを停止し月次相関を再検証（<code>project_mr_health_monitor_20260716</code>「実現ベースの決定論モニタ」と同じ思想）。</li>
-      <li>実装は未着手（本節は設計のみ）。<code>mr_forward_review.py --json --pair {AUDCAD,CADCHF}</code> の出力を <code>daily_gate.py</code> 側で合算し上記2条件を追加するのが最小実装。</li>
+      <li><b>実装済み（2026-10-10）</b>: <code>mr_forward_review.py --basket</code>（AUDCAD+CADCHFの生レッグを連結→同じクラスタ集約→合算PF/maxDD/ローリング12moPFを算出し、<code>mc95_jpy</code>は<code>basket_req_cap_99</code>で上書き）を追加し<code>kill_check()</code>をそのまま再利用。<code>daily_gate.py</code>が個別2回の呼び出しに加えてこれも実行し、発火時は同じ<code>mr_kill</code>フラグ型で<code>BASKET(AUDCAD+CADCHF)</code>ラベルの検知を追加。回帰テストは<code>optimizer/test_mr_forward_review_killswitch.py</code> [6]。</li>
     </ol>
     <p style="color:var(--muted);font-size:13px;">留保: 本バスケットMC95はBT（2015-2026）由来。デモは2026-07開始でn=56クラスタのみのため相関前提が保たれているか継続監視が必要。また<code>audcad_stress_test.py</code>を現状のまま再実行すると高ボラ・ロットスロットルが効いていない値（MC95=637 lot-pip）が出る（<code>_Args</code>に<code>vol_throttle_th</code>が渡らず<code>run_bt_tiered3</code>既定値1.01=OFFで評価されるため）。本節は<code>mr_tiered_transfer_bt.make_cfg</code>（デプロイ済み<code>vps/mr_monitor.py</code>と同一cfg）を直接使う<code>mr_joint_basket_mc.py</code>で算出しており影響を受けていない。</p>
   </div>

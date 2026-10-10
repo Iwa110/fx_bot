@@ -10,7 +10,8 @@ flags 条件:
   - fs_slippage    : LIVE Grid の float-stop(_FS) 実損 > 設定(FLOAT_STOP×LIVE_LOT)×1.3
   - unexpected_trade: LIVE で想定外の magic/symbol(既知の手動取引は除外)
   - margin         : LIVE でストップアウト([so ...])発生 / account_snapshot.csv の維持率<閾値
-  - mr_kill        : MR_AC / MR_CC キルスイッチ(12moPF<1.0 or maxDD>MC95)
+  - mr_kill        : MR_AC / MR_CC キルスイッチ(12moPF<1.0 or maxDD>MC95)。BASKET(両ペア合算,
+                     strategy_spec.md§16)のバックストップも同じ flag type で検出する。
   - grid_promote   : LIVE Grid ペアが昇格条件(3ヶ月∧TP≥30∧FS発火∧PF>1.2)を達成
 
 Usage:
@@ -219,6 +220,18 @@ def main():
             mrs[pair] = None
             flags.append({'type': 'script_error', 'detail': f'mr_forward_review {pair} {e}'})
 
+    # バスケット・キルスイッチ(strategy_spec.md§16): 個別キルスイッチ(上記)が未発火でも
+    # AUDCAD+CADCHF合算の複合ドローダウン/相関構造の変化を捕捉するバックストップ層。
+    mr_basket = None
+    rc, out, err = run_script(['optimizer/mr_forward_review.py', '--json', '--basket'])
+    raw['mr_forward_review_BASKET'] = out
+    try:
+        if rc != 0:
+            raise RuntimeError(f'rc={rc}: {err.strip()[-300:]}')
+        mr_basket = json.loads(out)
+    except Exception as e:
+        flags.append({'type': 'script_error', 'detail': f'mr_forward_review BASKET {e}'})
+
     # ── 2) history.csv から LIVE 逸脱 / 昇格 / 当日損益 ──
     live_today = demo_today = 0.0
     n_live_today = 0
@@ -253,6 +266,18 @@ def main():
                           'detail': f"{label} キルスイッチ {','.join(why)} "
                                     f"12moPF={float(mr['pf_12mo']):.2f} "
                                     f"maxDD={float(mr['max_dd']):,.0f}/MC95={float(mr['mc95_jpy']):,.0f}円"})
+
+    if mr_basket is not None and mr_basket.get('n', 0) > 0:
+        mr_txts.append(f"BASKET:n{mr_basket['n']} PF{float(mr_basket['pf']):.2f} "
+                       f"DD{float(mr_basket['max_dd'])/1e4:.1f}万")
+        bkill = mr_basket.get('kill', {})
+        if bkill.get('TRIGGER'):
+            why = [k for k in ('pf12_lt_1', 'dd_gt_mc95') if bkill.get(k)]
+            flags.append({'type': 'mr_kill',
+                          'detail': f"BASKET(AUDCAD+CADCHF) キルスイッチ {','.join(why)} "
+                                    f"12moPF={float(mr_basket['pf_12mo']):.2f} "
+                                    f"maxDD={float(mr_basket['max_dd']):,.0f}/"
+                                    f"basket_req_cap_99={float(mr_basket['mc95_jpy']):,.0f}円"})
 
     grid_txt = grid['summary'].replace('Grid ', '') if grid else 'NA'
     tail = f"要確認{len(flags)}件:" + ','.join(sorted({f['type'] for f in flags})) \

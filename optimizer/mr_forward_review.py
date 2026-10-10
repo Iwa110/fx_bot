@@ -12,15 +12,24 @@ demo フォワードテストの実約定を history.csv から集計し、BT期
     full期間2015-2026、audcad_stress_test.mc_maxdd と同一手法)。
   - 昇格ゲート判定(計画§5: 3ヶ月 ∧ 30約定 ∧ SL最低1回発火 ∧ 実現PF>1.2)
   - キルスイッチ判定(計画§4: ローリング12ヶ月PF<1.0 / 実現maxDD>MC95)
+  - --basket: AUDCAD+CADCHF の実約定を時系列マージした合算キルスイッチ(バスケット・
+    バックストップ, strategy_spec.md§16「バスケット昇格/キルスイッチ設計」)。個別キル
+    スイッチ(上記, 第一防衛線)が未発火でも、2本同時保有の複合ドローダウン/相関構造の
+    変化を捕捉するための上乗せ層。しきい値は optimizer/mr_joint_basket_mc.py の
+    basket_req_cap_99(=949,907円, shuffle手法99%ile・block手法861,586円より保守的,
+    lot_scale=1.0基準)を使用。
 
 クラスタ復元: MR は1シグナルを最大3段(Tier1/2/3)で建て、決済は全段一括(close_cluster)。
   同一(broker, symbol, side)で close_time が近接(<=10分)するレッグ群を1クラスタとして合算。
+  (--basket は AUDCAD/CADCHF 両magicの生レッグを先に連結してから同じ集約にかけるため、
+  symbolがクラスタキーに含まれ両ペアが混線しないことを利用している。)
 
 Usage:
     python optimizer/mr_forward_review.py
     python optimizer/mr_forward_review.py --json        # 機械可読(ルーティン通知用)
     python optimizer/mr_forward_review.py --lot-scale 0.46   # live想定スケールで閾値換算
     python optimizer/mr_forward_review.py --pair CADCHF --json   # MR_CC
+    python optimizer/mr_forward_review.py --basket --json       # バスケット合算キルスイッチ
 """
 
 import argparse
@@ -57,13 +66,20 @@ REF      = PAIRS[PAIR]
 # 昇格ゲート(計画§5)
 PROMO = {'days': 90, 'trades': 30, 'sl_fires': 1, 'pf': 1.2}
 
+# バスケット・キルスイッチ(strategy_spec.md§16, optimizer/mr_joint_basket_mc.py 2026-10-10算出)
+# shuffle手法99%ile(=774,353円[95%ile]より保守側のテール)。block手法99%ile(861,586円)より
+# 更に保守的なためこちらを採用。lot_scale=1.0(demoフォワード同一スケール)基準。
+BASKET_REQ_CAP_99_JPY = 949_907.0
 
-def load_mr() -> pd.DataFrame:
+
+def load_mr(magics=None) -> pd.DataFrame:
+    """magics省略時は現在の PAIR(MR_MAGIC) 単独。複数渡すと(--basket用)連結して返す。"""
     if not HISTORY_CSV.exists():
         print(f'[ERROR] {HISTORY_CSV} が無い。VPSで sync_history.py 実行 → git pull。')
         sys.exit(1)
+    magics = [MR_MAGIC] if magics is None else list(magics)
     df = pd.read_csv(HISTORY_CSV)
-    df = df[df['magic'] == MR_MAGIC].copy()
+    df = df[df['magic'].isin(magics)].copy()
     if df.empty:
         return df
     df['open_time']  = pd.to_datetime(df['open_time'])
@@ -128,7 +144,7 @@ def max_dd(nets: np.ndarray) -> float:
     return float((np.maximum.accumulate(eq) - eq).max())
 
 
-def summarize(cl: pd.DataFrame, lot_scale: float) -> dict:
+def summarize(cl: pd.DataFrame, lot_scale: float, mc95_jpy_override: float = None) -> dict:
     nets = cl['net'].to_numpy()
     wins = nets[nets > 0]
     losses = nets[nets <= 0]
@@ -136,8 +152,12 @@ def summarize(cl: pd.DataFrame, lot_scale: float) -> dict:
     sl_fires = int(cl['reason'].isin(['zstop', 'time']).sum())
     pf = pf_of(nets)
     realized_dd = max_dd(nets)
-    # MC95 を JPY 換算(demo lot_scale=1.0 なら REF通り)
-    mc95_jpy = REF['mc95_lotpip'] * REF['pip_value_jpy'] * lot_scale
+    # MC95 を JPY 換算(demo lot_scale=1.0 なら REF通り)。--basket は mc95_jpy_override で
+    # basket_req_cap_99(2ペア分のJPY合算基準, lot-pip単位が揃わないため直接JPYで渡す)を使う。
+    if mc95_jpy_override is not None:
+        mc95_jpy = mc95_jpy_override * lot_scale
+    else:
+        mc95_jpy = REF['mc95_lotpip'] * REF['pip_value_jpy'] * lot_scale
     # ローリング12ヶ月PF
     cutoff = cl['close_time'].max() - pd.Timedelta(days=365) if len(cl) else None
     r12 = cl[cl['close_time'] >= cutoff] if cutoff is not None else cl
@@ -226,22 +246,72 @@ def render(cl: pd.DataFrame, s: dict):
     print('    スリッページは vps/mr_log_*.txt の entry価格とBT想定を別途突合(計画§6)。')
 
 
+def render_basket(s: dict):
+    """バスケット(AUDCAD+CADCHF合算)キルスイッチ・バックストップ(strategy_spec.md§16)。
+    個別キルスイッチの代替ではなく上乗せ層のため、BT参照比較/昇格ゲートは出さず
+    kill_check のみを表示する。"""
+    print('=' * 78)
+    print(f'BASKET(AUDCAD+CADCHF) フォワード監視  '
+          f'magic={PAIRS["AUDCAD"]["magic"]}+{PAIRS["CADCHF"]["magic"]}  lot_scale={s["lot_scale"]}')
+    print('=' * 78)
+    if s['n'] == 0:
+        print('まだ約定クラスタなし(両ペアとも監視待機中)。')
+        return
+    print(f'期間 {s["first"]}~{s["last"]} ({s["span_days"]}日)  '
+          f'クラスタ={s["n"]}(両ペア合算)  broker={s["brokers"]}')
+    print('-- 実現パフォーマンス(2ペア合算, クラスタ=1トレード) --')
+    print(f'  PF={s["pf"]:.2f}  WR={s["wr"]*100:.1f}%  net={s["net"]:,.0f}円  '
+          f'maxDD={s["max_dd"]:,.0f}円  ローリング12moPF={s["pf_12mo"]:.2f}')
+    print('-- バスケット・キルスイッチ判定(strategy_spec.md§16, 個別キルスイッチへの上乗せ層) --')
+    print(f'  basket_req_cap_99 = {BASKET_REQ_CAP_99_JPY:,.0f}円 '
+          f'(mr_joint_basket_mc.py shuffle手法99%ile, lot_scale=1.0基準) × lot_scale={s["lot_scale"]} '
+          f'= {s["mc95_jpy"]:,.0f}円')
+    kc = kill_check(s)
+    for k in ['pf12_lt_1', 'dd_gt_mc95']:
+        trig, det = kc[k]
+        print(f'  [{"TRIGGER" if trig else "ok": <7}] {k:12s} {det}')
+    print(f'  => {"⚠️両ペアの新規エントリーを停止し月次相関を再検証" if kc["TRIGGER"][0] else "継続OK"}')
+    print('注: 個別キルスイッチ(--pair AUDCAD/CADCHF)が第一防衛線。本バックストップは各ペア単独では')
+    print('    未発火でも複合ドローダウン/相関構造の変化を捕捉するための追加レイヤー。')
+
+
+EMPTY_COLS = ['net', 'win', 'reason', 'n_legs', 'throttled', 'close_time', 'open_time',
+              'hold_bars', 'broker']
+
+
 def main():
     global PAIR, MR_MAGIC, MR_TAG, REF
     ap = argparse.ArgumentParser()
     ap.add_argument('--pair', choices=sorted(PAIRS), default='AUDCAD')
+    ap.add_argument('--basket', action='store_true',
+                    help='AUDCAD+CADCHF合算のバスケット・キルスイッチ(--pairと併用不可)')
     ap.add_argument('--json', action='store_true', help='機械可読出力(ルーティン通知用)')
     ap.add_argument('--lot-scale', type=float, default=1.0,
                     help='閾値(MC95)のJPY換算スケール。demo=1.0 / live=採用スケール')
     args = ap.parse_args()
+
+    if args.basket:
+        magics = [PAIRS['AUDCAD']['magic'], PAIRS['CADCHF']['magic']]
+        df = load_mr(magics)
+        cl = build_clusters(df) if not df.empty else pd.DataFrame()
+        s = summarize(cl, args.lot_scale, mc95_jpy_override=BASKET_REQ_CAP_99_JPY) if len(cl) else \
+            summarize(pd.DataFrame(columns=EMPTY_COLS), args.lot_scale,
+                      mc95_jpy_override=BASKET_REQ_CAP_99_JPY)
+        if args.json:
+            out = dict(s)
+            out['kill'] = {k: v[0] for k, v in kill_check(s).items()} if s['n'] else {}
+            print(json.dumps(out, ensure_ascii=False, default=str))
+            return
+        render_basket(s)
+        return
+
     PAIR = args.pair
     MR_MAGIC, MR_TAG, REF = PAIRS[PAIR]['magic'], PAIRS[PAIR]['tag'], PAIRS[PAIR]
 
-    df = load_mr()
+    df = load_mr([MR_MAGIC])
     cl = build_clusters(df) if not df.empty else pd.DataFrame()
     s = summarize(cl, args.lot_scale) if len(cl) else summarize(
-        pd.DataFrame(columns=['net', 'win', 'reason', 'n_legs', 'throttled',
-                              'close_time', 'open_time', 'hold_bars', 'broker']), args.lot_scale)
+        pd.DataFrame(columns=EMPTY_COLS), args.lot_scale)
 
     if args.json:
         out = dict(s)
