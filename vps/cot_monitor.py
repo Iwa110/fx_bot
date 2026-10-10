@@ -5,6 +5,8 @@ COT Index (CFTC TFF Leveraged Funds, 156-week rolling) extreme signals
   + D1 EMA50 direction filter
 
 magic: 20260020
+v3 2026-10-10: 停止実装 (--close-only 追加)。axiory n5 PF0.41 net-2.9万・IS/OOS未検証のため
+  停止推奨(CLAUDE.md 未決事項 2026-10-10)。停止手順は vps/stop_cot.bat 参照。
 v2 2026-06-05: 決済後クールダウン追加 (COOLDOWN_HOURS=168=1週間)
   決済(SL/TP/max_hold)後にクールダウンが無く、週次COT極値が残る限り即再エントリーして
   負けテーゼ反復・max_hold空回りを起こしていた不具合を修正。is_in_cooldown を
@@ -81,7 +83,8 @@ def _rsym(base: str) -> str:
 # ══════════════════════════════════════════
 # Logging / env
 # ══════════════════════════════════════════
-DEBUG    = False
+DEBUG      = False
+CLOSE_ONLY = False
 LOG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                          'cot_monitor_log.txt')
 ENV_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), '.env')
@@ -440,7 +443,8 @@ def check_entry(base_sym: str, cfg: dict, cot_val: float) -> str | None:
 # ══════════════════════════════════════════
 def main_loop(webhook: str) -> None:
     log_print('cot_monitor started  broker=' + BROKER_KEY
-              + '  interval=' + str(LOOP_INTERVAL) + 's')
+              + '  interval=' + str(LOOP_INTERVAL) + 's'
+              + '  close_only=' + str(CLOSE_ONLY))
 
     while True:
         try:
@@ -457,6 +461,11 @@ def main_loop(webhook: str) -> None:
             total_pos = count_strategy_positions()
             log_print('cycle  COT=' + str(cot_signals)
                       + '  pos=' + str(total_pos) + '/' + str(MAX_TOTAL_POS), debug=True)
+
+            if CLOSE_ONLY:
+                log_print('close_only mode: no new entries', debug=True)
+                time.sleep(LOOP_INTERVAL)
+                continue
 
             if total_pos >= MAX_TOTAL_POS:
                 log_print('MAX_TOTAL_POS reached', debug=True)
@@ -509,18 +518,23 @@ def main_loop(webhook: str) -> None:
 # Entry point
 # ══════════════════════════════════════════
 def main() -> None:
-    global BROKER_KEY, LOG_FILE, DEBUG
+    global BROKER_KEY, LOG_FILE, DEBUG, CLOSE_ONLY
 
-    parser = argparse.ArgumentParser(description='COT Monitor v2')
+    parser = argparse.ArgumentParser(description='COT Monitor v3')
     parser.add_argument('--broker', default=BROKER_KEY,
                         choices=['oanda', 'oanda_demo', 'axiory', 'exness'],
                         help='broker key')
     parser.add_argument('--debug', action='store_true')
     parser.add_argument('--refresh-cot', action='store_true',
                         help='force COT data refresh on startup')
+    parser.add_argument('--close-only', action='store_true',
+                        help='drain mode: manage exits (max_hold) only, open no new entries. '
+                             'Use when stopping the strategy to let open positions wind down '
+                             'before killing the daemon (see vps/stop_cot.bat).')
     args = parser.parse_args()
 
     BROKER_KEY = args.broker
+    CLOSE_ONLY = args.close_only
     if args.debug:
         DEBUG = True
 

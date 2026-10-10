@@ -8,6 +8,8 @@ demo フォワードテストの実約定を history.csv から集計し、BT期
   - 実現パフォーマンス(クラスタ単位): PF / 勝率 / net / maxDD / payoff / 平均勝敗(JPY)
   - 決済理由内訳(TP / ZSTOP / TIME)・段数(tier)分布・高ボラスロットル発火・保有時間
   - BT/計画リファレンス比較(full PF1.61 / OOS2.57 / WR~71% / MC95 DD)
+    MC95は optimizer/mr_tiered_transfer_bt.py --mc で算出(トレード順シャッフル10,000回、
+    full期間2015-2026、audcad_stress_test.mc_maxdd と同一手法)。
   - 昇格ゲート判定(計画§5: 3ヶ月 ∧ 30約定 ∧ SL最低1回発火 ∧ 実現PF>1.2)
   - キルスイッチ判定(計画§4: ローリング12ヶ月PF<1.0 / 実現maxDD>MC95)
 
@@ -40,11 +42,12 @@ PAIRS = {
                'full_pf': 1.61, 'oos_pf': 2.57, 'wr': 0.71,
                'mc95_lotpip': 398.0,        # throttle後 MC maxDD 95%ile (lot-pip)
                'pip_value_jpy': 1080.0},    # AUDCAD 1.0lot の 1pip ≒ 10CAD × CADJPY108
-    # optimizer/mr_tiered_transfer_best.csv (IS1.28/OOS1.26/full1.28, OOS maxDD 268 lot-pip)
-    # MC未実施: mc95 は OOS maxDD×1.5 の暫定値。WR はBT未集計のため nan。
+    # optimizer/mr_tiered_transfer_best.csv (IS1.28/OOS1.26/full1.28, exit=B/z_stop=4.0/vt=0.9)
+    # mc95_lotpip: mr_tiered_transfer_bt.py --mc で算出(full期間トレード順シャッフル10,000回、
+    #   mr_tiered_transfer_mc95.csv 参照、2026-10-10実施)。WR はBT未集計のため nan。
     'CADCHF': {'magic': 20260051, 'tag': 'MR_CC',
                'full_pf': 1.28, 'oos_pf': 1.26, 'wr': float('nan'),
-               'mc95_lotpip': 400.0,
+               'mc95_lotpip': 435.0,
                'pip_value_jpy': 1850.0},    # CADCHF 1.0lot の 1pip ≒ 10CHF × CHFJPY185
 }
 PAIR     = 'AUDCAD'
