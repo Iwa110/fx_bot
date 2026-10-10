@@ -104,13 +104,13 @@ C:\Users\Administrator\fx_bot\
 - 既知手動取引の除外は `daily_gate.py` KNOWN_MANUAL と上記「既知の手動取引」を同期させること。
 
 ### 未決事項
-- COT(20260020): IS/OOS未検証・axiory n5 PF0.41 net-2.9万 → **停止実装済み(2026-10-10)**: `vps/cot_monitor.py` v3に`--close-only`(既存ポジションのみ決済)追加、`vps/stop_cot.bat`で恒久停止(Task Scheduler登録は元々無し、daemonプロセスをkillするのみ)。`cot_monitor.bat`/`restart_cot.bat`は再稼働防止の警告ヘッダ追加済み。VPS側の実行(close-only起動→stop_cot.bat)は未対応(翌日手動)。
-- MR_CC(20260051, CADCHF MR, demo): 2026-10-10 daily_gate監視へ追加(`mr_forward_review.py --pair CADCHF`, キルのみflag)。クラスタn30 PF2.29で単独ゲートは形式上クリア。**MC95算出完了(2026-10-10)**: `mr_tiered_transfer_bt.py --mc`(トレード順シャッフル10,000回, full期間2015-2026, 既存best.csv構成=exit B/z_stop4.0/vt0.9を流用)→ MC95=435 lot-pip≈805,317円(lot_scale=1.0)。`mr_forward_review.py` PAIRS['CADCHF']['mc95_lotpip']を暫定400(OOS DD×1.5)から435に更新済み。残: AUDCADとのバスケット基準での昇格設計。
+- MR_CC(20260051, CADCHF MR, demo): 2026-10-10 daily_gate監視へ追加(`mr_forward_review.py --pair CADCHF`, キルのみflag)。クラスタn30 PF2.29で単独ゲートは形式上クリア。MC95算出完了(2026-10-10, `mr_tiered_transfer_bt.py --mc`流用): MC95=435 lot-pip≈805,317円(lot_scale=1.0)。残: AUDCADとのバスケット基準での昇格設計。
 - `vps/account_snapshot.py`(1h毎, FX_Account_Snapshot)→ sync_historyで同梱push → daily_gate維持率flag(窓内最小値)。VPSで `register_account_snapshot.bat` 実行要。
 - Grid生成AIループ(`optimizer/loop/`, ledger/6ゲート): 次候補 ptp_frac+ptp_mult。月次OOSバジェット残3。
 - BB USDJPY / SMA_SQ / stat_arb / carry Grid(NZDJPY/USDJPY): demo・micro限定、スケール禁止(10年BTで頑健エッジ無し or carry-crashテール)。
 
 ### 墓場（Close確定・再提案しない / 詳細は commit a8fd929）
+- COT(20260020): IS/OOS未検証・axiory n5 PF0.41 net-2.9万 → 2026-10-10 停止完了。`vps/cot_monitor.py` v3に`--close-only`追加、`vps/stop_cot.bat`でVPS上のデーモン停止済み(Task Scheduler登録は元々無し)・MT5で該当ポジション無しを確認済み。再稼働するには明示的な再承認が必要(`cot_monitor.bat`/`restart_cot.bat`に警告ヘッダあり)。
 - BB逆張り10年BT(全ペアOOS PF<1.0) / SMA Squeeze 10年BT(IS赤字) / 順張り4戦略1h・日足週足トレンド / Grid救済不可(GBPJPY/CHFJPY/EURUSD/EURCHF)
 - Grid改善系: 動的パラメータ化 / 地合い持続予測E1 / ドライバスプレッドゲート / 合算露出cap / legstop・cull_drain / イベントブラックアウト / バスケットTP・トレール / クールダウン / セッションゲート / ラダー深さ別非対称TP(loop Phase1, gate6全滅) / D2確認エントリー / B2 scale-out(AUDCAD)
 - 補完・メタ層: 不感症trend補完・bleedヘッジ / 非発火窓ドリフト補完 / Trend補完(案B/D/A) / 配分層・レジーム層 / 構造健全性H(脚相関)自動停止
