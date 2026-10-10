@@ -39,10 +39,14 @@ def sma_regime(df, n):
 def run_bt(cfg, df, atr_series, ci_series, ret24=None, mom_thr=None,
            cull_frac=None, taper=None, long_ml=None, short_ml=None,
            long_lot_mult=1.0, short_lot_mult=1.0, short_block_up=None, long_block_dn=None,
-           collect=False):
+           collect=False, ptp_frac=None, ptp_mult=0.5):
     """short_block_up: bool配列(True=上昇レジーム→新規short停止)。long_block_dn: 同(下落→long停止)。
     全引数デフォルトで grid_floatstop_bt.run_backtest と一致。
-    collect=True で月次PnL(monthly)・強制決済イベント損(fs_events/b48_events/cull_events)を返す(Step B用)。"""
+    collect=True で月次PnL(monthly)・強制決済イベント損(fs_events/b48_events/cull_events)を返す(Step B用)。
+    ptp_frac/ptp_mult: 部分利確(grid_floatstop_bt.run_backtest L131-191 の移植, 2026-10-10 H0041相互作用BT)。
+    ptp_frac=None(既定)で従来出力と完全一致(test_dirbias_ptp_port.py で保証)。"""
+    if ptp_frac is not None and not (0.0 < ptp_frac < 1.0):
+        raise ValueError('ptp_frac must be in (0, 1) or None')
     qj = cfg.get('quote_jpy', 1.0); base_lot = cfg['lot']; atr_mult = cfg['atr_mult']
     ci_threshold = cfg['ci_threshold']; b48_hours = cfg['b48_hours']
     float_stop = cfg['float_stop']
@@ -57,12 +61,21 @@ def run_bt(cfg, df, atr_series, ci_series, ret24=None, mom_thr=None,
     long_pos, short_pos = [], []
     b48_ls = b48_ss = None
     tp_pnls, b48_pnls, b48_pp, fs_pnls, fs_pp, cull_pnls = [], [], [], [], [], []
+    ptp_pnls = []
     realized = peak = max_dd = worst = 0.0
     monthly = {}
     def _m(ts, v): monthly[ts.strftime('%Y-%m')] = monthly.get(ts.strftime('%Y-%m'), 0.0) + v
 
     def llot(level): return base_lot * long_lot_mult * (taper ** (level - 1) if taper else 1.0)
     def slot(level): return base_lot * short_lot_mult * (taper ** (level - 1) if taper else 1.0)
+
+    def new_pos(side, price, gw, lotv):
+        p = {'entry': price, 'tp': price + gw if side > 0 else price - gw, 'lot': lotv}
+        if ptp_frac:
+            p['lot0'] = lotv
+            p['ptp'] = price + gw * ptp_mult if side > 0 else price - gw * ptp_mult
+            p['ptp_done'] = False
+        return p
 
     for i in range(len(df)):
         atr = av[i]
@@ -71,6 +84,16 @@ def run_bt(cfg, df, atr_series, ci_series, ret24=None, mom_thr=None,
         ts = idx[i]; gw = atr * atr_mult; ci = cv[i]
         bh, bl, bc = highs[i], lows[i], closes[i]
         lwm = len(long_pos) >= lml; swm = len(short_pos) >= sml
+
+        if ptp_frac:  # 部分利確(full TP より先。同一バーで両方なら partial=ptp価格, 残り=tp価格)
+            for p in long_pos:
+                if not p['ptp_done'] and bh >= p['ptp']:
+                    part = p['lot0'] * ptp_frac; v = pj(p['ptp'] - p['entry'], part)
+                    ptp_pnls.append(v); realized += v; _m(ts, v); p['lot'] -= part; p['ptp_done'] = True
+            for p in short_pos:
+                if not p['ptp_done'] and bl <= p['ptp']:
+                    part = p['lot0'] * ptp_frac; v = pj(p['entry'] - p['ptp'], part)
+                    ptp_pnls.append(v); realized += v; _m(ts, v); p['lot'] -= part; p['ptp_done'] = True
 
         for p in [p for p in long_pos if bh >= p['tp']]:
             v = pj(p['tp'] - p['entry'], p['lot']); tp_pnls.append(v); realized += v; _m(ts, v); long_pos.remove(p)
@@ -130,29 +153,31 @@ def run_bt(cfg, df, atr_series, ci_series, ret24=None, mom_thr=None,
         if lml > 0:
             if len(long_pos) == 0:
                 if long_ok:
-                    long_pos.append({'entry': bc, 'tp': bc + gw, 'lot': llot(1)})
+                    long_pos.append(new_pos(+1, bc, gw, llot(1)))
                     if len(long_pos) == lml: b48_ls = ts
             elif len(long_pos) < lml:
                 if bc <= min(p['entry'] for p in long_pos) - gw and long_ok:
-                    long_pos.append({'entry': bc, 'tp': bc + gw, 'lot': llot(len(long_pos) + 1)})
+                    long_pos.append(new_pos(+1, bc, gw, llot(len(long_pos) + 1)))
                     if len(long_pos) == lml: b48_ls = ts
 
         if sml > 0:
             if len(short_pos) == 0:
                 if short_ok:
-                    short_pos.append({'entry': bc, 'tp': bc - gw, 'lot': slot(1)})
+                    short_pos.append(new_pos(-1, bc, gw, slot(1)))
                     if len(short_pos) == sml: b48_ss = ts
             elif len(short_pos) < sml:
                 if bc >= max(p['entry'] for p in short_pos) + gw and short_ok:
-                    short_pos.append({'entry': bc, 'tp': bc - gw, 'lot': slot(len(short_pos) + 1)})
+                    short_pos.append(new_pos(-1, bc, gw, slot(len(short_pos) + 1)))
                     if len(short_pos) == sml: b48_ss = ts
 
-    allp = tp_pnls + b48_pp + fs_pp + cull_pnls
+    allp = tp_pnls + b48_pp + fs_pp + cull_pnls + ptp_pnls
     gp = sum(p for p in allp if p >= 0); gl = abs(sum(p for p in allp if p < 0))
     pf = (gp / gl) if gl > 0 else float('inf')
     out = {'pf': round(pf, 4), 'total_pnl': round(realized, 0), 'n_tp': len(tp_pnls),
            'n_b48': len(b48_pnls), 'n_fstop': len(fs_pnls), 'worst_event': round(worst, 0),
            'max_dd': round(max_dd, 0)}
+    if ptp_frac:
+        out['n_ptp'] = len(ptp_pnls)
     if collect:
         out['monthly'] = monthly
         out['fs_events'] = fs_pnls         # per-FS event PnL(負)
