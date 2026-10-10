@@ -77,6 +77,26 @@ C:\Users\Administrator\fx_bot\
 - ASCIIクォートのみ(' と ")、スマートクォート禁止
 - Pythonファイルのmagic番号体系を維持すること
 
+## 既知の手動取引（日次ルーティン誤検知除外用）
+自動売買と無関係と確認済みの手動取引。日次分析で異常として再指摘しない（これ以外の新規magic=0/想定外取引は通常通り指摘する）。
+- 2026-09-07 11:07:45 LIVE(oanda_live) magic=0 USDJPY buy 0.20lot -51,620円（ストップアウト、手動取引の失敗）
+- 2026-10-08 02:14:14 LIVE(oanda_live) magic=0 USDJPY buy 0.02lot -42円（意図した手動取引）
+
+## Top of mind（2026-10-10 更新）
+
+### ★調査: 未記録稼働戦略2件(MR_CC=CADCHF平均回帰 / COT=COT指数逆張り)の内容・実績確認 → CLAUDE.md反映（2026-10-10）
+日次ルーティンのhistory.csv集計でTop of mind未記載のmagicが2件稼働中(demo)と判明（日次分析スクリプトのMAGIC辞書にも未登録）。ソースコード(`vps/mr_monitor.py`/`vps/cot_monitor.py`)とhistory.csvから内容・実績を確認。
+
+- **MR_CC(magic=20260051, CADCHF 4h平均回帰)**: AUDCAD確定MR(`[[project_audcad_mr_tiered_strategy_20260630]]`)を他クロスへ横展開した検証(`optimizer/mr_tiered_transfer_bt.py`, `[[project_mr_tiered_transfer_20260630]]`)の採用枝。`vps/mr_monitor.py`がAUDCAD(MR_AC)とCADCHF(MR_CC)を同一エンジンでpair引数切替運用(3段不等分割0.2/0.3/0.5・SMA40/SD40は共通、z_stop/vol_th/exit_modeのみpair別)。
+  - BT根拠: CADCHFはOOS PF1.26/IS1.28だが**wfoMin0.91(<1.0、単独では採用バー不達)**。回帰速度T_reg中央値19本(横展開4候補中最速)で決済はexit_mode B(深ティア部分利確)が最適。**単独エッジでなく「AUDCADとのinverse-vol組み合わせでポートフォリオSharpe改善」が採用根拠**(AUDCAD単独Sharpe1.03/MaxDD222 → AUDCAD+CADCHF Sharpe1.09/MaxDD151)。AUDNZDは限界的・EURGBPはIS↔OOS符号反転で不採用、CADCHFのみ"Tier2分散枠"として実装。
+  - demo実績(2026-07-02〜10-06, axiory+exness合算, レッグ単位n=46): **net+65,715円 PF=2.173 WR=58.7%**。BT期待(OOS PF1.26)を上回る良好な滑り出しだが約3ヶ月・サンプル46とまだ小さく評価途上。
+  - **運用ギャップ**: `optimizer/mr_forward_review.py`はAUDCAD(magic=20260050)のみ対象で**CADCHF(20260051)は昇格ゲート/キルスイッチの自動判定対象外**。`prompts/daily_analysis.md`のMAGIC辞書にも未登録。
+- **COT(magic=20260020, COT指数逆張り)**: CFTC TFF Leveraged Funds建玉比率(156週ローリング0-100指数)が極値(>90 or <10)でD1 EMA50方向一致時に逆張りエントリー(`vps/cot_monitor.py`, BT: `optimizer/cot_extreme_bt.py`)。対象EURUSD/GBPUSD/USDJPY、axiory稼働、SL=ATR×1.5/TP=ATR×3.0/最大保有14日。v2(2026-06-05)で決済後クールダウン(168h)追加（無いと週次シグナル残存で即再エントリーを繰り返す不具合があった）。
+  - BT根拠: 2023-07〜2026-02、n=50(EURUSD16/GBPUSD17/USDJPY17)、**全体PF=1.968 WR=80%**。但し**IS/OOS分割・WFOなし**(本プロジェクトの他戦略が必須とする検証規律が未適用)。スクリプト自身のコメントに「LONG方向PF=5.888 vs SHORT方向PF=0.983、2023-26トレンドレジームでSHORTが弱体化→要監視」との留保あり。
+  - demo実績(2026-08-12〜09-21, n=9, GBPUSD約定はまだ0件): **net-28,779円 PF=0.412 WR=22.2%**。BTの楽観値(PF1.97)から大きく下振れ、スクリプト自身が当初懸念していたSHORT方向の弱さが具現化している可能性。09-21以降は約定なし(週次シグナル・極値待ち)。
+- **総括**: MR_CCはAUDCAD MR確定ロジックの構造的な横展開(分散目的・限定的採用)で相対的に健全。**COTはIS/OOS規律を経ないまま稼働している唯一の戦略で、demo実績もBT期待を大きく下回りPF<1**。本プロジェクトの「頑健性確認済みのみ稼働」原則から外れる例外として要注意。
+- **次アクション**: ①COTは縮小/停止を次回Chatで判断(IS/OOS再検証なしでのスケールアップは不可、現状のmicro実験のまま)。②`prompts/daily_analysis.md`・`optimizer/mr_forward_review.py`・`optimizer/daily_step1.py`のMAGIC辞書にMR_CC(20260051)/COT(20260020)を追加し日次監視に組み込む。③MR_CCはforward-test継続、昇格判定はAUDCADと合わせたバスケット基準で別途設計要。
+
 ## Top of mind（2026-07-19 更新）
 
 ### ★★Grid戦略 生成AIループ Phase0+1 実施 → 基盤稼働・初回仮説(ラダー深さ別非対称TP)は4ペア全滅・gate4/gate5を運用修正（2026-07-19）
