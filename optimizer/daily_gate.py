@@ -10,7 +10,7 @@ flags 条件:
   - fs_slippage    : LIVE Grid の float-stop(_FS) 実損 > 設定(FLOAT_STOP×LIVE_LOT)×1.3
   - unexpected_trade: LIVE で想定外の magic/symbol(既知の手動取引は除外)
   - margin         : LIVE でストップアウト([so ...])発生 / account_snapshot.csv の維持率<閾値
-  - mr_kill        : MR_AC キルスイッチ(12moPF<1.0 or maxDD>MC95≒43万円)
+  - mr_kill        : MR_AC / MR_CC キルスイッチ(12moPF<1.0 or maxDD>MC95)
   - grid_promote   : LIVE Grid ペアが昇格条件(3ヶ月∧TP≥30∧FS発火∧PF>1.2)を達成
 
 Usage:
@@ -33,13 +33,14 @@ JST = timezone(timedelta(hours=9))
 OPT_DIR = Path(__file__).resolve().parent
 REPO = OPT_DIR.parent
 HISTORY_CSV = OPT_DIR / 'history.csv'
-SNAPSHOT_CSV = OPT_DIR / 'account_snapshot.csv'   # 任意: date_jst,broker,margin_level
+SNAPSHOT_CSV = OPT_DIR / 'account_snapshot.csv'   # vps/account_snapshot.py が1時間毎に追記
 GRID_MONITOR = REPO / 'vps' / 'grid_monitor.py'
 
 LIVE_BROKER = 'oanda_live'
 FS_SLIP_MULT = 1.3
 MARGIN_LEVEL_MIN = 150.0        # grid_monitor LIVE_MARGIN_LEVEL_MIN と同値
 PROMO = {'days': 90, 'tp': 30, 'fs': 1, 'pf': 1.2}   # grid_forward_test_plan.md
+MR_PAIRS = {'AUDCAD': 'MR', 'CADCHF': 'MR_CC'}      # mr_forward_review --pair / summary表示名
 
 # 確定Grid 4本(LIVE で想定する magic/symbol)
 LIVE_GRID = {20260034: 'AUDCAD', 20260038: 'CADCHF', 20260036: 'AUDNZD', 20260035: 'EURGBP'}
@@ -135,21 +136,23 @@ def check_live(df: pd.DataFrame, since, flags: list):
                                         f"設定{setting:,.0f}×{FS_SLIP_MULT}"})
 
 
-def check_margin_snapshot(flags: list) -> str:
-    """account_snapshot.csv(任意)から LIVE 維持率の最新値を検査。無ければ 'na'。"""
+def check_margin_snapshot(since, flags: list) -> str:
+    """account_snapshot.csv から LIVE 維持率を検査(検査窓内の最小値)。無ければ 'na'。
+    margin_level 空欄 = ノーポジ(margin=0)なので対象外。"""
     if not SNAPSHOT_CSV.exists():
         return 'na'
     try:
         s = pd.read_csv(SNAPSHOT_CSV)
-        s = s[s['broker'] == LIVE_BROKER]
+        s = s[s['broker'] == LIVE_BROKER].dropna(subset=['margin_level'])
+        s = s[pd.to_datetime(s['date_jst']).dt.date >= since]
         if s.empty:
             return 'na'
-        lv = float(s.iloc[-1]['margin_level'])
+        r = s.loc[s['margin_level'].astype(float).idxmin()]
+        lv = float(r['margin_level'])
         if lv < MARGIN_LEVEL_MIN:
             flags.append({'type': 'margin',
-                          'detail': f"維持率{lv:.0f}% < {MARGIN_LEVEL_MIN:.0f}% "
-                                    f"({s.iloc[-1]['date_jst']})"})
-        return f'{lv:.0f}%'
+                          'detail': f"維持率{lv:.0f}% < {MARGIN_LEVEL_MIN:.0f}% ({r['date_jst']})"})
+        return f'min{lv:.0f}%'
     except Exception as e:
         flags.append({'type': 'script_error', 'detail': f'account_snapshot.csv: {e!r}'})
         return 'err'
@@ -204,15 +207,17 @@ def main():
     except Exception as e:
         flags.append({'type': 'script_error', 'detail': f'grid_gate_review {e}'})
 
-    mr = None
-    rc, out, err = run_script(['optimizer/mr_forward_review.py', '--json'])
-    raw['mr_forward_review'] = out
-    try:
-        if rc != 0:
-            raise RuntimeError(f'rc={rc}: {err.strip()[-300:]}')
-        mr = json.loads(out)
-    except Exception as e:
-        flags.append({'type': 'script_error', 'detail': f'mr_forward_review {e}'})
+    mrs = {}
+    for pair in MR_PAIRS:
+        rc, out, err = run_script(['optimizer/mr_forward_review.py', '--json', '--pair', pair])
+        raw[f'mr_forward_review_{pair}'] = out
+        try:
+            if rc != 0:
+                raise RuntimeError(f'rc={rc}: {err.strip()[-300:]}')
+            mrs[pair] = json.loads(out)
+        except Exception as e:
+            mrs[pair] = None
+            flags.append({'type': 'script_error', 'detail': f'mr_forward_review {pair} {e}'})
 
     # ── 2) history.csv から LIVE 逸脱 / 昇格 / 当日損益 ──
     live_today = demo_today = 0.0
@@ -228,28 +233,32 @@ def main():
         demo_today = float(t[~t['live']]['profit'].sum())
     except Exception as e:
         flags.append({'type': 'script_error', 'detail': f'history.csv解析: {e!r}'})
-    margin = check_margin_snapshot(flags)
+    margin = check_margin_snapshot(since, flags)
 
-    # ── 3) MR_AC キルスイッチ ──
-    mr_txt = 'NA'
-    if mr is not None:
+    # ── 3) MR_AC / MR_CC キルスイッチ ──
+    mr_txts = []
+    for pair, label in MR_PAIRS.items():
+        mr = mrs.get(pair)
+        if mr is None:
+            mr_txts.append(f'{label}:NA')
+            continue
         if mr.get('n', 0) == 0:
-            mr_txt = '待機'
-        else:
-            mr_txt = f"n{mr['n']} PF{float(mr['pf']):.2f} DD{float(mr['max_dd'])/1e4:.1f}万"
-            kill = mr.get('kill', {})
-            if kill.get('TRIGGER'):
-                why = [k for k in ('pf12_lt_1', 'dd_gt_mc95') if kill.get(k)]
-                flags.append({'type': 'mr_kill',
-                              'detail': f"MR_AC キルスイッチ {','.join(why)} "
-                                        f"12moPF={float(mr['pf_12mo']):.2f} "
-                                        f"maxDD={float(mr['max_dd']):,.0f}/MC95={float(mr['mc95_jpy']):,.0f}円"})
+            mr_txts.append(f'{label}:待機')
+            continue
+        mr_txts.append(f"{label}:n{mr['n']} PF{float(mr['pf']):.2f} DD{float(mr['max_dd'])/1e4:.1f}万")
+        kill = mr.get('kill', {})
+        if kill.get('TRIGGER'):
+            why = [k for k in ('pf12_lt_1', 'dd_gt_mc95') if kill.get(k)]
+            flags.append({'type': 'mr_kill',
+                          'detail': f"{label} キルスイッチ {','.join(why)} "
+                                    f"12moPF={float(mr['pf_12mo']):.2f} "
+                                    f"maxDD={float(mr['max_dd']):,.0f}/MC95={float(mr['mc95_jpy']):,.0f}円"})
 
     grid_txt = grid['summary'].replace('Grid ', '') if grid else 'NA'
     tail = f"要確認{len(flags)}件:" + ','.join(sorted({f['type'] for f in flags})) \
         if flags else '異常なし・監視継続'
     summary = (f"FX {today:%m-%d} 実{live_today:+,.0f}円({n_live_today}) / "
-               f"demo{demo_today:+,.0f}円 / Grid:{grid_txt} / MR:{mr_txt} / {tail}")
+               f"demo{demo_today:+,.0f}円 / Grid:{grid_txt} / {' '.join(mr_txts)} / {tail}")
 
     result = {
         'date': str(today),

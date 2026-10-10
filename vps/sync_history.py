@@ -39,6 +39,7 @@ JST         = timezone(timedelta(hours=9))
 UTC         = timezone.utc
 
 GATE_LOG_CSV = BASE_DIR / 'optimizer' / 'grid_gate_log.csv'
+SNAPSHOT_CSV = BASE_DIR / 'optimizer' / 'account_snapshot.csv'   # account_snapshot.py(1h毎)が追記
 
 COL_ORDER = [
     'ticket', 'open_time', 'close_time', 'type', 'lots',
@@ -207,19 +208,21 @@ def git_push(added: int) -> bool:
                 stdout = ''
             return _T()
 
-    # Step 1: git add (history.csv は必須、grid_gate_log.csv は存在すれば相乗り)
+    # Step 1: git add (history.csv は必須、grid_gate_log/account_snapshot は存在すれば相乗り)
     r = run(['git', '-C', repo, 'add', 'optimizer/history.csv'])
     if r.returncode != 0:
         print(f'[git] ERROR add: {r.stderr.strip()}')
         return False
     print('[git] OK   add optimizer/history.csv')
 
-    if GATE_LOG_CSV.exists():
-        r = run(['git', '-C', repo, 'add', 'optimizer/grid_gate_log.csv'])
-        if r.returncode == 0:
-            print('[git] OK   add optimizer/grid_gate_log.csv')
-        else:
-            print(f'[git] WARN add grid_gate_log.csv: {r.stderr.strip()}')
+    for extra in (GATE_LOG_CSV, SNAPSHOT_CSV):
+        if extra.exists():
+            rel = f'optimizer/{extra.name}'
+            r = run(['git', '-C', repo, 'add', rel])
+            if r.returncode == 0:
+                print(f'[git] OK   add {rel}')
+            else:
+                print(f'[git] WARN add {extra.name}: {r.stderr.strip()}')
 
     # Step 2: 変更がなければスキップ
     r = run(['git', '-C', repo, 'diff', '--cached', '--quiet'])
@@ -296,14 +299,15 @@ def main():
     # データ収集
     df_new = collect_all(args.days, only_broker=args.broker)
 
+    added = 0
     if df_new.empty:
-        print('[INFO] 新規データなし。終了。')
-        return
-
-    # マージ & 保存
-    df_merged, added = merge_with_csv(df_new)
-    df_merged.to_csv(HISTORY_CSV, index=False)
-    print(f'\n[OK] history.csv: {len(df_merged)}件 (新規 +{added}件)')
+        # 取引0件でも account_snapshot.csv の同期は続行(git_push は差分無しならskip)
+        print('[INFO] 新規データなし。')
+    else:
+        # マージ & 保存
+        df_merged, added = merge_with_csv(df_new)
+        df_merged.to_csv(HISTORY_CSV, index=False)
+        print(f'\n[OK] history.csv: {len(df_merged)}件 (新規 +{added}件)')
 
     # git push
     if args.no_push:

@@ -1,5 +1,5 @@
 """
-mr_forward_review.py - AUDCAD(4h)平均回帰(MR_AC, magic=20260050) フォワード監視・集計
+mr_forward_review.py - 4h平均回帰(MR_AC=AUDCAD 20260050 / MR_CC=CADCHF 20260051) フォワード監視・集計
 
 demo フォワードテストの実約定を history.csv から集計し、BT期待値/実運用計画と突き合わせる。
 ネットワーク不要(history.csv のみ)。VPS で sync_history.py 実行 → git push → ここで pull して実行。
@@ -18,6 +18,7 @@ Usage:
     python optimizer/mr_forward_review.py
     python optimizer/mr_forward_review.py --json        # 機械可読(ルーティン通知用)
     python optimizer/mr_forward_review.py --lot-scale 0.46   # live想定スケールで閾値換算
+    python optimizer/mr_forward_review.py --pair CADCHF --json   # MR_CC
 """
 
 import argparse
@@ -32,15 +33,24 @@ import pandas as pd
 HISTORY_CSV = Path(__file__).parent / 'history.csv'
 JST = timezone(timedelta(hours=9))
 
-MR_MAGIC = 20260050
-MR_TAG   = 'MR_AC'
-
-# BT/計画リファレンス(optimizer/audcad_mr_deployment_plan.md / audcad_stress_test.py)
-REF = {
-    'full_pf': 1.61, 'oos_pf': 2.57, 'wr': 0.71,
-    'mc95_lotpip': 398.0,            # throttle後 MC maxDD 95%ile (lot-pip)
-    'pip_value_jpy': 1080.0,         # AUDCAD 1.0lot の 1pip ≒ 10CAD × CADJPY108
+# ペア別リファレンス(vps/mr_monitor.py PAIR_CONFIG と magic/tag を同期)
+PAIRS = {
+    # optimizer/audcad_mr_deployment_plan.md / audcad_stress_test.py
+    'AUDCAD': {'magic': 20260050, 'tag': 'MR_AC',
+               'full_pf': 1.61, 'oos_pf': 2.57, 'wr': 0.71,
+               'mc95_lotpip': 398.0,        # throttle後 MC maxDD 95%ile (lot-pip)
+               'pip_value_jpy': 1080.0},    # AUDCAD 1.0lot の 1pip ≒ 10CAD × CADJPY108
+    # optimizer/mr_tiered_transfer_best.csv (IS1.28/OOS1.26/full1.28, OOS maxDD 268 lot-pip)
+    # MC未実施: mc95 は OOS maxDD×1.5 の暫定値。WR はBT未集計のため nan。
+    'CADCHF': {'magic': 20260051, 'tag': 'MR_CC',
+               'full_pf': 1.28, 'oos_pf': 1.26, 'wr': float('nan'),
+               'mc95_lotpip': 400.0,
+               'pip_value_jpy': 1850.0},    # CADCHF 1.0lot の 1pip ≒ 10CHF × CHFJPY185
 }
+PAIR     = 'AUDCAD'
+MR_MAGIC = PAIRS[PAIR]['magic']
+MR_TAG   = PAIRS[PAIR]['tag']
+REF      = PAIRS[PAIR]
 # 昇格ゲート(計画§5)
 PROMO = {'days': 90, 'trades': 30, 'sl_fires': 1, 'pf': 1.2}
 
@@ -173,7 +183,7 @@ def kill_check(s: dict) -> dict:
 
 def render(cl: pd.DataFrame, s: dict):
     print('=' * 78)
-    print(f'MR_AC フォワード監視  AUDCAD(4h) magic={MR_MAGIC}  lot_scale={s["lot_scale"]}')
+    print(f'{MR_TAG} フォワード監視  {PAIR}(4h) magic={MR_MAGIC}  lot_scale={s["lot_scale"]}')
     print('=' * 78)
     if s['n'] == 0:
         print('まだ約定クラスタなし(監視待機中)。demo起動後、初エントリーを待つ。')
@@ -191,8 +201,8 @@ def render(cl: pd.DataFrame, s: dict):
     print(f'  保有(H4本) 中央={s["hold_med"]:.0f} p90={s["hold_p90"]:.0f}  '
           f'(BTタイムストップ=48本)')
     print('-- BT/計画リファレンス比較 --')
-    print(f'  実現PF {s["pf"]:.2f}  vs  full期待1.61 / OOS2.57 (順風) ; '
-          f'実現WR {s["wr"]*100:.0f}% vs ~71%')
+    print(f'  実現PF {s["pf"]:.2f}  vs  full期待{REF["full_pf"]} / OOS{REF["oos_pf"]} ; '
+          f'実現WR {s["wr"]*100:.0f}% vs ~{REF["wr"]*100:.0f}%')
     print(f'  実現maxDD {s["max_dd"]:,.0f}円  vs  MC95 {s["mc95_jpy"]:,.0f}円 '
           f'(lot_scale={s["lot_scale"]})')
 
@@ -214,11 +224,15 @@ def render(cl: pd.DataFrame, s: dict):
 
 
 def main():
+    global PAIR, MR_MAGIC, MR_TAG, REF
     ap = argparse.ArgumentParser()
+    ap.add_argument('--pair', choices=sorted(PAIRS), default='AUDCAD')
     ap.add_argument('--json', action='store_true', help='機械可読出力(ルーティン通知用)')
     ap.add_argument('--lot-scale', type=float, default=1.0,
                     help='閾値(MC95)のJPY換算スケール。demo=1.0 / live=採用スケール')
     args = ap.parse_args()
+    PAIR = args.pair
+    MR_MAGIC, MR_TAG, REF = PAIRS[PAIR]['magic'], PAIRS[PAIR]['tag'], PAIRS[PAIR]
 
     df = load_mr()
     cl = build_clusters(df) if not df.empty else pd.DataFrame()
