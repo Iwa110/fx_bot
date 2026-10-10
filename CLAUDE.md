@@ -104,7 +104,8 @@ C:\Users\Administrator\fx_bot\
 - 既知手動取引の除外は `daily_gate.py` KNOWN_MANUAL と上記「既知の手動取引」を同期させること。
 
 ### 未決事項
-- MR_CC(20260051, CADCHF MR, demo): 2026-10-10 daily_gate監視へ追加(`mr_forward_review.py --pair CADCHF`, キルのみflag)。クラスタn30 PF2.29で単独ゲートは形式上クリア。MC95算出完了(2026-10-10, `mr_tiered_transfer_bt.py --mc`流用): MC95=435 lot-pip≈805,317円(lot_scale=1.0)。残: AUDCADとのバスケット基準での昇格設計。
+- MR_CC(20260051, CADCHF MR, demo): 2026-10-10 daily_gate監視へ追加(`mr_forward_review.py --pair CADCHF`, キルのみflag)。クラスタn30 PF2.29で単独ゲートは形式上クリア。MC95算出完了(2026-10-10, `mr_tiered_transfer_bt.py --mc`流用): MC95=435 lot-pip≈805,317円(lot_scale=1.0)。
+- MR_AC+MR_CC バスケット昇格設計(2026-10-10完了, `optimizer/mr_joint_basket_mc.py`, strategy_spec.md§16): BTトレード列を時系列マージしshuffle/ブロックブートストラップ両手法で合算MC95算出。月次相関+0.073〜0.13(弱)で**バスケットMC95は単純合算より35-38%小さい**→`basket_req_cap_99=949,907円`(保守側採用, lot_scale=1.0)を基準に両ペア**同一lot_scale**で昇格・個別キルスイッチに上乗せするバスケット・バックストップ(合算ローリング12moPF<1.0 or 合算maxDD>basket_req_cap_99)を設計。実装は未着手(daily_gate.py側で両JSON出力を合算するのが最小実装)。**副発見**: `audcad_stress_test.py`を現状のまま再実行すると高ボラスロットルが掛からず(MC95=637 lot-pipで`mr_forward_review.PAIRS['AUDCAD']`の398と不整合) → 別タスクでフォロー予定。
 - `vps/account_snapshot.py`(1h毎, FX_Account_Snapshot)→ sync_historyで同梱push → daily_gate維持率flag(窓内最小値)。VPSで `register_account_snapshot.bat` 実行要。
 - Grid生成AIループ(`optimizer/loop/`, ledger/6ゲート): 次候補 ptp_frac+ptp_mult。月次OOSバジェット残3。
 - BB USDJPY / SMA_SQ / stat_arb / carry Grid(NZDJPY/USDJPY): demo・micro限定、スケール禁止(10年BTで頑健エッジ無し or carry-crashテール)。
