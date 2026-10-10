@@ -19,6 +19,9 @@ mr_tiered_transfer_bt.py - 確定エッジ AUDCAD(4h) 3段不等分割MR の他�
 Part1 回帰速度分布   : --reg-speed   -> mr_tiered_transfer_regspeed.csv + .png
 Part2 A/B最適化      : --optimize    -> mr_tiered_transfer_optmatrix.csv
 Part3 ポートフォリオ : --portfolio   -> mr_tiered_transfer_portfolio.csv
+Part4 モンテカルロDD : --mc          -> mr_tiered_transfer_mc95.csv
+                       (audcad_stress_test.mc_maxdd と同じ手法=トレード順シャッフル10,000回。
+                        --optimize を再実行せず既存 mr_tiered_transfer_best.csv の採用構成を流用)
 全部                 : (引数なし)
 
 実行: python3 optimizer/mr_tiered_transfer_bt.py
@@ -391,13 +394,80 @@ def part3_portfolio(best_rows):
     mr_df.to_csv(os.path.join(HERE, 'mr_tiered_transfer_mr_monthly.csv'))
 
 
+# ===========================================================================
+# Part 4: モンテカルロ maxDD (audcad_stress_test.mc_maxdd と同じ手法の流用)
+# ===========================================================================
+# JPY per 1.0lot / 1 lot-pip。mr_forward_review.py PAIRS の pip_value_jpy と同一値を使用
+# (CADCHF: 1.0lot の 1pip ≒ 10CHF × CHFJPY185)。整合を保つため値を変える場合は両方更新。
+PIP_VALUE_JPY = {'CADCHF': 1850.0, 'AUDNZD': float('nan'), 'EURGBP': float('nan')}
+
+
+def mc_maxdd(nets, n_iter=10000, seed=42):
+    """トレード順をシャッフルした maxDD 分布(audcad_stress_test.py と同一手法)。"""
+    rng = np.random.default_rng(seed)
+    nets = np.asarray(nets, float)
+    dds = np.empty(n_iter)
+    for k in range(n_iter):
+        perm = rng.permutation(nets)
+        eq = np.cumsum(perm)
+        peak = np.maximum.accumulate(eq)
+        dds[k] = (peak - eq).max()
+    return dds
+
+
+def _load_best_rows_csv():
+    """--optimize を再実行せず、既存 mr_tiered_transfer_best.csv の採用構成を読み込む。"""
+    path = os.path.join(HERE, 'mr_tiered_transfer_best.csv')
+    if not os.path.exists(path):
+        raise SystemExit(f'[error] {path} が無い。先に --optimize (or 引数無し) を1回実行すること。')
+    df = pd.read_csv(path)
+    df['selectable'] = df['selectable'].astype(str).str.lower() == 'true'
+    return df.to_dict('records')
+
+
+def part4_mc95(best_rows, n_iter=10000):
+    print('\n' + '=' * 96)
+    print(f'Part4  モンテカルロ maxDD (full期間2015-2026, トレード順シャッフル{n_iter}回)')
+    print('=' * 96)
+    print(f"{'pair':8s}{'n':>5s}{'realizedDD':>11s}{'MC50':>7s}{'MC95':>7s}"
+          f"{'MC99':>7s}{'MC99.9':>8s}  (lot-pip)  | MC95(JPY)")
+    rows = []
+    for r in best_rows:
+        pair = r['pair']
+        if not r.get('selectable'):
+            print(f"  {pair:8s} selectable=False (REJECT) のため MC95 算出をスキップ")
+            continue
+        ind, pip, cost = load_ind(pair)
+        cfg = make_cfg(exit_mode=r['exit_mode'], z_stop=float(r['z_stop']),
+                       vol_throttle_th=float(r['vt_th']))
+        _, trades = M.run_bt_tiered3(ind, pip, cost, cfg)
+        nets = pd.DataFrame(trades)['net_pips'].to_numpy()
+        realized_eq = np.cumsum(nets)
+        realized_dd = float((np.maximum.accumulate(realized_eq) - realized_eq).max())
+        dds = mc_maxdd(nets, n_iter)
+        p50, p95, p99, p999 = (float(x) for x in np.percentile(dds, [50, 95, 99, 99.9]))
+        jpy_per_lotpip = PIP_VALUE_JPY.get(pair, float('nan'))
+        mc95_jpy = p95 * jpy_per_lotpip if not np.isnan(jpy_per_lotpip) else float('nan')
+        jpy_str = f"{mc95_jpy:,.0f}円" if not np.isnan(mc95_jpy) else 'n/a'
+        print(f"  {pair:8s}{len(nets):>5d}{realized_dd:>11.0f}{p50:>7.0f}{p95:>7.0f}"
+              f"{p99:>7.0f}{p999:>8.0f}  | {jpy_str}")
+        rows.append({'pair': pair, 'n': len(nets), 'realized_dd': realized_dd,
+                     'mc50': p50, 'mc95': p95, 'mc99': p99, 'mc999': p999,
+                     'jpy_per_lotpip': jpy_per_lotpip, 'mc95_jpy': mc95_jpy})
+    out = os.path.join(HERE, 'mr_tiered_transfer_mc95.csv')
+    pd.DataFrame(rows).to_csv(out, index=False)
+    print(f'\n  [csv] {out}')
+    return rows
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument('--reg-speed', action='store_true')
     ap.add_argument('--optimize', action='store_true')
     ap.add_argument('--portfolio', action='store_true')
+    ap.add_argument('--mc', action='store_true')
     args = ap.parse_args()
-    run_all = not (args.reg_speed or args.optimize or args.portfolio)
+    run_all = not (args.reg_speed or args.optimize or args.portfolio or args.mc)
 
     best_rows = None
     if args.reg_speed or run_all:
@@ -408,6 +478,10 @@ def main():
         if best_rows is None:
             best_rows = part2_optimize()
         part3_portfolio(best_rows)
+    if args.mc or run_all:
+        if best_rows is None:
+            best_rows = _load_best_rows_csv()
+        part4_mc95(best_rows)
 
 
 if __name__ == '__main__':

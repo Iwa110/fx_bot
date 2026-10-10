@@ -1,4 +1,8 @@
 @echo off
+REM !!! STOPPED (2026-10-10, CLAUDE.md 未決事項): axiory n5 PF0.41 net-2.9万・
+REM     IS/OOS未検証のため停止推奨。このbatを実行すると停止中の戦略が再起動する。
+REM     停止手順は stop_cot.bat を参照。再稼働は明示的な再承認後のみ。
+REM
 REM cot_monitor.bat
 REM COT Extreme x Daily Trend strategy v1 (magic=20260020)
 REM Weekly COT signal, hourly loop. Single broker (oanda) sufficient.

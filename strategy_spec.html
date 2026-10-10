@@ -908,10 +908,16 @@ lot = clamp(lot, MIN=0.01, MAX=0.2)</pre>
 <!-- §13 COT -->
 <div class="section" id="s13">
   <div class="section-header" onclick="toggleSection(this)">
-    <h2>13. COT極値×日足トレンド <small style="font-size:11px;color:var(--muted)">cot_monitor.py v2</small></h2>
+    <h2>13. COT極値×日足トレンド <small style="font-size:11px;color:var(--muted)">cot_monitor.py v3</small> <span class="badge badge-red">停止中</span></h2>
     <span class="toggle">▾</span>
   </div>
   <div class="section-body">
+    <div class="alert alert-danger">
+      <strong>★2026-10-10 停止:</strong> axiory実稼働 n=5 PF=0.41 net-2.9万円、かつIS/OOS未検証のため
+      停止推奨（CLAUDE.md 未決事項）。<code>vps/stop_cot.bat</code> で恒久停止。
+      <code>cot_monitor.bat</code> / <code>restart_cot.bat</code> は実行しないこと（再稼働してしまう）。
+      v3で <code>--close-only</code>（既存ポジションのみ決済・新規エントリー停止）を追加済み。
+    </div>
     <h3>概要</h3>
     <p>CFTC TFF Leveraged Funds COT Index（156週ローリング）が極値に達したペアで、D1 EMA50トレンドと一致する方向にスイングエントリー。</p>
 
@@ -1000,12 +1006,23 @@ lot = clamp(lot, MIN=0.01, MAX=0.2)</pre>
       SHORT方向の実稼働パフォーマンスを重点監視すること。週1〜2回程度のエントリー頻度。
     </div>
 
-    <h3>起動方法</h3>
+    <h3>起動方法（停止前の参考・現在は使用しない）</h3>
     <pre>REM VPS上で実行
 C:\Users\Administrator\fx_bot\vps\cot_monitor.bat
 
 REM COTデータ強制更新
 pythonw.exe cot_monitor.py --broker oanda --refresh-cot</pre>
+
+    <h3>停止方法（2026-10-10〜）</h3>
+    <pre>REM 1) (任意) 既存ポジションのみ決済、新規エントリーは停止
+pythonw.exe cot_monitor.py --broker axiory --close-only
+pythonw.exe cot_monitor.py --broker exness --close-only
+
+REM 2) デーモン完全停止
+C:\Users\Administrator\fx_bot\vps\stop_cot.bat</pre>
+    <p style="font-size:12px;color:var(--muted)">Windows Task Schedulerへの登録は無い
+      （<code>cot_monitor.bat</code>が直接pythonw.exeを起動する方式のため<code>schtasks /delete</code>は不要。
+      <code>schtasks /Query /FO LIST | findstr /I cot</code>で未登録を確認済み）。</p>
 
     <p>ログ: <code>cot_monitor_log_oanda.txt</code> / <code>cot_cache.json</code></p>
   </div>
