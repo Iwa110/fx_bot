@@ -3,7 +3,7 @@
 The LLM's only job is to write loop/candidate.yaml (inside search_space.yaml)
 before this runs. Everything else is deterministic:
 
-  1. preconditions (any failure -> 1-line Discord notice, exit 0, no BT):
+  1. preconditions (any failure -> SKIP summary line, exit 0, no BT):
      - review pending: any remote loop/* branch not merged into origin/<base>
        (also makes a same-week re-run a no-op until the PR is merged)
      - monthly OOS budget exhausted (optimizer/loop gate4 cap)
@@ -15,7 +15,8 @@ before this runs. Everything else is deterministic:
   4. commit loop/ + optimizer/loop/ledger.jsonl + review_queue/, push, open a
      PR (gh CLI -> GitHub REST with GITHUB_TOKEN -> loop/pr_request.json
      fallback for the calling session to open via its own GitHub tools)
-  5. Discord 1-line notice (env DISCORD_WEBHOOK; skipped if unset)
+  5. last stdout line = 1-line summary for the scheduler's push notification:
+     [grid-loop <week>] PASS|FAIL|SKIP|ERROR <detail> | PR: <url|-|pending ...>
 
 Every week's ledger update ships as a PR; the next week waits until it is
 merged, so the ledger/budget on <base> is always current.
@@ -29,6 +30,7 @@ import os
 import subprocess
 import sys
 import time
+import traceback
 import urllib.request
 from pathlib import Path
 
@@ -61,17 +63,9 @@ def git_retry(*args):
                 raise
 
 
-def notify(msg):
-    print(f'[notify] {msg}')
-    hook = os.environ.get('DISCORD_WEBHOOK', '')
-    if not hook:
-        return
-    req = urllib.request.Request(hook, data=json.dumps({'content': msg[:1900]}).encode(),
-                                 headers={'Content-Type': 'application/json', 'User-Agent': 'fx_bot-loop'})
-    try:
-        urllib.request.urlopen(req, timeout=10)
-    except Exception as e:  # notification failure must not fail the loop
-        print(f'[notify] discord failed: {e}')
+def summary_line(week, verdict, detail, pr='-'):
+    """The one line the scheduler relays as its notification (always printed last)."""
+    return f'[grid-loop {week}] {verdict} {detail} | PR: {pr}'
 
 
 def unmerged_loop_branches(base):
@@ -145,14 +139,7 @@ def open_pr(branch, base, title, body):
     return None
 
 
-def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('--week', default=None)
-    ap.add_argument('--dry-run', action='store_true', help='preconditions only')
-    ap.add_argument('--no-git', action='store_true', help='evaluate in the current tree, no branch/push/PR')
-    args = ap.parse_args()
-
-    week = args.week or EV.iso_week()
+def run(args, week):
     state = EV.load_state()
     base = state['config']['base_branch']
     use_git = not args.no_git
@@ -161,11 +148,9 @@ def main():
 
     reason = preconditions(state, base, use_git)
     if reason:
-        notify(f'[grid-loop {week}] skip: {reason}')
-        return 0
+        return summary_line(week, 'SKIP', reason)
     if args.dry_run:
-        print(f'[dry-run] {week}: preconditions OK')
-        return 0
+        return summary_line(week, 'SKIP', 'dry-run: preconditions OK')
 
     branch = f'loop/{week}'
     if use_git:
@@ -175,7 +160,7 @@ def main():
     status = res.get('status')
     summary = res.get('summary', '')
 
-    pr_url = None
+    pr = '-'
     if use_git:
         git('add', 'loop', 'optimizer/loop/ledger.jsonl', 'review_queue')
         if git('diff', '--cached', '--name-only'):
@@ -184,9 +169,27 @@ def main():
             body = (f'Weekly grid-loop run {week}\n\n- status: {status}\n- {summary}\n'
                     + (f'- review pack: {res["review_pack"]}\n\nDecision: approve / reject / hold.\n'
                        if res.get('review_pack') else '\nLedger-only update (no gate pass).\n'))
-            pr_url = open_pr(branch, base, f'loop {week}: {status}', body)
-    notify(f'[grid-loop {week}] {status}: {summary}' + (f' {pr_url}' if pr_url else ''))
-    return 0
+            pr = (open_pr(branch, base, f'loop {week}: {status}', body)
+                  or f'pending ({PR_REQUEST_PATH.relative_to(REPO_ROOT)}, branch {branch})')
+    verdict = 'PASS' if status == 'gate_passed' else 'FAIL'
+    return summary_line(week, verdict, f'{status}: {summary}', pr)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('--week', default=None)
+    ap.add_argument('--dry-run', action='store_true', help='preconditions only')
+    ap.add_argument('--no-git', action='store_true', help='evaluate in the current tree, no branch/push/PR')
+    args = ap.parse_args()
+
+    week = args.week or EV.iso_week()
+    try:
+        line, code = run(args, week), 0
+    except BaseException as e:  # incl. SystemExit(REFUSED) from evaluate: still emit the summary line
+        traceback.print_exc()
+        line, code = summary_line(week, 'ERROR', f'{type(e).__name__}: {e}'.replace('\n', ' ')[:300]), 1
+    print(line, flush=True)
+    return code
 
 
 if __name__ == '__main__':
