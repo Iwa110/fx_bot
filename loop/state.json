@@ -4,15 +4,5 @@
     "max_data_age_days": 120,
     "base_branch": "main"
   },
-  "weeks": {
-    "2026-W41": {
-      "candidate_hash": "5064809cbbb8",
-      "status": "no_representative",
-      "at": "2026-10-11T11:33:50.617810+00:00",
-      "bt_estimate": 14,
-      "summary": "no pair produced a plateau representative",
-      "bt_runs": 0,
-      "elapsed_s": 0.0
-    }
-  }
+  "weeks": {}
 }

@@ -1,6 +1,8 @@
-week: 2026-W41
+# candidate.yaml - written by the LLM each week (only this file). Template / example:
+week: 2026-W41                 # must equal the ISO week of the run (stale-file guard)
 family_tag: grid_partial_takeprofit
-structural_reason: dry-run of the weekly driver (family already closed -> gate5 reject, no BT expected)
+structural_reason: >-
+  (>=20 chars) why the edge is structural, not a price pattern. Re-tagging a closed family is forbidden.
 pairs: [CADCHF]
 sweep:
   param: ptp_frac
