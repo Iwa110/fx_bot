@@ -127,6 +127,7 @@ def open_pr(branch, base, title, body):
             f'https://api.github.com/repos/{REPO_SLUG}/pulls',
             data=json.dumps({'title': title, 'head': branch, 'base': base, 'body': body}).encode(),
             headers={'Authorization': f'Bearer {token}', 'Accept': 'application/vnd.github+json',
+                     'Content-Type': 'application/json',
                      'User-Agent': 'fx_bot-loop'})
         try:
             with urllib.request.urlopen(req, timeout=20) as resp:
