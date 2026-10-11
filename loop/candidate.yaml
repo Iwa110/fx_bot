@@ -1,11 +1,17 @@
 # candidate.yaml - written by the LLM each week (only this file). Template / example:
-week: 2026-W41                 # must equal the ISO week of the run (stale-file guard)
-family_tag: grid_partial_takeprofit
+# week: PLACEHOLDER. Overwrite with the ISO week of the run, from:
+#   python3.13 -c "from datetime import date;y,w,_=date.today().isocalendar();print(f'{y}-W{w:02d}')"
+#   evaluate_candidate.py refuses a value != current ISO week (stale-file guard).
+# family_tag: a family in search_space.yaml whose (family, pair) is NOT in ledger_summary.md "closed".
+#   Re-tagging a closed family is forbidden. As of 2026-10-11 only grid_uniform_tp is open.
+week: YYYY-Www
+family_tag: grid_uniform_tp
 structural_reason: >-
-  (>=20 chars) why the edge is structural, not a price pattern. Re-tagging a closed family is forbidden.
-pairs: [CADCHF]
+  Correlated-cross mean reversion: shared drivers leave no independent trend, so the reversion
+  distance is a property of the range, not of ladder depth. A single depth-independent TP
+  (TP = gw * tp_mult, full close) tests whether the current 1.0 grid-width exit is on a plateau.
+pairs: [AUDCAD, CADCHF, AUDNZD, EURGBP]
 sweep:
-  param: ptp_frac
-  values: [0.25, 0.30, 0.35, 0.40, 0.45]
-fixed:
-  ptp_mult: 0.5
+  param: tp_mult
+  values: [0.8, 0.9, 1.0, 1.1, 1.2]   # first run: current 1.0 in the centre
+fixed: {}
