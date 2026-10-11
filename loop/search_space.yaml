@@ -1,8 +1,8 @@
-# search_space.yaml - Grid AI-loop weekly search space (wave 1: asymmetric TP / partial take-profit)
+# search_space.yaml - Grid AI-loop weekly search space (wave 1: asymmetric TP / partial take-profit, wave 2: uniform TP width)
 # The LLM may only emit candidate.yaml inside this space. evaluate_candidate.py rejects anything else.
 # Note: families/pairs already closed in optimizer/loop/ledger.jsonl are rejected again by gate5 (graveyard).
 version: 1
-wave: 1
+wave: 2
 pairs: [AUDCAD, CADCHF, AUDNZD, EURGBP]   # = optimizer/loop/known_baselines.json keys
 limits:
   max_pairs_per_candidate: 4
@@ -21,4 +21,8 @@ families:
   grid_ladder_depth_asymmetric_tp:
     sweep_params:
       tp_level_mults: {list_len: 5, min: 0.50, max: 2.00}   # one list per sweep value
+    fixed_params: {}
+  grid_uniform_tp:             # wave 2: depth-independent single TP distance (TP = gw * tp_mult), full close
+    sweep_params:
+      tp_mult: {min: 0.60, max: 1.60}
     fixed_params: {}
