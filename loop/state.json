@@ -1,0 +1,8 @@
+{
+  "_comment": "Grid AI-loop weekly state. evaluate_candidate.py owns 'weeks' (one entry per ISO week = idempotency key). 'review pending' is detected from unmerged remote loop/* branches, not stored here.",
+  "config": {
+    "max_data_age_days": 120,
+    "base_branch": "main"
+  },
+  "weeks": {}
+}

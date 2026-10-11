@@ -35,7 +35,11 @@ REPO_ROOT = LOOP_DIR.parent.parent
 sys.path.insert(0, str(LOOP_DIR))
 sys.path.insert(0, str(LOOP_DIR.parent))
 
-import evaluate_candidate as EC  # noqa: E402
+import importlib.util  # noqa: E402
+# optimizer/evaluate_candidate.py (weekly wrapper) shares this module name -> load the engine by path
+_spec = importlib.util.spec_from_file_location('loop_engine', LOOP_DIR / 'evaluate_candidate.py')
+EC = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(EC)
 import hash_guard  # noqa: E402
 import ledger as L  # noqa: E402
 
