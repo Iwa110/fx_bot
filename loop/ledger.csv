@@ -1,1 +1,5 @@
 week,run_at,candidate_hash,family_tag,pair,params,hypothesis_id,status,is_pf,oos_pf,wfo_min_pf,plateau_variation,req_cap_99,close_reason,bt_runs,elapsed_s
+2026-W48,2026-11-26T12:13:37.977110+00:00,cd18771805f4,grid_uniform_tp,CADCHF,"{""tp_mult"": 1.0}",H0061,not_selected,1.4136,,,0.0354,,family_best_is_H0072,0,0
+2026-W48,2026-11-26T12:13:37.977110+00:00,cd18771805f4,grid_uniform_tp,AUDCAD,"{""tp_mult"": 1.1}",H0057,not_selected,1.3802,,,0.0393,,family_best_is_H0072,0,0
+2026-W48,2026-11-26T12:13:37.977110+00:00,cd18771805f4,grid_uniform_tp,AUDNZD,"{""tp_mult"": 1.1}",H0067,not_selected,0.9195,,,0.0927,,family_best_is_H0072,0,0
+2026-W48,2026-11-26T12:13:37.977110+00:00,cd18771805f4,grid_uniform_tp,EURGBP,"{""tp_mult"": 1.1}",H0072,closed,1.6308,1.2398,0.772,0.0299,4054135.0,gate_failed,29,31.0

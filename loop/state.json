@@ -4,5 +4,15 @@
     "max_data_age_days": 120,
     "base_branch": "main"
   },
-  "weeks": {}
+  "weeks": {
+    "2026-W48": {
+      "candidate_hash": "cd18771805f4",
+      "status": "closed",
+      "at": "2026-11-26T12:13:37.977110+00:00",
+      "bt_estimate": 29,
+      "summary": "H0072 EURGBP {'tp_mult': 1.1} -> closed (gate_failed)",
+      "bt_runs": 29,
+      "elapsed_s": 31.0
+    }
+  }
 }
