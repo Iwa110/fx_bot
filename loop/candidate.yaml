@@ -4,7 +4,7 @@
 #   evaluate_candidate.py refuses a value != current ISO week (stale-file guard).
 # family_tag: a family in search_space.yaml whose (family, pair) is NOT in ledger_summary.md "closed".
 #   Re-tagging a closed family is forbidden. As of 2026-10-11 only grid_uniform_tp is open.
-week: YYYY-Www
+week: 2026-W48
 family_tag: grid_uniform_tp
 structural_reason: >-
   Correlated-cross mean reversion: shared drivers leave no independent trend, so the reversion
