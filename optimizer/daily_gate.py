@@ -13,6 +13,10 @@ flags 条件:
   - mr_kill        : MR_AC / MR_CC キルスイッチ(12moPF<1.0 or maxDD>MC95)。BASKET(両ペア合算,
                      strategy_spec.md§16)のバックストップも同じ flag type で検出する。
   - grid_promote   : LIVE Grid ペアが昇格条件(3ヶ月∧TP≥30∧FS発火∧PF>1.2)を達成
+  - heartbeat_stale: vps/heartbeat_check.py の THRESHOLDS を超えて停止中のdaemonを
+                     vps/heartbeat.json(sync_history.py経由で1日1回同期)から検出。
+                     Discord通知(VPS側, summary_notify.py)と独立した第2の通知経路。
+                     同期は1日1回のため最大で前回sync以降+本チェック実行までのラグがある。
 
 Usage:
     python optimizer/daily_gate.py               # JSON (flags + summary)
@@ -36,6 +40,8 @@ REPO = OPT_DIR.parent
 HISTORY_CSV = OPT_DIR / 'history.csv'
 SNAPSHOT_CSV = OPT_DIR / 'account_snapshot.csv'   # vps/account_snapshot.py が1時間毎に追記
 GRID_MONITOR = REPO / 'vps' / 'grid_monitor.py'
+VPS_DIR = REPO / 'vps'
+HEARTBEAT_JSON = VPS_DIR / 'heartbeat.json'   # sync_history.py が1日1回同期
 
 LIVE_BROKER = 'oanda_live'
 FS_SLIP_MULT = 1.3
@@ -159,6 +165,38 @@ def check_margin_snapshot(since, flags: list) -> str:
         return 'err'
 
 
+def check_heartbeat_staleness(flags: list) -> str:
+    """vps/heartbeat.json(sync_history.py経由で1日1回同期)から、
+    vps/heartbeat_check.py の THRESHOLDS を超えて停止中のdaemonを検出する。
+    VPS側のDiscord通知(summary_notify.py)と独立した第2の通知経路。
+    同期ファイルが無い/古いだけでは異常ではない(sync自体が1日1回のため)。"""
+    if not HEARTBEAT_JSON.exists():
+        return 'na'
+    try:
+        sys.path.insert(0, str(VPS_DIR))
+        import heartbeat_check as hb  # MT5非依存・純stdlib、Mac/cloud側でもimport可能
+
+        with open(HEARTBEAT_JSON, encoding='utf-8') as f:
+            hb_data = json.load(f)
+
+        now = datetime.now()
+        stale = []
+        for script, threshold_min in hb.THRESHOLDS.items():
+            last_str = hb_data.get(script)
+            if not last_str:
+                continue   # 未記録(導入前/初回起動前)はここでは二重に騒がない
+            last = datetime.strptime(last_str, '%Y-%m-%d %H:%M:%S')
+            elapsed = (now - last).total_seconds() / 60
+            if elapsed > threshold_min:
+                stale.append(script)
+                flags.append({'type': 'heartbeat_stale',
+                              'detail': f'{script}: {elapsed:.0f}分停止中(閾値{threshold_min}分, sync時点)'})
+        return f'stale{len(stale)}' if stale else 'ok'
+    except Exception as e:
+        flags.append({'type': 'script_error', 'detail': f'heartbeat.json: {e!r}'})
+        return 'err'
+
+
 def check_grid_promotion(df: pd.DataFrame, today, flags: list) -> list:
     """LIVE 確定Grid ペア別の昇格進捗。達成ペアは flag。進捗文字列を返す。"""
     prog = []
@@ -247,6 +285,7 @@ def main():
     except Exception as e:
         flags.append({'type': 'script_error', 'detail': f'history.csv解析: {e!r}'})
     margin = check_margin_snapshot(since, flags)
+    heartbeat = check_heartbeat_staleness(flags)
 
     # ── 3) MR_AC / MR_CC キルスイッチ ──
     mr_txts = []
@@ -290,7 +329,7 @@ def main():
         'flags': flags,
         'summary': summary,
         'context': {'live_window_since': str(since), 'margin_level': margin,
-                    'grid_live_progress': grid_prog},
+                    'grid_live_progress': grid_prog, 'heartbeat': heartbeat},
     }
     if args.verbose:
         result['raw'] = raw

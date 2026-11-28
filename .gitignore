@@ -9,9 +9,10 @@ config_secret.py
 secrets/
 
 # 実行時生成ファイル（毎回変化するため追跡不要）
-vps/heartbeat.json
 vps/processed_mails.json
 vps/news_processed_ids.json
+# vps/heartbeat.json はsync_history.py経由でdaily_gate.pyの死活監視用に
+# 1日1回だけ同期するため、意図的にトラッキングする(.gitignoreの対象外)。
 
 # MT4/MT5ログ・一時ファイル
 *.log

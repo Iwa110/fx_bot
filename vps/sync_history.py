@@ -38,8 +38,9 @@ LOG_DIR     = BASE_DIR / 'logs'
 JST         = timezone(timedelta(hours=9))
 UTC         = timezone.utc
 
-GATE_LOG_CSV = BASE_DIR / 'optimizer' / 'grid_gate_log.csv'
-SNAPSHOT_CSV = BASE_DIR / 'optimizer' / 'account_snapshot.csv'   # account_snapshot.py(1h毎)が追記
+GATE_LOG_CSV   = BASE_DIR / 'optimizer' / 'grid_gate_log.csv'
+SNAPSHOT_CSV   = BASE_DIR / 'optimizer' / 'account_snapshot.csv'   # account_snapshot.py(1h毎)が追記
+HEARTBEAT_JSON = BASE_DIR / 'vps' / 'heartbeat.json'   # daily_gate.pyの死活監視用に同期
 
 COL_ORDER = [
     'ticket', 'open_time', 'close_time', 'type', 'lots',
@@ -208,16 +209,16 @@ def git_push(added: int) -> bool:
                 stdout = ''
             return _T()
 
-    # Step 1: git add (history.csv は必須、grid_gate_log/account_snapshot は存在すれば相乗り)
+    # Step 1: git add (history.csv は必須、grid_gate_log/account_snapshot/heartbeat は存在すれば相乗り)
     r = run(['git', '-C', repo, 'add', 'optimizer/history.csv'])
     if r.returncode != 0:
         print(f'[git] ERROR add: {r.stderr.strip()}')
         return False
     print('[git] OK   add optimizer/history.csv')
 
-    for extra in (GATE_LOG_CSV, SNAPSHOT_CSV):
+    for extra in (GATE_LOG_CSV, SNAPSHOT_CSV, HEARTBEAT_JSON):
         if extra.exists():
-            rel = f'optimizer/{extra.name}'
+            rel = str(extra.relative_to(BASE_DIR)).replace('\\', '/')
             r = run(['git', '-C', repo, 'add', rel])
             if r.returncode == 0:
                 print(f'[git] OK   add {rel}')
