@@ -11,23 +11,43 @@ HB_PATH = os.path.join(BASE, 'heartbeat.json')
 # 各スクリプトの許容停止時間（分）
 # 監視対象: bb_monitor v17 / trail_monitor v11(SMC_GBPAUD含む) /
 #           mail_monitor / daily_trade / stat_arb_monitor /
-#           grid_monitor v8(ペア別) / mr_monitor v2(ペア別) /
+#           grid_monitor v8(ペア別・ブローカー別) / mr_monitor v2(ペア別・ブローカー別) /
 #           news_monitor v1.2(ブローカー別) / sma_squeeze v4.6(ブローカー別) /
 #           account_snapshot
 # NOTE: 新しい戦略・ペア・ブローカーを追加したら、対応する
 #       record_heartbeat() 呼び出しの追加と合わせて必ずここにキーを追加すること。
+# NOTE: grid_monitor/mr_monitorは同じペアでも axiory/exness/oanda_live が別プロセス
+#       として並行稼働するため、キーは必ず '<ペア>_<ブローカー>' までブローカー名を
+#       含めること（ペア名だけだと、実弾(oanda_live)が落ちてもデモ(axiory/exness)側の
+#       heartbeatで上書きされ、実弾の停止だけが検知できなくなる）。
 THRESHOLDS = {
     'bb_monitor':        10,   # 5分毎 → 10分以上停止で警告
     'trail_monitor':      5,   # 常駐 → 5分以上停止で警告
     'mail_monitor':      10,   # 5分毎呼び出し → 10分以上停止で警告
     'daily_trade':     1440,   # 日次 → 1日以上停止で警告
     'stat_arb_monitor':  15,   # 10秒毎 → 15分以上停止で警告
-    'grid_monitor_AUDCAD': 10,  # 60秒毎(LOOP_INTERVAL) → 10分以上停止で警告
-    'grid_monitor_CADCHF': 10,
-    'grid_monitor_AUDNZD': 10,
-    'grid_monitor_EURGBP': 10,
-    'mr_monitor_AUDCAD':   15,  # 300秒毎(LOOP_INTERVAL) → 15分以上停止で警告
-    'mr_monitor_CADCHF':   15,
+    # grid_monitor v8: 60秒毎(LOOP_INTERVAL) → 10分以上停止で警告
+    'grid_monitor_AUDCAD_axiory':     10,
+    'grid_monitor_AUDCAD_exness':     10,
+    'grid_monitor_AUDCAD_oanda_live': 10,  # [実弾]
+    'grid_monitor_NZDJPY_axiory':     10,
+    'grid_monitor_NZDJPY_exness':     10,
+    'grid_monitor_EURGBP_axiory':     10,
+    'grid_monitor_EURGBP_exness':     10,
+    'grid_monitor_EURGBP_oanda_live': 10,  # [実弾]
+    'grid_monitor_AUDNZD_axiory':     10,
+    'grid_monitor_AUDNZD_exness':     10,
+    'grid_monitor_AUDNZD_oanda_live': 10,  # [実弾]
+    'grid_monitor_USDJPY_axiory':     10,
+    'grid_monitor_USDJPY_exness':     10,
+    'grid_monitor_CADCHF_axiory':     10,
+    'grid_monitor_CADCHF_exness':     10,
+    'grid_monitor_CADCHF_oanda_live': 10,  # [実弾]
+    # mr_monitor v2: 300秒毎(LOOP_INTERVAL) → 15分以上停止で警告 (現状すべてdemo)
+    'mr_monitor_AUDCAD_axiory': 15,
+    'mr_monitor_AUDCAD_exness': 15,
+    'mr_monitor_CADCHF_axiory': 15,
+    'mr_monitor_CADCHF_exness': 15,
     'news_monitor_axiory': 10,  # 60秒毎 → 10分以上停止で警告
     'news_monitor_exness': 10,
     'sma_squeeze_axiory':  10,  # 60秒毎 → 10分以上停止で警告
