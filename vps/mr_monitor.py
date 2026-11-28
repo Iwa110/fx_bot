@@ -400,6 +400,14 @@ def main_loop():
 
         except Exception as e:
             log('loop_error ' + str(e))
+
+        try:
+            sys.path.insert(0, _BASE_DIR)
+            import heartbeat_check as hb_mod
+            hb_mod.record_heartbeat('mr_monitor_' + SYMBOL)
+        except Exception as e:
+            log('heartbeat記録エラー: ' + str(e))
+
         time.sleep(LOOP_INTERVAL)
 
 # ══════════════════════════════════════════

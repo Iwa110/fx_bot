@@ -992,6 +992,13 @@ def main_loop(webhook: str) -> None:
         except Exception as e:
             log_print('loop error: ' + str(e))
 
+        try:
+            sys.path.insert(0, _VPS_DIR)
+            import heartbeat_check as hb_mod
+            hb_mod.record_heartbeat('news_monitor_' + BROKER_KEY)
+        except Exception as e:
+            log_print('heartbeat記録エラー: ' + str(e))
+
         time.sleep(LOOP_INTERVAL)
 
 

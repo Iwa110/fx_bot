@@ -76,6 +76,13 @@ def main():
         w.writerows(rows)
     print(f'[OK] {SNAPSHOT_CSV.name} +{len(rows)}行 ({ts} JST)')
 
+    try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        import heartbeat_check as hb_mod
+        hb_mod.record_heartbeat('account_snapshot')
+    except Exception as e:
+        print(f'[WARN] heartbeat記録エラー: {e}')
+
 
 if __name__ == '__main__':
     main()

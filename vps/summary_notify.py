@@ -227,7 +227,12 @@ def main():
     webhook = config.get('DISCORD_WEBHOOK', '')
 
     if not mt5.initialize():
+        now_str = datetime.now().strftime('%Y-%m-%d %H:%M')
         print('MT5接続失敗')
+        send_discord(f'【FX Bot】{now_str}\n🔴 MT5接続失敗（サマリー通知スキップ）', webhook)
+        # MT5接続断でもheartbeat.jsonはファイル参照のみで判定可能なため、
+        # ここで停止検知をスキップしない(停止時にこそ最も必要な通知)
+        hb.check_heartbeats(webhook)
         return
 
     log       = load_log()

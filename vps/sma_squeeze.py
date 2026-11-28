@@ -820,6 +820,13 @@ def main_loop(webhook):
         except Exception as e:
             log_print('loop error: ' + str(e))
 
+        try:
+            sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+            import heartbeat_check as hb_mod
+            hb_mod.record_heartbeat('sma_squeeze_' + BROKER_KEY)
+        except Exception as e:
+            log_print('heartbeat記録エラー: ' + str(e))
+
         time.sleep(LOOP_INTERVAL)
 
 

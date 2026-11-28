@@ -10,13 +10,29 @@ HB_PATH = os.path.join(BASE, 'heartbeat.json')
 
 # 各スクリプトの許容停止時間（分）
 # 監視対象: bb_monitor v17 / trail_monitor v11(SMC_GBPAUD含む) /
-#           mail_monitor / daily_trade / stat_arb_monitor
+#           mail_monitor / daily_trade / stat_arb_monitor /
+#           grid_monitor v8(ペア別) / mr_monitor v2(ペア別) /
+#           news_monitor v1.2(ブローカー別) / sma_squeeze v4.6(ブローカー別) /
+#           account_snapshot
+# NOTE: 新しい戦略・ペア・ブローカーを追加したら、対応する
+#       record_heartbeat() 呼び出しの追加と合わせて必ずここにキーを追加すること。
 THRESHOLDS = {
     'bb_monitor':        10,   # 5分毎 → 10分以上停止で警告
     'trail_monitor':      5,   # 常駐 → 5分以上停止で警告
     'mail_monitor':      10,   # 5分毎呼び出し → 10分以上停止で警告
     'daily_trade':     1440,   # 日次 → 1日以上停止で警告
     'stat_arb_monitor':  15,   # 10秒毎 → 15分以上停止で警告
+    'grid_monitor_AUDCAD': 10,  # 60秒毎(LOOP_INTERVAL) → 10分以上停止で警告
+    'grid_monitor_CADCHF': 10,
+    'grid_monitor_AUDNZD': 10,
+    'grid_monitor_EURGBP': 10,
+    'mr_monitor_AUDCAD':   15,  # 300秒毎(LOOP_INTERVAL) → 15分以上停止で警告
+    'mr_monitor_CADCHF':   15,
+    'news_monitor_axiory': 10,  # 60秒毎 → 10分以上停止で警告
+    'news_monitor_exness': 10,
+    'sma_squeeze_axiory':  10,  # 60秒毎 → 10分以上停止で警告
+    'sma_squeeze_exness':  10,
+    'account_snapshot':    90,  # 1時間毎(Task Scheduler) → 90分以上停止で警告
 }
 
 def load_heartbeat():
