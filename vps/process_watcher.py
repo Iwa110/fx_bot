@@ -1,21 +1,29 @@
 # process_watcher.py - Generic watchdog for the strategy daemons that have no
 # built-in restart-on-crash of their own (grid_monitor / mr_monitor / news_monitor /
-# sma_squeeze). Pattern copied from trail_watcher.py: runs ONCE at logon via Task
-# Scheduler (ONLOGON), starts each configured instance as an independent subprocess,
-# and relaunches any that exit (crash OR VPS reboot before this watcher itself is
-# killed - the watcher process is what Task Scheduler supervises, so unlike wrapping
-# a quick-exiting .bat around Start-Process/start-/B, there is no risk of Task
-# Scheduler's Job Object killing the detached children once the launcher exits).
+# sma_squeeze / stat_arb_monitor). Pattern copied from trail_watcher.py: runs ONCE at
+# logon via Task Scheduler (ONLOGON), starts each configured instance as an
+# independent subprocess, and relaunches any that exit (crash OR VPS reboot before
+# this watcher itself is killed - the watcher process is what Task Scheduler
+# supervises, so unlike wrapping a quick-exiting .bat around Start-Process/start-/B,
+# there is no risk of Task Scheduler's Job Object killing the detached children once
+# the launcher exits).
 #
 # HOW TO REGISTER (see register_strategy_watchers.bat):
-#   Task: FX_Grid_Monitor_All / FX_MR_Monitor_All / FX_News_Monitor_All / FX_SMA_Squeeze_All
+#   Task: FX_Grid_Monitor_All / FX_MR_Monitor_All / FX_News_Monitor_All / FX_SMA_Squeeze_All / FX_Stat_Arb_Monitor_All
 #   Trigger: ONLOGON
-#   Program: pythonw.exe process_watcher.py <grid|mr|news|sma>
+#   Program: pythonw.exe process_watcher.py <grid|mr|news|sma|stat_arb>
 #
 # NOTE: oanda_live instances still need the OANDA MT5 terminal logged in via its own
 # GUI (OTP) first - see broker_config.py 'oanda_live' comment. This watcher will keep
 # retrying them on the normal CHECK_INTERVAL, but a retry can't succeed until a human
 # completes that GUI login after a reboot.
+#
+# NOTE: stat_arb_monitor.py was originally registered as its own standalone ONLOGON
+# task (FX_Stat_Arb_Monitor, see commit 3177c64) rather than through this watcher.
+# That registration was lost from register_brokers.bat in a later rewrite and the
+# process had no way to come back after the VPS session dropped around 2026-10-23.
+# Folding it into process_watcher.py gives it the same crash/reboot resilience as
+# the other daemons here, instead of a bespoke single-purpose task.
 
 import os, subprocess, sys, time
 from datetime import datetime
@@ -52,6 +60,10 @@ STRATEGIES = {
     'sma': {
         'script': os.path.join(BASE_DIR, 'sma_squeeze.py'),
         'instances': [['--broker', b] for b in ('axiory', 'exness')],
+    },
+    'stat_arb': {
+        'script': os.path.join(BASE_DIR, 'stat_arb_monitor.py'),
+        'instances': [['--broker', 'axiory']],
     },
 }
 

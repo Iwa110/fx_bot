@@ -1,10 +1,13 @@
 @echo off
 REM register_strategy_watchers.bat
 REM Register ONLOGON watchdog tasks for grid_monitor / mr_monitor / news_monitor /
-REM sma_squeeze (none of these had any Task Scheduler registration before - they were
-REM only ever started by manually running restart_grid.ps1 / restart_mr.ps1 /
-REM restart_news.bat / restart_sma.bat, so a VPS reboot or a crash left them down
-REM until someone noticed and reran those scripts by hand).
+REM sma_squeeze / stat_arb_monitor (none of these had any lasting Task Scheduler
+REM registration - grid/mr/news/sma were only ever started by manually running
+REM restart_grid.ps1 / restart_mr.ps1 / restart_news.bat / restart_sma.bat, and
+REM stat_arb_monitor's own standalone ONLOGON task (FX_Stat_Arb_Monitor, added in
+REM commit 3177c64) was lost from register_brokers.bat in a later rewrite. Any VPS
+REM reboot or crash left them down until someone noticed and reran those scripts,
+REM or in stat_arb_monitor's case, until someone noticed and re-registered it here).
 REM Run as Administrator.
 REM
 REM Each task runs process_watcher.py <family> directly as pythonw.exe (no console,
@@ -74,10 +77,21 @@ schtasks /create ^
   /rl HIGHEST ^
   /f
 
+echo [INFO] Registering: FX_Stat_Arb_Monitor_All
+schtasks /delete /tn "FX_Stat_Arb_Monitor_All" /f 2>nul
+schtasks /create ^
+  /tn "FX_Stat_Arb_Monitor_All" ^
+  /tr "\"%PYTHONW%\" \"%WATCHER%\" stat_arb" ^
+  /sc ONLOGON ^
+  /ru Administrator ^
+  /it ^
+  /rl HIGHEST ^
+  /f
+
 if %ERRORLEVEL% == 0 (
     echo.
-    echo [OK] FX_Grid_Monitor_All / FX_MR_Monitor_All / FX_News_Monitor_All / FX_SMA_Squeeze_All registered
-    echo      Logs: grid_watcher.log / mr_watcher.log / news_watcher.log / sma_watcher.log
+    echo [OK] FX_Grid_Monitor_All / FX_MR_Monitor_All / FX_News_Monitor_All / FX_SMA_Squeeze_All / FX_Stat_Arb_Monitor_All registered
+    echo      Logs: grid_watcher.log / mr_watcher.log / news_watcher.log / sma_watcher.log / stat_arb_watcher.log
     schtasks /query /tn "FX_Grid_Monitor_All" /fo LIST 2>nul | findstr "Task Name\|Status\|Logon"
 ) else (
     echo [ERROR] Registration failed. Run as Administrator.
