@@ -114,11 +114,20 @@ BROKERS: dict[str, dict[str, Any]] = {
         #      OANDA_LIVE_SERVER (live server name, e.g. 'OANDA-Japan MT5 Live').
         #   3) Confirm no scheduled task launches '--broker oanda' (retired demo).
         #   4) Flip 'enabled' to True.
-        # CONNECTION MODE = credentials (NOT path_only). Diagnosed 2026-06-24:
-        # path_only initialize(path) -> (-6) Authorization failed on OANDA live, but
-        # initialize(path, login, password, server) -> OK with terminal.trade_allowed=True
-        # (the old "creds -> trade_allowed=False" issue does NOT reproduce on live).
-        # connect_mt5 bottom branch passes path+login+password+server.
+        # CONNECTION MODE = attach (NOT credentials). Diagnosed 2026-06-24:
+        # path_only initialize(path) -> (-6) Authorization failed on OANDA live, so
+        # initialize(path, login, password, server) was used instead (worked at the time).
+        # RE-DIAGNOSED 2026-11-28: the credentials branch now fails with
+        # (-7, 'Unsupported authorization mode, OTP or certificate password needed') -
+        # OANDA live now requires OTP, which mt5.initialize(login=...) cannot satisfy
+        # headlessly. Since demo retired, this is the ONLY OANDA terminal (no
+        # multi-terminal ambiguity, unlike the retired 'oanda' key below), so attach
+        # mode is safe: a human logs the terminal in via the GUI (entering the OTP
+        # there), and connect_mt5 just attaches to that already-authenticated session
+        # with no credentials (no OTP prompt). connect_mt5's attach branch still
+        # verifies account.login == 'login' below before returning True.
+        # If the terminal gets logged out (reboot, session expiry), it must be
+        # re-logged in via the GUI (OTP) before any oanda_live daemon can reconnect.
         # symbol_suffix='' : OANDA live uses plain names (AUDCAD/CADCHF/AUDNZD/EURGBP).
         # All 4 grid pairs confirmed available; account REAL, balance 500k, lev 1:25.
         'path':           r'C:\Program Files\OANDA MetaTrader 5\terminal64.exe',
@@ -130,7 +139,8 @@ BROKERS: dict[str, dict[str, Any]] = {
         'min_lot':        0.01,
         'is_live':        True,
         'enabled':        True,    # LIVE since 2026-06-24 go-live (.env creds set, tasks cleaned)
-        # path_only NOT set -> connect_mt5 uses the credentials branch (verified working).
+        'attach':         True,    # 2026-11-28: OTP blocks credentials-mode; attach to the
+                                    # GUI-logged-in terminal instead (see note above).
     },
     'axiory': {
         'path':           r'C:\Program Files\Axiory MetaTrader 5\terminal64.exe',
